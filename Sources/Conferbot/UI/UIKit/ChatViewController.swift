@@ -10,7 +10,7 @@ import UIKit
 /// Main chat view controller for UIKit
 public class ChatViewController: UIViewController {
     private let tableView = UITableView()
-    private let inputView = ChatInputView()
+    private let chatInputView = ChatInputView()
     private var messages: [any RecordItem] = []
     private var isAgentTyping = false
 
@@ -36,25 +36,31 @@ public class ChatViewController: UIViewController {
         tableView.register(TypingIndicatorCell.self, forCellReuseIdentifier: "TypingCell")
 
         view.addSubview(tableView)
-        view.addSubview(inputView)
+        view.addSubview(chatInputView)
 
         // Layout
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        inputView.translatesAutoresizingMaskIntoConstraints = false
+        chatInputView.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: inputView.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: chatInputView.topAnchor),
 
-            inputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            inputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            inputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+            chatInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            chatInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
 
+        // Use keyboardLayoutGuide for iOS 15+ or fallback to safeAreaLayoutGuide
+        if #available(iOS 15.0, *) {
+            chatInputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor).isActive = true
+        } else {
+            chatInputView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor).isActive = true
+        }
+
         // Input view delegate
-        inputView.delegate = self
+        chatInputView.delegate = self
     }
 
     private func setupNavigationBar() {
@@ -228,17 +234,17 @@ extension ChatViewController: UITableViewDelegate {
 
 // MARK: - ChatInputViewDelegate
 extension ChatViewController: ChatInputViewDelegate {
-    func chatInputView(_ inputView: ChatInputView, didSendMessage message: String) {
+    public func chatInputView(_ inputView: ChatInputView, didSendMessage message: String) {
         Task {
             try? await ConferBot.shared.sendMessage(message)
         }
     }
 
-    func chatInputViewDidBeginEditing(_ inputView: ChatInputView) {
+    public func chatInputViewDidBeginEditing(_ inputView: ChatInputView) {
         ConferBot.shared.sendTypingIndicator(isTyping: true)
     }
 
-    func chatInputViewDidEndEditing(_ inputView: ChatInputView) {
+    public func chatInputViewDidEndEditing(_ inputView: ChatInputView) {
         ConferBot.shared.sendTypingIndicator(isTyping: false)
     }
 }

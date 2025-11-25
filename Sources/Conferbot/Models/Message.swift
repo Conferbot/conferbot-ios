@@ -10,6 +10,7 @@ import Foundation
 /// Message types matching embed-server schema
 public enum MessageType: String, Codable {
     case userMessage = "user-message"
+    case userInputResponse = "user-input-response" // User input from chatbot flow
     case botMessage = "bot-message"
     case agentMessage = "agent-message"
     case agentMessageFile = "agent-message-file"
@@ -57,6 +58,40 @@ public struct UserMessageRecord: RecordItem, Identifiable, Equatable {
     }
 
     public static func == (lhs: UserMessageRecord, rhs: UserMessageRecord) -> Bool {
+        return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time
+    }
+}
+
+/// User input response record (from chatbot flow)
+public struct UserInputResponseRecord: RecordItem, Identifiable, Equatable {
+    public let id: String
+    public let type: MessageType
+    public let time: Date
+    public let text: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        time: Date,
+        text: String,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.id = id
+        self.type = .userInputResponse
+        self.time = time
+        self.text = text
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case type
+        case time
+        case text
+        case metadata
+    }
+
+    public static func == (lhs: UserInputResponseRecord, rhs: UserInputResponseRecord) -> Bool {
         return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time
     }
 }
@@ -297,6 +332,8 @@ public struct AnyRecordItem: Codable {
         switch messageType {
         case .userMessage:
             value = try UserMessageRecord(from: decoder)
+        case .userInputResponse:
+            value = try UserInputResponseRecord(from: decoder)
         case .botMessage:
             value = try BotMessageRecord(from: decoder)
         case .agentMessage:
@@ -315,6 +352,8 @@ public struct AnyRecordItem: Codable {
     public func encode(to encoder: Encoder) throws {
         if let userMessage = value as? UserMessageRecord {
             try userMessage.encode(to: encoder)
+        } else if let userInputResponse = value as? UserInputResponseRecord {
+            try userInputResponse.encode(to: encoder)
         } else if let botMessage = value as? BotMessageRecord {
             try botMessage.encode(to: encoder)
         } else if let agentMessage = value as? AgentMessageRecord {

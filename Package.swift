@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "Conferbot",
     platforms: [
-        .iOS(.v13)
+        .iOS(.v15) // Requires iOS 15+ for AsyncImage, task modifier, keyboardLayoutGuide
     ],
     products: [
         .library(

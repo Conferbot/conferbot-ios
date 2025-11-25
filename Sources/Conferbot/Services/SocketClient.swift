@@ -90,58 +90,95 @@ public class SocketClient {
         }
     }
 
-    /// Initialize mobile session
-    public func mobileInit(
+    /// Join chat room as visitor (use this instead of deprecated mobileInit)
+    /// This matches embed-server's 'join-chat-room-visitor' event
+    public func joinChatRoomVisitor(
         chatSessionId: String,
-        visitorId: String? = nil,
+        platform: String = ConferBotConstants.platformIdentifier,
         deviceInfo: [String: Any]? = nil
     ) {
         var data: [String: Any] = [
-            "botId": botId,
             "chatSessionId": chatSessionId,
-            "platform": ConferBotConstants.platformIdentifier
+            "platform": platform
         ]
-
-        if let visitorId = visitorId {
-            data["visitorId"] = visitorId
-        }
 
         if let deviceInfo = deviceInfo {
             data["deviceInfo"] = deviceInfo
         }
 
-        emit(SocketEvents.mobileInit, data)
-    }
-
-    /// Join chat room as visitor
-    public func joinChatRoom(chatSessionId: String) {
-        emit(SocketEvents.joinChatRoom, ["chatSessionId": chatSessionId])
+        emit(SocketEvents.joinChatRoomVisitor, data)
     }
 
     /// Leave chat room
+    /// Note: embed-server expects just the chatSessionId string, not a dictionary
     public func leaveChatRoom(chatSessionId: String) {
-        emit(SocketEvents.leaveChatRoom, ["chatSessionId": chatSessionId])
+        guard isConnected else {
+            debugPrint("[ConferBot Socket] Cannot emit - not connected")
+            return
+        }
+        socket?.emit(SocketEvents.leaveChatRoom, chatSessionId)
     }
 
-    /// Send visitor message
-    public func sendVisitorMessage(
+    /// Send response record (visitor message)
+    /// This matches embed-server's 'response-record' event
+    public func sendResponseRecord(
         chatSessionId: String,
-        record: [String: Any],
-        answerVariables: [[String: Any]],
-        visitorMeta: [String: Any]? = nil
+        record: [[String: Any]],
+        answerVariables: [[String: Any]] = [],
+        visitorMeta: String? = nil,
+        vIp: String? = nil
     ) {
         var data: [String: Any] = [
             "chatSessionId": chatSessionId,
+            "botId": botId,
             "record": record,
-            "answerVariables": answerVariables,
-            "botId": botId
+            "answerVariables": answerVariables
         ]
 
         if let visitorMeta = visitorMeta {
             data["visitorMeta"] = visitorMeta
         }
 
-        emit(SocketEvents.sendVisitorMessage, data)
+        if let vIp = vIp {
+            data["vIp"] = vIp
+        }
+
+        emit(SocketEvents.responseRecord, data)
+    }
+
+    // MARK: - Deprecated Methods
+
+    /// Initialize mobile session
+    /// - Note: Deprecated - use joinChatRoomVisitor instead
+    @available(*, deprecated, message: "Use joinChatRoomVisitor instead - mobileInit event doesn't exist in embed-server")
+    public func mobileInit(
+        chatSessionId: String,
+        visitorId: String? = nil,
+        deviceInfo: [String: Any]? = nil
+    ) {
+        joinChatRoomVisitor(chatSessionId: chatSessionId, deviceInfo: deviceInfo)
+    }
+
+    /// Join chat room as visitor (deprecated)
+    @available(*, deprecated, renamed: "joinChatRoomVisitor")
+    public func joinChatRoom(chatSessionId: String) {
+        joinChatRoomVisitor(chatSessionId: chatSessionId)
+    }
+
+    /// Send visitor message (deprecated)
+    /// - Note: Use sendResponseRecord instead
+    @available(*, deprecated, message: "Use sendResponseRecord instead")
+    public func sendVisitorMessage(
+        chatSessionId: String,
+        record: [String: Any],
+        answerVariables: [[String: Any]],
+        visitorMeta: [String: Any]? = nil
+    ) {
+        sendResponseRecord(
+            chatSessionId: chatSessionId,
+            record: [record],
+            answerVariables: answerVariables
+        )
     }
 
     /// Send visitor typing status

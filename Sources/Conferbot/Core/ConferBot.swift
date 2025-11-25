@@ -102,15 +102,11 @@ public class ConferBot: ObservableObject {
             delegate?.conferBot(self, didStartSession: session.chatSessionId)
         }
 
-        // Initialize socket session
-        socketClient?.mobileInit(
+        // Join chat room as visitor (matches embed-server 'join-chat-room-visitor' event)
+        socketClient?.joinChatRoomVisitor(
             chatSessionId: session.chatSessionId,
-            visitorId: session.visitorId,
             deviceInfo: getDeviceInfo()
         )
-
-        // Join chat room
-        socketClient?.joinChatRoom(chatSessionId: session.chatSessionId)
 
         debugPrint("[ConferBot] Session started: \(session.chatSessionId)")
     }
@@ -139,19 +135,39 @@ public class ConferBot: ObservableObject {
             messages.append(userMessage)
         }
 
-        // Send via socket
+        // Send via socket using response-record event (matches embed-server)
         let record: [String: Any] = [
             "_id": messageId,
-            "type": "user-message",
+            "type": "user-input-response",
             "text": text,
             "time": ISO8601DateFormatter().string(from: Date())
         ]
 
-        socketClient?.sendVisitorMessage(
+        // Get all messages as records for the full conversation history
+        var allRecords: [[String: Any]] = messages.compactMap { msg -> [String: Any]? in
+            if let userMsg = msg as? UserMessageRecord {
+                return [
+                    "_id": userMsg.id,
+                    "type": "user-message",
+                    "text": userMsg.text,
+                    "time": ISO8601DateFormatter().string(from: userMsg.time)
+                ]
+            } else if let userInputMsg = msg as? UserInputResponseRecord {
+                return [
+                    "_id": userInputMsg.id,
+                    "type": "user-input-response",
+                    "text": userInputMsg.text,
+                    "time": ISO8601DateFormatter().string(from: userInputMsg.time)
+                ]
+            }
+            return nil
+        }
+        allRecords.append(record)
+
+        socketClient?.sendResponseRecord(
             chatSessionId: session.chatSessionId,
-            record: record,
-            answerVariables: [],
-            visitorMeta: currentUser?.metadata?.mapValues { $0.value }
+            record: allRecords,
+            answerVariables: []
         )
 
         debugPrint("[ConferBot] Message sent: \(text)")
@@ -335,14 +351,22 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleAgentJoined(data: [Any]) {
+        // embed-server sends 'agentDetails' not 'agent'
         guard let json = data.first as? [String: Any],
-              let agentData = json["agent"] as? [String: Any] else {
+              let agentData = json["agentDetails"] as? [String: Any] else {
             return
         }
 
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: agentData)
-            let agent = try JSONDecoder().decode(Agent.self, from: jsonData)
+            let agentDetails = try JSONDecoder().decode(AgentDetails.self, from: jsonData)
+
+            // Map AgentDetails to Agent
+            let agent = Agent(
+                id: agentDetails.id,
+                name: agentDetails.name,
+                email: agentDetails.email
+            )
 
             Task { @MainActor in
                 self.delegate?.conferBot(self, agentDidJoin: agent)
@@ -353,14 +377,22 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleAgentLeft(data: [Any]) {
+        // embed-server sends 'agentDetails' not 'agent'
         guard let json = data.first as? [String: Any],
-              let agentData = json["agent"] as? [String: Any] else {
+              let agentData = json["agentDetails"] as? [String: Any] else {
             return
         }
 
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: agentData)
-            let agent = try JSONDecoder().decode(Agent.self, from: jsonData)
+            let agentDetails = try JSONDecoder().decode(AgentDetails.self, from: jsonData)
+
+            // Map AgentDetails to Agent
+            let agent = Agent(
+                id: agentDetails.id,
+                name: agentDetails.name,
+                email: agentDetails.email
+            )
 
             Task { @MainActor in
                 self.delegate?.conferBot(self, agentDidLeave: agent)
