@@ -203,8 +203,17 @@ public class SocketClient {
         emit(SocketEvents.endChat, ["chatSessionId": chatSessionId])
     }
 
-    /// Emit event
+    /// Emit event with variadic data
     public func emit(_ event: String, _ data: SocketData...) {
+        guard isConnected else {
+            debugPrint("[ConferBot Socket] Cannot emit - not connected")
+            return
+        }
+        socket?.emit(event, data)
+    }
+
+    /// Emit event with dictionary data (for analytics)
+    public func emit(event: String, data: [String: Any]) {
         guard isConnected else {
             debugPrint("[ConferBot Socket] Cannot emit - not connected")
             return
