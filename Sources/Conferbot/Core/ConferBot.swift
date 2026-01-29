@@ -18,6 +18,16 @@ public protocol ConferBotDelegate: AnyObject {
     func conferBot(_ conferBot: ConferBot, didEndSession sessionId: String)
     func conferBot(_ conferBot: ConferBot, didUpdateUnreadCount count: Int)
     func conferBot(_ conferBot: ConferBot, didChangeConnectionStatus isConnected: Bool)
+    func conferBot(_ conferBot: ConferBot, didUpdateUIState state: NodeUIState?)
+    func conferBot(_ conferBot: ConferBot, didCompleteFlow success: Bool)
+    func conferBot(_ conferBot: ConferBot, didReachGoal goalName: String, value: Any?)
+}
+
+/// Default implementations for new delegate methods
+public extension ConferBotDelegate {
+    func conferBot(_ conferBot: ConferBot, didUpdateUIState state: NodeUIState?) {}
+    func conferBot(_ conferBot: ConferBot, didCompleteFlow success: Bool) {}
+    func conferBot(_ conferBot: ConferBot, didReachGoal goalName: String, value: Any?) {}
 }
 
 /// Main ConferBot SDK class (Singleton)
@@ -31,6 +41,12 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var unreadCount: Int = 0
     @Published public private(set) var isAgentTyping: Bool = false
 
+    // Node Flow Engine - Published properties
+    @Published public private(set) var currentUIState: NodeUIState?
+    @Published public private(set) var isProcessingNode: Bool = false
+    @Published public private(set) var nodeErrorMessage: String?
+    @Published public private(set) var isFlowComplete: Bool = false
+
     // Configuration
     private var apiKey: String?
     private var botId: String?
@@ -42,13 +58,24 @@ public class ConferBot: ObservableObject {
     private var apiClient: APIClient?
     private var socketClient: SocketClient?
 
+    // Node Flow Engine
+    private var flowEngine: NodeFlowEngine?
+    private var flowEngineCancellables = Set<AnyCancellable>()
+
     // Delegate
     public weak var delegate: ConferBotDelegate?
 
     // Push token
     private var pushToken: String?
 
-    private init() {}
+    // Chat State
+    public var chatState: ChatState {
+        return ChatState.shared
+    }
+
+    private init() {
+        setupFlowEngine()
+    }
 
     /// Initialize the SDK
     public func initialize(
@@ -76,10 +103,121 @@ public class ConferBot: ObservableObject {
             socketURL: config.socketURL
         )
 
+        // Register all node handlers
+        registerAllNodeHandlers()
+
         setupSocketListeners()
         connectSocket()
 
         debugPrint("[ConferBot] Initialized with botId: \(botId)")
+    }
+
+    // MARK: - Flow Engine Setup
+
+    private func setupFlowEngine() {
+        flowEngine = NodeFlowEngine()
+
+        // Subscribe to flow engine state changes
+        flowEngine?.$currentUIState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.currentUIState = state
+                self?.delegate?.conferBot(self!, didUpdateUIState: state)
+            }
+            .store(in: &flowEngineCancellables)
+
+        flowEngine?.$isProcessing
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isProcessingNode)
+
+        flowEngine?.$errorMessage
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$nodeErrorMessage)
+
+        flowEngine?.$isFlowComplete
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isComplete in
+                self?.isFlowComplete = isComplete
+                if isComplete {
+                    self?.delegate?.conferBot(self!, didCompleteFlow: true)
+                }
+            }
+            .store(in: &flowEngineCancellables)
+    }
+
+    private func registerAllNodeHandlers() {
+        let registry = NodeHandlerRegistry.shared
+
+        // Register Display Node Handlers
+        registry.register(SendMessageHandler())
+        registry.register(SendImageHandler())
+        registry.register(SendVideoHandler())
+        registry.register(SendAudioHandler())
+        registry.register(SendFileHandler())
+        registry.register(SendGifHandler())
+
+        // Ask Input Handlers
+        registry.register(AskNameHandler())
+        registry.register(AskEmailHandler())
+        registry.register(AskPhoneHandler())
+        registry.register(AskNumberHandler())
+        registry.register(AskUrlHandler())
+        registry.register(AskAddressHandler())
+        registry.register(AskDateHandler())
+        registry.register(AskTimeHandler())
+        registry.register(AskDateTimeHandler())
+        registry.register(AskDateRangeHandler())
+        registry.register(AskFileUploadHandler())
+        registry.register(AskQuestionHandler())
+
+        // Choice Handlers
+        registry.register(SendButtonsHandler())
+        registry.register(SendQuickRepliesHandler())
+        registry.register(SendCardsHandler())
+
+        // Rating Handlers
+        registry.register(AskRatingHandler())
+        registry.register(OpinionScaleHandler())
+
+        // Special Display Handlers
+        registry.register(LiveChatHandler())
+        registry.register(SendLinkHandler())
+        registry.register(EmbedLinkHandler())
+        registry.register(EmbedCustomCodeHandler())
+
+        // Logic Node Handlers
+        registry.register(RedirectUrlHandler())
+        registry.register(SetVariableHandler())
+        registry.register(JavaScriptFunctionHandler())
+        registry.register(ConditionalHandler())
+        registry.register(ABTestHandler())
+        registry.register(SplitConversationHandler())
+        registry.register(LogicDelayHandler())
+
+        // Integration Node Handlers
+        registry.register(WebhookHandler())
+        registry.register(GoogleSheetsHandler())
+        registry.register(SendEmailHandler())
+        registry.register(CalendlyHandler())
+        registry.register(HubspotHandler())
+        registry.register(SalesforceHandler())
+        registry.register(ZendeskHandler())
+        registry.register(SlackHandler())
+        registry.register(ZapierHandler())
+        registry.register(DialogflowHandler())
+        registry.register(OpenAIHandler())
+        registry.register(GeminiHandler())
+        registry.register(PerplexityHandler())
+        registry.register(ClaudeHandler())
+        registry.register(GroqHandler())
+        registry.register(CustomLLMHandler())
+        registry.register(HumanHandoverHandler())
+
+        // Special Flow Handlers
+        registry.register(GoalHandler())
+        registry.register(EndConversationHandler())
+
+        debugPrint("[ConferBot] Registered \(registry.count) node handlers")
     }
 
     /// Identify current user
@@ -177,6 +315,152 @@ public class ConferBot: ObservableObject {
     public func sendTypingIndicator(isTyping: Bool) {
         guard let session = currentSession else { return }
         socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: isTyping)
+    }
+
+    // MARK: - Node Flow Engine Methods
+
+    /// Load and start a chatbot flow
+    public func loadFlow(_ flowData: [String: Any]) {
+        flowEngine?.loadFlow(flowData)
+
+        // Initialize chat state with flow data
+        if let variables = flowData["variables"] as? [String: Any] {
+            for (key, value) in variables {
+                chatState.setVariable(name: key, value: value)
+            }
+        }
+
+        debugPrint("[ConferBot] Flow loaded")
+    }
+
+    /// Start processing the loaded flow
+    public func startFlow() {
+        guard flowEngine != nil else {
+            debugPrint("[ConferBot] No flow loaded")
+            return
+        }
+
+        isFlowComplete = false
+        Task {
+            await flowEngine?.startFlow()
+        }
+
+        debugPrint("[ConferBot] Flow started")
+    }
+
+    /// Handle user input for the current node
+    public func handleNodeInput(_ input: Any, forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
+
+        // Store the answer in chat state
+        chatState.setAnswer(nodeId: nodeId, value: input)
+
+        // Add user response to transcript
+        let transcript: [String: Any] = [
+            "type": "user-input",
+            "nodeId": nodeId,
+            "value": input,
+            "time": ISO8601DateFormatter().string(from: Date())
+        ]
+        chatState.addToTranscript(entry: transcript)
+
+        // Process the input
+        Task {
+            await flowEngine.handleUserInput(input, forNodeId: nodeId)
+        }
+
+        debugPrint("[ConferBot] Node input handled for node: \(nodeId)")
+    }
+
+    /// Handle button click from node UI
+    public func handleButtonClick(buttonId: String, forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
+
+        // Store button selection
+        chatState.setAnswer(nodeId: nodeId, value: buttonId)
+
+        Task {
+            await flowEngine.handleButtonClick(buttonId: buttonId, forNodeId: nodeId)
+        }
+
+        debugPrint("[ConferBot] Button clicked: \(buttonId) for node: \(nodeId)")
+    }
+
+    /// Handle choice selection from node UI
+    public func handleChoiceSelection(optionId: String, forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
+
+        // Store choice selection
+        chatState.setAnswer(nodeId: nodeId, value: optionId)
+
+        Task {
+            await flowEngine.handleChoiceSelection(optionId: optionId, forNodeId: nodeId)
+        }
+
+        debugPrint("[ConferBot] Choice selected: \(optionId) for node: \(nodeId)")
+    }
+
+    /// Handle multiple choice selections
+    public func handleMultipleChoiceSelection(optionIds: [String], forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
+
+        // Store selections
+        chatState.setAnswer(nodeId: nodeId, value: optionIds)
+
+        // Use first selection for edge routing
+        if let firstOption = optionIds.first {
+            Task {
+                await flowEngine.handleChoiceSelection(optionId: firstOption, forNodeId: nodeId)
+            }
+        }
+
+        debugPrint("[ConferBot] Multiple choices selected: \(optionIds) for node: \(nodeId)")
+    }
+
+    /// Handle rating selection
+    public func handleRatingSelection(rating: Int, forNodeId nodeId: String) {
+        handleNodeInput(rating, forNodeId: nodeId)
+    }
+
+    /// Handle date/time selection
+    public func handleDateSelection(date: Date, forNodeId nodeId: String) {
+        let formatter = ISO8601DateFormatter()
+        handleNodeInput(formatter.string(from: date), forNodeId: nodeId)
+    }
+
+    /// Handle file upload completion
+    public func handleFileUpload(fileURL: URL, forNodeId nodeId: String) {
+        handleNodeInput(fileURL.absoluteString, forNodeId: nodeId)
+    }
+
+    /// Get current node ID being processed
+    public func getCurrentNodeId() -> String? {
+        return flowEngine?.currentNodeId
+    }
+
+    /// Check if a specific node type requires user interaction
+    public func nodeRequiresInteraction(_ nodeType: String) -> Bool {
+        return NodeTypes.requiresUserInteraction(nodeType)
+    }
+
+    /// Emit socket event (for integration nodes)
+    public func emitSocketEvent(_ event: String, data: [String: Any]) {
+        guard let session = currentSession else { return }
+
+        var eventData = data
+        eventData["chatSessionId"] = session.chatSessionId
+
+        socketClient?.emit(event: event, data: eventData)
+        debugPrint("[ConferBot] Socket event emitted: \(event)")
+    }
+
+    /// Reset flow state
+    public func resetFlow() {
+        chatState.reset()
+        isFlowComplete = false
+        currentUIState = nil
+        nodeErrorMessage = nil
+        debugPrint("[ConferBot] Flow state reset")
     }
 
     /// Initiate handover to live agent
@@ -305,8 +589,30 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleBotResponse(data: [Any]) {
-        guard let json = data.first as? [String: Any],
-              let recordData = json["record"] as? [String: Any] else {
+        guard let json = data.first as? [String: Any] else {
+            return
+        }
+
+        // Check if this is a flow-based response with node data
+        if let flowData = json["flow"] as? [String: Any] {
+            // Load and start the flow
+            loadFlow(flowData)
+            startFlow()
+            return
+        }
+
+        // Check for node data to process through flow engine
+        if let nodeData = json["node"] as? [String: Any],
+           let nodeType = nodeData["type"] as? String {
+            // Process individual node through flow engine
+            Task {
+                await processNodeResponse(nodeData)
+            }
+            return
+        }
+
+        // Standard record-based response (fallback for legacy)
+        guard let recordData = json["record"] as? [String: Any] else {
             return
         }
 
@@ -323,6 +629,38 @@ public class ConferBot: ObservableObject {
             }
         } catch {
             debugPrint("[ConferBot] Failed to decode bot response: \(error)")
+        }
+    }
+
+    private func processNodeResponse(_ nodeData: [String: Any]) async {
+        guard let nodeId = nodeData["id"] as? String,
+              let nodeType = nodeData["type"] as? String else {
+            return
+        }
+
+        // Get handler and process
+        if let handler = NodeHandlerRegistry.shared.getHandler(for: nodeType) {
+            let result = await handler.handle(node: nodeData, state: chatState)
+
+            await MainActor.run {
+                switch result {
+                case .displayUI(let uiState):
+                    self.currentUIState = uiState
+                    self.delegate?.conferBot(self, didUpdateUIState: uiState)
+
+                case .proceed(let nextNodeId, let data):
+                    if let flowComplete = data?["flowComplete"] as? Bool, flowComplete {
+                        self.isFlowComplete = true
+                        self.delegate?.conferBot(self, didCompleteFlow: true)
+                    }
+
+                case .error(let message):
+                    self.nodeErrorMessage = message
+
+                default:
+                    break
+                }
+            }
         }
     }
 
