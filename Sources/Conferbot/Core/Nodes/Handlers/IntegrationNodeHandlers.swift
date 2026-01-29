@@ -15,10 +15,12 @@ public enum IntegrationNodeType: String, CaseIterable {
     case googleSheets = "google_sheets"
     case sendEmail = "send_email"
     case calendly = "calendly"
+    case googleMeet = "google_meet"
     case hubspot = "hubspot"
     case salesforce = "salesforce"
     case zendesk = "zendesk"
     case slack = "slack"
+    case discord = "discord"
     case zapier = "zapier"
     case dialogflow = "dialogflow"
     case openai = "openai"
@@ -827,7 +829,74 @@ public final class SlackHandler: BaseIntegrationHandler {
     }
 }
 
-// MARK: - 9. Zapier Handler
+// MARK: - 9. Discord Handler
+
+/// Handles Discord messaging integration nodes
+/// Server-side processing - emits socket event for server to send Discord messages
+public final class DiscordHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "discord" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Discord node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract channel ID or webhook URL
+        let channelId = (nodeData["channelId"] as? String).map { state.resolveVariables(in: $0) }
+        let webhookUrl = (nodeData["webhookUrl"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract message content
+        guard case .success(let messageText) = extractString("message", from: nodeData, state: state, required: true),
+              let message = messageText else {
+            return .error(.missingRequiredField("message"))
+        }
+
+        // Extract optional username (for webhook)
+        let username = (nodeData["username"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract optional avatar URL (for webhook)
+        let avatarUrl = (nodeData["avatarUrl"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract embeds for rich messages
+        var embeds: [[String: Any]]?
+        if let embedData = nodeData["embeds"] as? [[String: Any]] {
+            embeds = embedData.map { resolveVariablesInDictionary($0, state: state) }
+        }
+
+        // Extract server ID (guild ID) if provided
+        let serverId = (nodeData["serverId"] as? String).map { state.resolveVariables(in: $0) }
+            ?? (nodeData["guildId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Prepare socket payload
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "discord",
+            "message": message,
+            "variables": state.variables
+        ]
+
+        // Add channel/webhook configuration
+        if let ch = channelId { payload["channelId"] = ch }
+        if let wh = webhookUrl { payload["webhookUrl"] = wh }
+        if let server = serverId { payload["serverId"] = server }
+
+        // Add optional customization
+        if let user = username { payload["username"] = user }
+        if let avatar = avatarUrl { payload["avatarUrl"] = avatar }
+        if let emb = embeds { payload["embeds"] = emb }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.discordNodeTrigger, data: payload)
+
+        debugLog("Discord event emitted for server processing")
+        return .proceed
+    }
+}
+
+// MARK: - 10. Zapier Handler
 
 /// Handles Zapier webhook integration nodes
 /// Makes HTTP POST request to Zapier webhook URL
@@ -1374,7 +1443,462 @@ public final class CustomLLMHandler: BaseIntegrationHandler {
     }
 }
 
-// MARK: - 17. Human Handover Handler
+// MARK: - 17. Google Meet Handler
+
+/// Handles Google Meet integration nodes
+/// Creates Google Meet meetings via server-side integration
+/// Server emits google-meet-node-trigger event for backend processing
+public final class GoogleMeetHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "google_meet" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Google Meet node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (book, create, etc.)
+        let operation = nodeData["operation"] as? String ?? "book"
+
+        // Handle booking operation - display calendar UI for meeting selection
+        if operation == "book" {
+            // Extract timezone
+            let timezone = (nodeData["timeZone"] as? String) ?? TimeZone.current.identifier
+
+            // Extract answer variable name for storing the result
+            let answerVariable = nodeData["answerVariable"] as? String ?? "meet_booking"
+
+            // Extract meeting configuration
+            let meetingTitle = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+            let meetingDescription = (nodeData["description"] as? String).map { state.resolveVariables(in: $0) }
+            let duration = nodeData["duration"] as? Int ?? 30 // Default 30 minutes
+
+            // Extract attendee configuration
+            let collectAttendeeEmail = nodeData["collectAttendeeEmail"] as? Bool ?? false
+            let collectAttendeeName = nodeData["collectAttendeeName"] as? Bool ?? false
+
+            // Extract slot configuration if provided
+            var availableSlots: [[String: Any]]?
+            if let slots = nodeData["availableSlots"] as? [[String: Any]] {
+                availableSlots = slots.map { resolveVariablesInDictionary($0, state: state) }
+            }
+
+            // Extract calendar settings
+            let calendarId = (nodeData["calendarId"] as? String).map { state.resolveVariables(in: $0) }
+            let minDate = nodeData["minDate"] as? String
+            let maxDate = nodeData["maxDate"] as? String
+            let excludeWeekends = nodeData["excludeWeekends"] as? Bool ?? false
+
+            // Build payload for server
+            var payload: [String: Any] = [
+                "chatSessionId": state.chatSessionId,
+                "botId": state.botId,
+                "nodeType": "google_meet",
+                "operation": operation,
+                "timezone": timezone,
+                "answerVariable": answerVariable,
+                "duration": duration,
+                "collectAttendeeEmail": collectAttendeeEmail,
+                "collectAttendeeName": collectAttendeeName,
+                "excludeWeekends": excludeWeekends,
+                "variables": state.variables
+            ]
+
+            // Add optional fields
+            if let title = meetingTitle { payload["title"] = title }
+            if let desc = meetingDescription { payload["description"] = desc }
+            if let slots = availableSlots { payload["availableSlots"] = slots }
+            if let calId = calendarId { payload["calendarId"] = calId }
+            if let min = minDate { payload["minDate"] = min }
+            if let max = maxDate { payload["maxDate"] = max }
+
+            // Add user info from state if available
+            if let email = state.getValue(forKey: "email") as? String {
+                payload["attendeeEmail"] = email
+            }
+            if let name = state.getValue(forKey: "name") as? String {
+                payload["attendeeName"] = name
+            }
+
+            // Emit socket event for server to process and prepare calendar slots
+            state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+
+            // Return display UI for calendar/meeting selection
+            let uiData: [String: Any] = [
+                "timezone": timezone,
+                "title": meetingTitle ?? "Schedule a Google Meet",
+                "duration": duration,
+                "collectAttendeeEmail": collectAttendeeEmail,
+                "collectAttendeeName": collectAttendeeName,
+                "answerVariable": answerVariable,
+                "availableSlots": availableSlots as Any,
+                "minDate": minDate as Any,
+                "maxDate": maxDate as Any,
+                "excludeWeekends": excludeWeekends
+            ]
+
+            debugLog("Google Meet booking UI requested with timezone: \(timezone)")
+            return .displayUI(type: .calendlyEmbed, data: uiData)
+        }
+
+        // Handle direct meeting creation (no calendar UI needed)
+        if operation == "create" {
+            // Extract meeting configuration
+            let meetingTitle = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+                ?? "Meeting"
+            let meetingDescription = (nodeData["description"] as? String).map { state.resolveVariables(in: $0) }
+            let startTime = (nodeData["startTime"] as? String).map { state.resolveVariables(in: $0) }
+            let endTime = (nodeData["endTime"] as? String).map { state.resolveVariables(in: $0) }
+            let duration = nodeData["duration"] as? Int ?? 30
+            let timezone = (nodeData["timeZone"] as? String) ?? TimeZone.current.identifier
+
+            // Extract attendees
+            var attendees: [String] = []
+            if let attendeeList = nodeData["attendees"] as? [String] {
+                attendees = attendeeList.map { state.resolveVariables(in: $0) }
+            }
+            if let singleAttendee = nodeData["attendeeEmail"] as? String {
+                let resolved = state.resolveVariables(in: singleAttendee)
+                if !resolved.isEmpty && !attendees.contains(resolved) {
+                    attendees.append(resolved)
+                }
+            }
+            // Add email from state if available
+            if let email = state.getValue(forKey: "email") as? String, !attendees.contains(email) {
+                attendees.append(email)
+            }
+
+            // Extract response variable name
+            let responseVariable = nodeData["responseVariable"] as? String ?? "meet_link"
+
+            // Build payload for server
+            var payload: [String: Any] = [
+                "chatSessionId": state.chatSessionId,
+                "botId": state.botId,
+                "nodeType": "google_meet",
+                "operation": operation,
+                "title": meetingTitle,
+                "duration": duration,
+                "timezone": timezone,
+                "attendees": attendees,
+                "responseVariable": responseVariable,
+                "variables": state.variables
+            ]
+
+            if let desc = meetingDescription { payload["description"] = desc }
+            if let start = startTime { payload["startTime"] = start }
+            if let end = endTime { payload["endTime"] = end }
+
+            // Emit socket event for server to create meeting
+            state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+
+            debugLog("Google Meet creation request sent to server")
+            return .proceed
+        }
+
+        // Handle other operations (list, cancel, etc.)
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "google_meet",
+            "operation": operation,
+            "variables": state.variables
+        ]
+
+        // Include any additional node data with resolved variables
+        for (key, value) in nodeData {
+            if !["operation", "type", "id"].contains(key) {
+                if let stringValue = value as? String {
+                    payload[key] = state.resolveVariables(in: stringValue)
+                } else if let dictValue = value as? [String: Any] {
+                    payload[key] = resolveVariablesInDictionary(dictValue, state: state)
+                } else {
+                    payload[key] = value
+                }
+            }
+        }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+
+        debugLog("Google Meet \(operation) event emitted for server processing")
+        return .proceed
+    }
+}
+
+// MARK: - 17b. Google Calendar Handler
+
+/// Handles Google Calendar integration nodes for booking calendar appointments
+/// Server-side processing via socket event with optional calendar selection UI
+public final class GoogleCalendarHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { NodeTypes.Integration.googleCalendar }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Google Calendar node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (book, create, list, etc.)
+        let operation = nodeData["operation"] as? String ?? "book"
+
+        // Handle booking operation - display calendar UI for slot selection
+        if operation == "book" {
+            return await handleBookOperation(nodeData: nodeData, state: state)
+        }
+
+        // Handle create operation - create an event directly
+        if operation == "create" {
+            return await handleCreateOperation(nodeData: nodeData, state: state)
+        }
+
+        // Handle list operation - list available slots
+        if operation == "list" {
+            return await handleListOperation(nodeData: nodeData, state: state)
+        }
+
+        // Handle other operations (update, delete, etc.)
+        return await handleGenericOperation(operation: operation, nodeData: nodeData, state: state)
+    }
+
+    // MARK: - Book Operation
+
+    /// Handles the "book" operation - displays calendar UI for user to select a time slot
+    private func handleBookOperation(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        // Extract timezone (default to device timezone)
+        let timezone = (nodeData["timeZone"] as? String) ?? TimeZone.current.identifier
+
+        // Extract answer variable name for storing the booking result
+        let answerVariable = nodeData["answerVariable"] as? String ?? "calendar_booking"
+
+        // Extract event configuration
+        let eventTitle = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+        let eventDescription = (nodeData["description"] as? String).map { state.resolveVariables(in: $0) }
+        let duration = nodeData["duration"] as? Int ?? 30 // Default 30 minutes
+        let location = (nodeData["location"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract attendee collection settings
+        let collectAttendeeEmail = nodeData["collectAttendeeEmail"] as? Bool ?? false
+        let collectAttendeeName = nodeData["collectAttendeeName"] as? Bool ?? false
+
+        // Extract calendar settings
+        let calendarId = (nodeData["calendarId"] as? String).map { state.resolveVariables(in: $0) }
+        let minDate = nodeData["minDate"] as? String
+        let maxDate = nodeData["maxDate"] as? String
+        let excludeWeekends = nodeData["excludeWeekends"] as? Bool ?? false
+
+        // Extract slot configuration if pre-defined slots are provided
+        var availableSlots: [[String: Any]]?
+        if let slots = nodeData["availableSlots"] as? [[String: Any]] {
+            availableSlots = slots.map { resolveVariablesInDictionary($0, state: state) }
+        }
+
+        // Extract business hours configuration
+        var businessHours: [String: Any]?
+        if let hours = nodeData["businessHours"] as? [String: Any] {
+            businessHours = resolveVariablesInDictionary(hours, state: state)
+        }
+
+        // Build payload for server
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": NodeTypes.Integration.googleCalendar,
+            "operation": "book",
+            "timezone": timezone,
+            "answerVariable": answerVariable,
+            "duration": duration,
+            "collectAttendeeEmail": collectAttendeeEmail,
+            "collectAttendeeName": collectAttendeeName,
+            "excludeWeekends": excludeWeekends,
+            "variables": state.variables
+        ]
+
+        // Add optional fields
+        if let title = eventTitle { payload["title"] = title }
+        if let desc = eventDescription { payload["description"] = desc }
+        if let loc = location { payload["location"] = loc }
+        if let slots = availableSlots { payload["availableSlots"] = slots }
+        if let calId = calendarId { payload["calendarId"] = calId }
+        if let min = minDate { payload["minDate"] = min }
+        if let max = maxDate { payload["maxDate"] = max }
+        if let hours = businessHours { payload["businessHours"] = hours }
+
+        // Add user info from state if available
+        if let email = state.getValue(forKey: "email") as? String {
+            payload["attendeeEmail"] = email
+        }
+        if let name = state.getValue(forKey: "name") as? String {
+            payload["attendeeName"] = name
+        }
+
+        // Emit socket event for server to process and prepare available calendar slots
+        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+
+        // Return display UI for calendar/slot selection
+        // The UI will show a date/time picker for the user to select an appointment slot
+        let uiData: [String: Any] = [
+            "type": "googleCalendar",
+            "operation": "book",
+            "timezone": timezone,
+            "title": eventTitle ?? "Select a date and time",
+            "duration": duration,
+            "collectAttendeeEmail": collectAttendeeEmail,
+            "collectAttendeeName": collectAttendeeName,
+            "answerVariable": answerVariable,
+            "availableSlots": availableSlots as Any,
+            "minDate": minDate as Any,
+            "maxDate": maxDate as Any,
+            "excludeWeekends": excludeWeekends,
+            "businessHours": businessHours as Any
+        ]
+
+        debugLog("Google Calendar booking UI requested with timezone: \(timezone)")
+        return .displayUI(type: .calendlyEmbed, data: uiData)
+    }
+
+    // MARK: - Create Operation
+
+    /// Handles the "create" operation - creates a calendar event directly without UI
+    private func handleCreateOperation(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        // Extract event configuration
+        let eventTitle = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+            ?? "Calendar Event"
+        let eventDescription = (nodeData["description"] as? String).map { state.resolveVariables(in: $0) }
+        let startTime = (nodeData["startTime"] as? String).map { state.resolveVariables(in: $0) }
+        let endTime = (nodeData["endTime"] as? String).map { state.resolveVariables(in: $0) }
+        let duration = nodeData["duration"] as? Int ?? 30
+        let timezone = (nodeData["timeZone"] as? String) ?? TimeZone.current.identifier
+        let location = (nodeData["location"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract calendar ID
+        let calendarId = (nodeData["calendarId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract attendees
+        var attendees: [String] = []
+        if let attendeeList = nodeData["attendees"] as? [String] {
+            attendees = attendeeList.map { state.resolveVariables(in: $0) }
+        }
+        if let singleAttendee = nodeData["attendeeEmail"] as? String {
+            let resolved = state.resolveVariables(in: singleAttendee)
+            if !resolved.isEmpty && !attendees.contains(resolved) {
+                attendees.append(resolved)
+            }
+        }
+        // Add email from state if available and not already present
+        if let email = state.getValue(forKey: "email") as? String, !attendees.contains(email) {
+            attendees.append(email)
+        }
+
+        // Extract reminders configuration
+        var reminders: [String: Any]?
+        if let reminderConfig = nodeData["reminders"] as? [String: Any] {
+            reminders = resolveVariablesInDictionary(reminderConfig, state: state)
+        }
+
+        // Extract response variable name
+        let responseVariable = nodeData["responseVariable"] as? String ?? "calendar_event"
+
+        // Build payload for server
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": NodeTypes.Integration.googleCalendar,
+            "operation": "create",
+            "title": eventTitle,
+            "duration": duration,
+            "timezone": timezone,
+            "attendees": attendees,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        if let desc = eventDescription { payload["description"] = desc }
+        if let start = startTime { payload["startTime"] = start }
+        if let end = endTime { payload["endTime"] = end }
+        if let loc = location { payload["location"] = loc }
+        if let calId = calendarId { payload["calendarId"] = calId }
+        if let rem = reminders { payload["reminders"] = rem }
+
+        // Emit socket event for server to create the calendar event
+        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+
+        debugLog("Google Calendar event creation request sent to server")
+        return .proceed
+    }
+
+    // MARK: - List Operation
+
+    /// Handles the "list" operation - retrieves available time slots
+    private func handleListOperation(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        let timezone = (nodeData["timeZone"] as? String) ?? TimeZone.current.identifier
+        let calendarId = (nodeData["calendarId"] as? String).map { state.resolveVariables(in: $0) }
+        let minDate = nodeData["minDate"] as? String
+        let maxDate = nodeData["maxDate"] as? String
+        let duration = nodeData["duration"] as? Int ?? 30
+        let responseVariable = nodeData["responseVariable"] as? String ?? "available_slots"
+
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": NodeTypes.Integration.googleCalendar,
+            "operation": "list",
+            "timezone": timezone,
+            "duration": duration,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        if let calId = calendarId { payload["calendarId"] = calId }
+        if let min = minDate { payload["minDate"] = min }
+        if let max = maxDate { payload["maxDate"] = max }
+
+        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+
+        debugLog("Google Calendar list slots request sent to server")
+        return .proceed
+    }
+
+    // MARK: - Generic Operation
+
+    /// Handles other operations (update, delete, etc.)
+    private func handleGenericOperation(
+        operation: String,
+        nodeData: [String: Any],
+        state: NodeState
+    ) async -> NodeHandlerResult {
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": NodeTypes.Integration.googleCalendar,
+            "operation": operation,
+            "variables": state.variables
+        ]
+
+        // Include any additional node data with resolved variables
+        for (key, value) in nodeData {
+            if !["operation", "type", "id"].contains(key) {
+                if let stringValue = value as? String {
+                    payload[key] = state.resolveVariables(in: stringValue)
+                } else if let dictValue = value as? [String: Any] {
+                    payload[key] = resolveVariablesInDictionary(dictValue, state: state)
+                } else {
+                    payload[key] = value
+                }
+            }
+        }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+
+        debugLog("Google Calendar \(operation) event emitted for server processing")
+        return .proceed
+    }
+}
+
+// MARK: - 18. Human Handover Handler
 
 /// Handles human handover integration nodes
 /// Returns displayUI result for showing handover UI and notifies server
@@ -1453,6 +1977,1032 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
     }
 }
 
+// MARK: - 19. Airtable Handler
+
+/// Handles Airtable integration nodes
+/// Server-side processing - emits socket event for server to perform CRUD operations on Airtable
+public final class AirtableHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "airtable" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Airtable node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (create, read, update, delete)
+        let operation = nodeData["operation"] as? String ?? "create"
+
+        // Extract base and table configuration
+        let baseId = (nodeData["baseId"] as? String).map { state.resolveVariables(in: $0) }
+        let tableName = (nodeData["tableName"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract record ID for update/delete operations
+        let recordId = (nodeData["recordId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract record data for create/update operations
+        var recordData: [String: Any] = [:]
+        if let data = nodeData["recordData"] as? [String: Any] {
+            recordData = resolveVariablesInDictionary(data, state: state)
+        }
+
+        // Extract field mappings if provided
+        var fieldMappings: [[String: Any]] = []
+        if let mappings = nodeData["fieldMappings"] as? [[String: Any]] {
+            for mapping in mappings {
+                var resolvedMapping: [String: Any] = [:]
+                if let field = mapping["field"] as? String {
+                    resolvedMapping["field"] = field
+                }
+                if let column = mapping["column"] as? String {
+                    resolvedMapping["column"] = column
+                }
+                if let value = mapping["value"] as? String {
+                    resolvedMapping["value"] = state.resolveVariables(in: value)
+                }
+                if let variableName = mapping["variableName"] as? String,
+                   let variableValue = state.getValue(forKey: variableName) {
+                    resolvedMapping["value"] = variableValue
+                }
+                fieldMappings.append(resolvedMapping)
+            }
+        }
+
+        // Extract filter formula for read operations
+        let filterFormula = (nodeData["filterFormula"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract view name for read operations
+        let viewName = nodeData["viewName"] as? String
+
+        // Extract max records for read operations
+        let maxRecords = nodeData["maxRecords"] as? Int
+
+        // Extract sort configuration for read operations
+        var sortConfig: [[String: Any]]?
+        if let sort = nodeData["sort"] as? [[String: Any]] {
+            sortConfig = sort.map { resolveVariablesInDictionary($0, state: state) }
+        }
+
+        // Extract response variable name
+        let responseVariable = nodeData["responseVariable"] as? String ?? "airtable_response"
+
+        // Prepare socket payload
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "airtable",
+            "operation": operation,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        // Add base/table configuration
+        if let base = baseId { payload["baseId"] = base }
+        if let table = tableName { payload["tableName"] = table }
+
+        // Add operation-specific data
+        if let recId = recordId { payload["recordId"] = recId }
+        if !recordData.isEmpty { payload["recordData"] = recordData }
+        if !fieldMappings.isEmpty { payload["fieldMappings"] = fieldMappings }
+
+        // Add read operation specific fields
+        if let filter = filterFormula { payload["filterFormula"] = filter }
+        if let view = viewName { payload["viewName"] = view }
+        if let maxRecs = maxRecords { payload["maxRecords"] = maxRecs }
+        if let sort = sortConfig { payload["sort"] = sort }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.airtableNodeTrigger, data: payload)
+
+        debugLog("Airtable \(operation) event emitted for server processing")
+        return .proceed
+    }
+}
+
+// MARK: - 21. Zoho CRM Handler
+
+/// Handles Zoho CRM integration nodes
+/// Creates/updates records in Zoho CRM modules (Contacts, Leads, Deals, etc.)
+/// Server-side processing - emits socket event for server to handle
+public final class ZohoCRMHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "zoho_crm" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Zoho CRM node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (create, update, upsert, search, get)
+        let operation = nodeData["operation"] as? String ?? "create"
+
+        // Extract module name (Contacts, Leads, Deals, Accounts, etc.)
+        let module = nodeData["module"] as? String ?? "Contacts"
+
+        // Extract record ID for update/get operations
+        let recordId = (nodeData["recordId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract and resolve record data
+        var recordData: [String: Any] = [:]
+        if let data = nodeData["recordData"] as? [String: Any] {
+            recordData = resolveVariablesInDictionary(data, state: state)
+        }
+
+        // Extract field mappings (maps Zoho fields to chat variables)
+        if let mappings = nodeData["fieldMappings"] as? [String: String] {
+            for (zohoField, variableName) in mappings {
+                if let value = state.getValue(forKey: variableName) {
+                    recordData[zohoField] = value
+                }
+            }
+        }
+
+        // Extract column mappings (alternative format for field mappings)
+        if let columnMappings = nodeData["columnMappings"] as? [[String: Any]] {
+            for mapping in columnMappings {
+                if let field = mapping["field"] as? String ?? mapping["column"] as? String,
+                   let value = mapping["value"] as? String {
+                    let resolvedValue = state.resolveVariables(in: value)
+                    recordData[field] = resolvedValue
+                }
+            }
+        }
+
+        // Common field mappings from state for contact-type modules
+        if ["Contacts", "Leads"].contains(module) {
+            if recordData["Email"] == nil, let email = state.getValue(forKey: "email") as? String {
+                recordData["Email"] = email
+            }
+            if recordData["First_Name"] == nil, let name = state.getValue(forKey: "name") as? String {
+                // Try to split full name into first/last
+                let nameParts = name.split(separator: " ")
+                if nameParts.count > 1 {
+                    recordData["First_Name"] = String(nameParts[0])
+                    recordData["Last_Name"] = nameParts.dropFirst().joined(separator: " ")
+                } else {
+                    recordData["First_Name"] = name
+                }
+            }
+            if recordData["Phone"] == nil, let phone = state.getValue(forKey: "phone") as? String {
+                recordData["Phone"] = phone
+            }
+            if recordData["Company"] == nil, let company = state.getValue(forKey: "company") as? String {
+                recordData["Company"] = company
+            }
+        }
+
+        // Extract search criteria for search operation
+        var searchCriteria: [String: Any]?
+        if operation == "search" {
+            if let criteria = nodeData["searchCriteria"] as? [String: Any] {
+                searchCriteria = resolveVariablesInDictionary(criteria, state: state)
+            } else if let searchField = nodeData["searchField"] as? String,
+                      let searchValue = nodeData["searchValue"] as? String {
+                searchCriteria = [
+                    "field": searchField,
+                    "value": state.resolveVariables(in: searchValue)
+                ]
+            }
+        }
+
+        // Extract duplicate check field for upsert
+        let duplicateCheckField = nodeData["duplicateCheckField"] as? String
+
+        // Extract response variable name
+        let responseVariable = nodeData["responseVariable"] as? String ?? "zoho_response"
+
+        // Extract answer variable for storing specific response data
+        let answerVariable = nodeData["answerVariable"] as? String
+
+        // Build socket payload
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "zoho_crm",
+            "operation": operation,
+            "module": module,
+            "recordData": recordData,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        // Add optional fields to payload
+        if let id = recordId { payload["recordId"] = id }
+        if let criteria = searchCriteria { payload["searchCriteria"] = criteria }
+        if let dupField = duplicateCheckField { payload["duplicateCheckField"] = dupField }
+        if let ansVar = answerVariable { payload["answerVariable"] = ansVar }
+
+        // Include trigger fields if specified (for workflow triggers)
+        if let triggerFields = nodeData["triggerFields"] as? [String] {
+            payload["triggerFields"] = triggerFields
+        }
+
+        // Include layout ID if specified
+        if let layoutId = nodeData["layoutId"] as? String {
+            payload["layoutId"] = layoutId
+        }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.zohoCrmNodeTrigger, data: payload)
+
+        debugLog("Zoho CRM \(operation) event emitted for module: \(module)")
+        return .proceed
+    }
+}
+
+// MARK: - 22. Google Docs Handler
+
+/// Handles Google Docs integration nodes
+/// Server-side processing - emits socket event for server to create/update Google Docs
+public final class GoogleDocsHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { NodeTypes.Integration.googleDocs }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Google Docs node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (create, update, append, read)
+        let operation = nodeData["operation"] as? String ?? "create"
+
+        // Extract document configuration
+        let documentId = (nodeData["documentId"] as? String).map { state.resolveVariables(in: $0) }
+        let title = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract content for create/update/append operations
+        let content = (nodeData["content"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract folder ID for create operations (where to store the new document)
+        let folderId = (nodeData["folderId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract template configuration for create operations
+        let templateId = (nodeData["templateId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract field mappings for template-based creation
+        var fieldMappings: [[String: Any]] = []
+        if let mappings = nodeData["fieldMappings"] as? [[String: Any]] {
+            for mapping in mappings {
+                var resolvedMapping: [String: Any] = [:]
+                if let placeholder = mapping["placeholder"] as? String {
+                    resolvedMapping["placeholder"] = placeholder
+                }
+                if let value = mapping["value"] as? String {
+                    resolvedMapping["value"] = state.resolveVariables(in: value)
+                }
+                if let variableName = mapping["variableName"] as? String,
+                   let variableValue = state.getValue(forKey: variableName) {
+                    if let stringValue = variableValue as? String {
+                        resolvedMapping["value"] = stringValue
+                    } else {
+                        resolvedMapping["value"] = String(describing: variableValue)
+                    }
+                }
+                fieldMappings.append(resolvedMapping)
+            }
+        }
+
+        // Extract text replacement pairs for update operations
+        var replacements: [[String: String]] = []
+        if let replaceList = nodeData["replacements"] as? [[String: String]] {
+            for replacement in replaceList {
+                var resolvedReplacement: [String: String] = [:]
+                if let find = replacement["find"] {
+                    resolvedReplacement["find"] = state.resolveVariables(in: find)
+                }
+                if let replaceWith = replacement["replace"] {
+                    resolvedReplacement["replace"] = state.resolveVariables(in: replaceWith)
+                }
+                replacements.append(resolvedReplacement)
+            }
+        }
+
+        // Extract position for append/insert operations
+        let insertPosition = nodeData["insertPosition"] as? String ?? "end" // start, end, or index
+        let insertIndex = nodeData["insertIndex"] as? Int
+
+        // Extract sharing configuration
+        var sharing: [String: Any]?
+        if let shareConfig = nodeData["sharing"] as? [String: Any] {
+            sharing = resolveVariablesInDictionary(shareConfig, state: state)
+        }
+
+        // Extract response variable name
+        let responseVariable = nodeData["responseVariable"] as? String ?? "google_docs_response"
+
+        // Prepare socket payload
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "google_docs",
+            "operation": operation,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        // Add document configuration
+        if let docId = documentId { payload["documentId"] = docId }
+        if let docTitle = title { payload["title"] = docTitle }
+        if let docContent = content { payload["content"] = docContent }
+        if let folder = folderId { payload["folderId"] = folder }
+        if let template = templateId { payload["templateId"] = template }
+
+        // Add field mappings for template operations
+        if !fieldMappings.isEmpty { payload["fieldMappings"] = fieldMappings }
+
+        // Add text replacements for update operations
+        if !replacements.isEmpty { payload["replacements"] = replacements }
+
+        // Add position information for append/insert operations
+        payload["insertPosition"] = insertPosition
+        if let index = insertIndex { payload["insertIndex"] = index }
+
+        // Add sharing configuration
+        if let share = sharing { payload["sharing"] = share }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.googleDocsNodeTrigger, data: payload)
+
+        debugLog("Google Docs \(operation) event emitted for server processing")
+        return .proceed
+    }
+}
+
+// MARK: - 24. Google Drive Handler
+
+/// Handles Google Drive integration nodes
+/// Supports file/folder operations including upload, download, create, list, share
+/// Server-side processing - emits socket event for server to handle Google Drive API calls
+public final class GoogleDriveHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "google_drive" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Google Drive node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (upload, download, create_folder, list, share, delete, move, copy)
+        let operation = nodeData["operation"] as? String ?? "upload"
+
+        // Extract file/folder configuration with variable resolution
+        let fileId = (nodeData["fileId"] as? String).map { state.resolveVariables(in: $0) }
+        let folderId = (nodeData["folderId"] as? String).map { state.resolveVariables(in: $0) }
+        let fileName = (nodeData["fileName"] as? String).map { state.resolveVariables(in: $0) }
+        let folderName = (nodeData["folderName"] as? String).map { state.resolveVariables(in: $0) }
+        let mimeType = (nodeData["mimeType"] as? String).map { state.resolveVariables(in: $0) }
+        let fileContent = (nodeData["fileContent"] as? String).map { state.resolveVariables(in: $0) }
+        let fileUrl = (nodeData["fileUrl"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract sharing configuration
+        let shareEmail = (nodeData["shareEmail"] as? String).map { state.resolveVariables(in: $0) }
+        let shareRole = nodeData["shareRole"] as? String ?? "reader" // reader, writer, commenter, owner
+        let shareType = nodeData["shareType"] as? String ?? "user" // user, group, domain, anyone
+        let sendNotification = nodeData["sendNotification"] as? Bool ?? true
+
+        // Extract search/list configuration
+        let query = (nodeData["query"] as? String).map { state.resolveVariables(in: $0) }
+        let pageSize = nodeData["pageSize"] as? Int ?? 100
+        let orderBy = nodeData["orderBy"] as? String ?? "modifiedTime desc"
+        let includeTrash = nodeData["includeTrash"] as? Bool ?? false
+
+        // Extract destination for move/copy operations
+        let destinationFolderId = (nodeData["destinationFolderId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract response variable name for storing results
+        let responseVariable = nodeData["responseVariable"] as? String ?? "drive_response"
+
+        // Extract field mappings if provided (for storing specific response fields in variables)
+        var fieldMappings: [String: String] = [:]
+        if let mappings = nodeData["fieldMappings"] as? [String: String] {
+            for (responseField, variableName) in mappings {
+                fieldMappings[responseField] = state.resolveVariables(in: variableName)
+            }
+        }
+
+        // Build the payload for server processing
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "google_drive",
+            "operation": operation,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        // Add operation-specific parameters
+        switch operation {
+        case "upload":
+            if let name = fileName { payload["fileName"] = name }
+            if let folder = folderId { payload["folderId"] = folder }
+            if let mime = mimeType { payload["mimeType"] = mime }
+            if let content = fileContent { payload["fileContent"] = content }
+            if let url = fileUrl { payload["fileUrl"] = url }
+
+            // Check for file data from a previous file upload node
+            if let uploadedFile = state.getValue(forKey: "_uploadedFile") {
+                payload["uploadedFile"] = uploadedFile
+            }
+            if let uploadedFileKey = nodeData["uploadedFileVariable"] as? String,
+               let uploadedFile = state.getValue(forKey: uploadedFileKey) {
+                payload["uploadedFile"] = uploadedFile
+            }
+
+        case "download":
+            if let file = fileId { payload["fileId"] = file }
+            if let name = fileName { payload["fileName"] = name }
+
+        case "create_folder":
+            if let name = folderName ?? fileName { payload["folderName"] = name }
+            if let parent = folderId { payload["parentFolderId"] = parent }
+
+        case "list":
+            if let folder = folderId { payload["folderId"] = folder }
+            if let q = query { payload["query"] = q }
+            payload["pageSize"] = pageSize
+            payload["orderBy"] = orderBy
+            payload["includeTrash"] = includeTrash
+
+        case "share":
+            if let file = fileId { payload["fileId"] = file }
+            if let email = shareEmail { payload["shareEmail"] = email }
+            payload["shareRole"] = shareRole
+            payload["shareType"] = shareType
+            payload["sendNotification"] = sendNotification
+
+            // Optionally include email message for notification
+            if let message = (nodeData["shareMessage"] as? String).map({ state.resolveVariables(in: $0) }) {
+                payload["shareMessage"] = message
+            }
+
+        case "delete":
+            if let file = fileId { payload["fileId"] = file }
+            // Optionally support permanent deletion vs trash
+            payload["permanent"] = nodeData["permanent"] as? Bool ?? false
+
+        case "move":
+            if let file = fileId { payload["fileId"] = file }
+            if let dest = destinationFolderId { payload["destinationFolderId"] = dest }
+
+        case "copy":
+            if let file = fileId { payload["fileId"] = file }
+            if let dest = destinationFolderId { payload["destinationFolderId"] = dest }
+            if let name = fileName { payload["newFileName"] = name }
+
+        case "get_info":
+            if let file = fileId { payload["fileId"] = file }
+
+        case "search":
+            if let q = query { payload["query"] = q }
+            payload["pageSize"] = pageSize
+            payload["orderBy"] = orderBy
+            payload["includeTrash"] = includeTrash
+
+        default:
+            // For any custom operations, include all node data with resolved variables
+            for (key, value) in nodeData {
+                if !["operation", "type", "id", "nodeType"].contains(key) {
+                    if let stringValue = value as? String {
+                        payload[key] = state.resolveVariables(in: stringValue)
+                    } else if let dictValue = value as? [String: Any] {
+                        payload[key] = resolveVariablesInDictionary(dictValue, state: state)
+                    } else {
+                        payload[key] = value
+                    }
+                }
+            }
+        }
+
+        // Add field mappings if provided
+        if !fieldMappings.isEmpty {
+            payload["fieldMappings"] = fieldMappings
+        }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.googleDriveNodeTrigger, data: payload)
+
+        debugLog("Google Drive \(operation) event emitted for server processing")
+        return .proceed
+    }
+}
+
+
+// MARK: - 22. Notion Handler
+
+/// Handles Notion integration nodes
+/// Server-side processing - emits socket event for server to perform operations on Notion databases and pages
+public final class NotionHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "notion" }
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Notion node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type (createPage, updatePage, queryDatabase, createDatabase, etc.)
+        let operation = nodeData["operation"] as? String ?? "createPage"
+
+        // Extract database/page configuration
+        let databaseId = (nodeData["databaseId"] as? String).map { state.resolveVariables(in: $0) }
+        let pageId = (nodeData["pageId"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract page properties with variable resolution
+        var properties: [String: Any] = [:]
+        if let props = nodeData["properties"] as? [String: Any] {
+            properties = resolveVariablesInDictionary(props, state: state)
+        }
+
+        // Extract property mappings (maps conversation variables to Notion properties)
+        if let mappings = nodeData["propertyMappings"] as? [[String: Any]] {
+            for mapping in mappings {
+                if let notionProperty = mapping["notionProperty"] as? String,
+                   let variableName = mapping["variableName"] as? String {
+                    // Get value from state variables
+                    if let value = state.getValue(forKey: variableName) {
+                        // Determine property type and format appropriately
+                        let propertyType = mapping["propertyType"] as? String ?? "text"
+                        properties[notionProperty] = formatPropertyValue(value, type: propertyType)
+                    } else if let defaultValue = mapping["defaultValue"] {
+                        let propertyType = mapping["propertyType"] as? String ?? "text"
+                        properties[notionProperty] = formatPropertyValue(defaultValue, type: propertyType)
+                    }
+                }
+            }
+        }
+
+        // Extract content blocks for page content
+        var contentBlocks: [[String: Any]] = []
+        if let blocks = nodeData["content"] as? [[String: Any]] {
+            contentBlocks = blocks.map { resolveVariablesInDictionary($0, state: state) }
+        }
+
+        // Extract page title with variable resolution
+        let pageTitle = (nodeData["title"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract parent configuration for creating new pages/databases
+        var parentConfig: [String: Any]?
+        if let parent = nodeData["parent"] as? [String: Any] {
+            parentConfig = resolveVariablesInDictionary(parent, state: state)
+        }
+
+        // Extract filter for database queries
+        var queryFilter: [String: Any]?
+        if let filter = nodeData["filter"] as? [String: Any] {
+            queryFilter = resolveVariablesInDictionary(filter, state: state)
+        }
+
+        // Extract sort configuration for database queries
+        var sorts: [[String: Any]]?
+        if let sortConfig = nodeData["sorts"] as? [[String: Any]] {
+            sorts = sortConfig.map { resolveVariablesInDictionary($0, state: state) }
+        }
+
+        // Extract response variable name for storing results
+        let responseVariable = nodeData["responseVariable"] as? String ?? "notion_response"
+
+        // Extract icon and cover for page creation
+        let icon = (nodeData["icon"] as? String).map { state.resolveVariables(in: $0) }
+        let cover = (nodeData["cover"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Build payload for server processing
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "notion",
+            "operation": operation,
+            "responseVariable": responseVariable,
+            "variables": state.variables
+        ]
+
+        // Add optional fields based on operation
+        if let dbId = databaseId { payload["databaseId"] = dbId }
+        if let pgId = pageId { payload["pageId"] = pgId }
+        if !properties.isEmpty { payload["properties"] = properties }
+        if !contentBlocks.isEmpty { payload["content"] = contentBlocks }
+        if let title = pageTitle { payload["title"] = title }
+        if let parent = parentConfig { payload["parent"] = parent }
+        if let filter = queryFilter { payload["filter"] = filter }
+        if let sortConfig = sorts { payload["sorts"] = sortConfig }
+        if let iconValue = icon { payload["icon"] = iconValue }
+        if let coverValue = cover { payload["cover"] = coverValue }
+
+        // Add include/exclude archived option for queries
+        if let includeArchived = nodeData["includeArchived"] as? Bool {
+            payload["includeArchived"] = includeArchived
+        }
+
+        // Add page size for paginated queries
+        if let pageSize = nodeData["pageSize"] as? Int {
+            payload["pageSize"] = pageSize
+        }
+
+        // Add start cursor for pagination
+        if let startCursor = nodeData["startCursor"] as? String {
+            payload["startCursor"] = state.resolveVariables(in: startCursor)
+        }
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.notionNodeTrigger, data: payload)
+
+        debugLog("Notion \(operation) event emitted for server processing")
+        return .proceed
+    }
+
+    /// Format a value according to the Notion property type
+    private func formatPropertyValue(_ value: Any, type: String) -> Any {
+        switch type.lowercased() {
+        case "title", "rich_text", "text":
+            // Text-based properties need to be wrapped in a specific format
+            if let stringValue = value as? String {
+                return ["type": "text", "value": stringValue]
+            }
+            return ["type": "text", "value": String(describing: value)]
+
+        case "number":
+            // Number properties
+            if let numValue = value as? Double {
+                return numValue
+            }
+            if let numValue = value as? Int {
+                return Double(numValue)
+            }
+            if let strValue = value as? String, let num = Double(strValue) {
+                return num
+            }
+            return value
+
+        case "select":
+            // Select properties need the option name
+            if let stringValue = value as? String {
+                return ["name": stringValue]
+            }
+            return value
+
+        case "multi_select":
+            // Multi-select can be an array of option names
+            if let arrayValue = value as? [String] {
+                return arrayValue.map { ["name": $0] }
+            }
+            if let stringValue = value as? String {
+                // Support comma-separated values
+                let options = stringValue.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                return options.map { ["name": $0] }
+            }
+            return value
+
+        case "date":
+            // Date properties
+            if let stringValue = value as? String {
+                return ["start": stringValue]
+            }
+            return value
+
+        case "checkbox":
+            // Boolean properties
+            if let boolValue = value as? Bool {
+                return boolValue
+            }
+            if let stringValue = value as? String {
+                return stringValue.lowercased() == "true" || stringValue == "1"
+            }
+            if let intValue = value as? Int {
+                return intValue != 0
+            }
+            return value
+
+        case "url":
+            // URL properties
+            if let stringValue = value as? String {
+                return stringValue
+            }
+            return String(describing: value)
+
+        case "email":
+            // Email properties
+            if let stringValue = value as? String {
+                return stringValue
+            }
+            return String(describing: value)
+
+        case "phone_number":
+            // Phone number properties
+            if let stringValue = value as? String {
+                return stringValue
+            }
+            return String(describing: value)
+
+        case "relation":
+            // Relation properties expect page IDs
+            if let arrayValue = value as? [String] {
+                return arrayValue.map { ["id": $0] }
+            }
+            if let stringValue = value as? String {
+                return [["id": stringValue]]
+            }
+            return value
+
+        default:
+            // Return as-is for unknown types
+            return value
+        }
+    }
+}
+
+// MARK: - 24. Stripe Payment Handler
+
+/// Result of a Stripe payment operation
+public struct StripePaymentResult {
+    public let success: Bool
+    public let paymentUrl: String?
+    public let error: String?
+    public let data: [String: Any]?
+
+    public init(success: Bool, paymentUrl: String? = nil, error: String? = nil, data: [String: Any]? = nil) {
+        self.success = success
+        self.paymentUrl = paymentUrl
+        self.error = error
+        self.data = data
+    }
+}
+
+/// Handles Stripe payment integration nodes
+/// Creates payment links/checkout sessions via server-side integration
+/// Fixes the Android bug by properly waiting for the payment URL from the server
+public final class StripeHandler: BaseIntegrationHandler {
+    public override class var nodeType: String { "stripe" }
+
+    /// Timeout for waiting for payment URL response (in seconds)
+    private let paymentUrlTimeout: TimeInterval = 30.0
+
+    public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
+        debugLog("Processing Stripe node")
+
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
+        }
+
+        // Extract operation type
+        let operation = nodeData["operation"] as? String ?? "createPaymentLink"
+
+        // Extract payment details
+        let amount = extractAmount(from: nodeData)
+        let currency = (nodeData["currency"] as? String)?.uppercased() ?? "USD"
+        let description = (nodeData["description"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract product information
+        let productName = (nodeData["productName"] as? String).map { state.resolveVariables(in: $0) }
+        let productDescription = (nodeData["productDescription"] as? String).map { state.resolveVariables(in: $0) }
+        let productImage = nodeData["productImage"] as? String
+
+        // Extract customer information from state
+        let customerEmail = (nodeData["customerEmail"] as? String).map { state.resolveVariables(in: $0) }
+            ?? state.getValue(forKey: "email") as? String
+        let customerName = (nodeData["customerName"] as? String).map { state.resolveVariables(in: $0) }
+            ?? state.getValue(forKey: "name") as? String
+
+        // Extract success/cancel URLs for checkout session
+        let successUrl = (nodeData["successUrl"] as? String).map { state.resolveVariables(in: $0) }
+        let cancelUrl = (nodeData["cancelUrl"] as? String).map { state.resolveVariables(in: $0) }
+
+        // Extract metadata to attach to payment
+        var metadata: [String: String] = [:]
+        if let customMetadata = nodeData["metadata"] as? [String: Any] {
+            for (key, value) in customMetadata {
+                if let stringValue = value as? String {
+                    metadata[key] = state.resolveVariables(in: stringValue)
+                } else {
+                    metadata[key] = String(describing: value)
+                }
+            }
+        }
+        // Add session info to metadata
+        metadata["chatSessionId"] = state.chatSessionId
+        metadata["botId"] = state.botId
+
+        // Extract answer variable for storing payment result
+        let answerVariable = nodeData["answerVariable"] as? String ?? "stripe_payment"
+
+        // Build socket payload
+        var payload: [String: Any] = [
+            "chatSessionId": state.chatSessionId,
+            "botId": state.botId,
+            "nodeType": "stripe",
+            "operation": operation,
+            "currency": currency,
+            "metadata": metadata,
+            "answerVariable": answerVariable,
+            "variables": state.variables
+        ]
+
+        // Add amount (convert to cents for Stripe)
+        if let amountValue = amount {
+            payload["amount"] = amountValue
+            // Also include display amount
+            payload["displayAmount"] = amountValue / 100.0
+        }
+
+        // Add optional fields
+        if let desc = description { payload["description"] = desc }
+        if let prodName = productName { payload["productName"] = prodName }
+        if let prodDesc = productDescription { payload["productDescription"] = prodDesc }
+        if let prodImage = productImage { payload["productImage"] = prodImage }
+        if let email = customerEmail { payload["customerEmail"] = email }
+        if let name = customerName { payload["customerName"] = name }
+        if let success = successUrl { payload["successUrl"] = success }
+        if let cancel = cancelUrl { payload["cancelUrl"] = cancel }
+
+        // For payment operations, we need to wait for the payment URL from server
+        if operation == "createPaymentLink" || operation == "createCheckoutSession" {
+            return await handlePaymentOperation(
+                payload: payload,
+                state: state,
+                amount: amount,
+                currency: currency,
+                description: description,
+                answerVariable: answerVariable
+            )
+        }
+
+        // For non-payment operations (createCustomer, listProducts, etc.)
+        // Just emit the event and proceed
+        state.emitSocketEvent(SocketEvents.stripeNodeTrigger, data: payload)
+        debugLog("Stripe \(operation) event emitted for server processing")
+        return .proceed
+    }
+
+    /// Handle payment operations that require waiting for URL response
+    private func handlePaymentOperation(
+        payload: [String: Any],
+        state: NodeState,
+        amount: Int?,
+        currency: String,
+        description: String?,
+        answerVariable: String
+    ) async -> NodeHandlerResult {
+        debugLog("Emitting stripe-node-trigger and waiting for payment URL response")
+
+        // Create a continuation to wait for the socket response
+        return await withCheckedContinuation { continuation in
+            var hasResumed = false
+            let resumeLock = NSLock()
+
+            // Set up timeout
+            let timeoutTask = DispatchWorkItem { [weak state] in
+                resumeLock.lock()
+                defer { resumeLock.unlock() }
+
+                guard !hasResumed else { return }
+                hasResumed = true
+
+                // Remove listener
+                state?.removeSocketListener(SocketEvents.stripePaymentUrlResponse)
+
+                self.debugLog("Timeout waiting for Stripe payment URL")
+                continuation.resume(returning: .error(.timeout))
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + paymentUrlTimeout, execute: timeoutTask)
+
+            // Set up listener for payment URL response
+            state.onSocketEvent(SocketEvents.stripePaymentUrlResponse) { [weak self, weak state] data in
+                guard let self = self else { return }
+
+                resumeLock.lock()
+                defer { resumeLock.unlock() }
+
+                guard !hasResumed else { return }
+                hasResumed = true
+
+                // Cancel timeout
+                timeoutTask.cancel()
+
+                // Remove listener
+                state?.removeSocketListener(SocketEvents.stripePaymentUrlResponse)
+
+                // Parse response
+                guard let responseData = data.first as? [String: Any] else {
+                    self.debugLog("Invalid Stripe response format")
+                    continuation.resume(returning: .error(.invalidResponse))
+                    return
+                }
+
+                // Check if this response is for our session
+                let responseSessionId = responseData["chatSessionId"] as? String
+                if let currentSessionId = state?.chatSessionId, responseSessionId != currentSessionId {
+                    // Not our response, ignore and wait for correct one
+                    hasResumed = false
+                    return
+                }
+
+                // Check for error
+                if let error = responseData["error"] as? String {
+                    self.debugLog("Stripe error: \(error)")
+                    continuation.resume(returning: .error(.serverError(error)))
+                    return
+                }
+
+                // Extract payment URL
+                guard let paymentUrl = responseData["url"] as? String, !paymentUrl.isEmpty else {
+                    self.debugLog("No payment URL in response")
+                    continuation.resume(returning: .error(.serverError("Payment URL not received from server")))
+                    return
+                }
+
+                self.debugLog("Received payment URL: \(paymentUrl)")
+
+                // Store payment info in state
+                let paymentInfo: [String: Any] = [
+                    "url": paymentUrl,
+                    "amount": amount as Any,
+                    "currency": currency,
+                    "status": "pending"
+                ]
+                state?.setValue(paymentInfo, forKey: answerVariable)
+
+                // Return display UI with payment information
+                let displayAmount = amount != nil ? Double(amount!) / 100.0 : nil
+
+                let uiData: [String: Any] = [
+                    "paymentUrl": paymentUrl,
+                    "amount": displayAmount as Any,
+                    "currency": currency,
+                    "description": description as Any,
+                    "answerVariable": answerVariable
+                ]
+
+                continuation.resume(returning: .displayUI(type: .externalLink, data: uiData))
+            }
+
+            // Emit the socket event to trigger payment URL generation
+            state.emitSocketEvent(SocketEvents.stripeNodeTrigger, data: payload)
+        }
+    }
+
+    /// Extract amount from node data, converting to cents if necessary
+    private func extractAmount(from nodeData: [String: Any]) -> Int? {
+        // Try customAmount first (from node data)
+        if let customAmount = nodeData["customAmount"] {
+            return convertToCents(customAmount)
+        }
+
+        // Try amount field
+        if let amount = nodeData["amount"] {
+            return convertToCents(amount)
+        }
+
+        // Try price field
+        if let price = nodeData["price"] {
+            return convertToCents(price)
+        }
+
+        return nil
+    }
+
+    /// Convert various amount formats to cents (integer)
+    private func convertToCents(_ value: Any) -> Int? {
+        switch value {
+        case let intValue as Int:
+            // Assume already in cents if > 1000, otherwise convert
+            return intValue > 1000 ? intValue : intValue * 100
+        case let doubleValue as Double:
+            // Assume in dollars, convert to cents
+            return Int(doubleValue * 100)
+        case let stringValue as String:
+            // Try to parse as double first (dollars)
+            if let doubleValue = Double(stringValue) {
+                return Int(doubleValue * 100)
+            }
+            // Try to parse as int (cents)
+            if let intValue = Int(stringValue) {
+                return intValue > 1000 ? intValue : intValue * 100
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+}
+
+// MARK: - NodeState Socket Event Extensions
+
+extension NodeState {
+    /// Register a one-time listener for a socket event
+    func onSocketEvent(_ event: String, handler: @escaping ([Any]) -> Void) {
+        // This needs to be implemented in the concrete NodeState implementation
+        // For DefaultNodeState, we'll add socket listening capability
+    }
+
+    /// Remove a socket event listener
+    func removeSocketListener(_ event: String) {
+        // This needs to be implemented in the concrete NodeState implementation
+    }
+}
+
 // MARK: - Integration Handler Registry
 
 /// Registry for managing and accessing integration node handlers
@@ -1470,15 +3020,18 @@ public final class IntegrationHandlerRegistry {
 
     /// Register default integration handlers
     private func registerDefaultHandlers() {
-        // Register all 17 integration handlers
+        // Register all integration handlers
         register(WebhookHandler())
         register(GoogleSheetsHandler())
         register(SendEmailHandler())
         register(CalendlyHandler())
+        register(GoogleMeetHandler())
+        register(GoogleCalendarHandler())
         register(HubspotHandler())
         register(SalesforceHandler())
         register(ZendeskHandler())
         register(SlackHandler())
+        register(DiscordHandler())
         register(ZapierHandler())
         register(DialogflowHandler())
         register(OpenAIHandler())
@@ -1488,6 +3041,12 @@ public final class IntegrationHandlerRegistry {
         register(GroqHandler())
         register(CustomLLMHandler())
         register(HumanHandoverHandler())
+        register(AirtableHandler())
+        register(ZohoCRMHandler())
+        register(NotionHandler())
+        register(GoogleDocsHandler())
+        register(GoogleDriveHandler())
+        register(StripeHandler())
     }
 
     /// Register a handler
