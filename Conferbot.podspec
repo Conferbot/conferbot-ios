@@ -13,7 +13,7 @@ handover, file uploads, push notifications, and full customization support.
   s.author           = { 'Conferbot' => 'support@conferbot.com' }
   s.source           = { :git => 'https://github.com/conferbot/conferbot-ios.git', :tag => s.version.to_s }
 
-  s.ios.deployment_target = '13.0'
+  s.ios.deployment_target = '14.0'
   s.swift_versions = ['5.7', '5.8', '5.9']
 
   s.source_files = 'Sources/Conferbot/**/*.{swift,h,m}'
