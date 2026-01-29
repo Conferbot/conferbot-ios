@@ -4,7 +4,7 @@ Native iOS SDK for integrating Conferbot AI-powered customer support chat into y
 
 [![Platform](https://img.shields.io/badge/platform-iOS-blue.svg)](https://www.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.7+-orange.svg)](https://swift.org)
-[![iOS](https://img.shields.io/badge/iOS-13.0+-green.svg)](https://developer.apple.com/ios/)
+[![iOS](https://img.shields.io/badge/iOS-14.0+-green.svg)](https://developer.apple.com/ios/)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 
 ## Features
@@ -21,7 +21,7 @@ Native iOS SDK for integrating Conferbot AI-powered customer support chat into y
 
 ## Requirements
 
-- iOS 13.0+
+- iOS 14.0+
 - Xcode 14.0+
 - Swift 5.7+
 - CocoaPods or Swift Package Manager
@@ -48,7 +48,7 @@ Or in Xcode:
 Add to your `Podfile`:
 
 ```ruby
-platform :ios, '13.0'
+platform :ios, '14.0'
 use_frameworks!
 
 target 'YourApp' do
