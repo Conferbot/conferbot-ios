@@ -10,6 +10,9 @@ import SwiftUI
 import AVKit
 import WebKit
 import UniformTypeIdentifiers
+import PhotosUI
+import AVFoundation
+import Combine
 
 // MARK: - NodeUIState
 
@@ -2030,14 +2033,29 @@ public struct CalendarPicker: View {
 
 // MARK: - 16. FileUploadView
 
+/// Enhanced file upload view with document picker, photo library, camera support,
+/// file upload service integration, and progress tracking
 @available(iOS 14.0, *)
 public struct FileUploadView: View {
     let state: FileUploadState
     let onUpload: (Any) -> Void
 
     @Environment(\.chatTheme) private var theme
-    @State private var showPicker = false
-    @State private var uploadedFileName: String?
+    @State private var showSourcePicker = false
+    @State private var showDocumentPicker = false
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
+    @State private var selectedFile: SelectedFile?
+    @State private var uploadState: FileUploadUIState = .idle
+    @State private var uploadProgress: UploadProgress?
+    @State private var errorMessage: String?
+    @State private var uploadedUrl: String?
+
+    /// File upload service instance (created on demand)
+    @State private var uploadService: FileUploadService?
+
+    /// Cancellable for progress tracking
+    @State private var progressCancellable: AnyCancellable?
 
     public init(state: FileUploadState, onUpload: @escaping (Any) -> Void) {
         self.state = state
@@ -2046,93 +2064,457 @@ public struct FileUploadView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Question text
             if !state.questionText.isEmpty {
                 MessageBubbleNode(text: state.questionText)
             }
 
-            Button(action: { showPicker = true }) {
-                VStack(spacing: 12) {
-                    if let fileName = uploadedFileName {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.green)
-                        Text(fileName)
-                            .font(.subheadline)
-                            .foregroundColor(.primary)
-                    } else {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .font(.system(size: 40))
-                            .foregroundColor(theme.primaryColor)
-                        Text("Tap to upload")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Text("Max \(state.maxSizeMb)MB")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+            // Main content based on state
+            Group {
+                switch uploadState {
+                case .idle:
+                    idleView
+                case .fileSelected:
+                    fileSelectedView
+                case .uploading:
+                    uploadingView
+                case .success:
+                    successView
+                case .error:
+                    errorView
+                }
+            }
+
+            // Error message
+            if let error = errorMessage, uploadState != .error {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .actionSheet(isPresented: $showSourcePicker) {
+            sourceActionSheet
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            documentPickerSheet
+        }
+        .sheet(isPresented: $showPhotoPicker) {
+            photoPickerSheet
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            cameraSheet
+        }
+    }
+
+    // MARK: - Idle View
+
+    private var idleView: some View {
+        Button(action: { showSourcePicker = true }) {
+            VStack(spacing: 12) {
+                Image(systemName: "icloud.and.arrow.up")
+                    .font(.system(size: 40))
+                    .foregroundColor(theme.primaryColor)
+
+                Text("Tap to upload")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                Text("Max \(state.maxSizeMb)MB")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if let types = state.allowedTypes, !types.isEmpty && !types.contains("*/*") {
+                    Text("Allowed: \(types.joined(separator: ", "))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 140)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        style: StrokeStyle(lineWidth: 2, dash: [8])
+                    )
+                    .foregroundColor(theme.primaryColor.opacity(0.5))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    // MARK: - File Selected View
+
+    private var fileSelectedView: some View {
+        VStack(spacing: 12) {
+            if let file = selectedFile {
+                FilePreviewView(file: file) {
+                    // Remove file
+                    selectedFile = nil
+                    uploadState = .idle
+                    errorMessage = nil
+                }
+            }
+
+            // Upload button
+            Button(action: uploadFile) {
+                HStack {
+                    Image(systemName: "arrow.up.circle.fill")
+                    Text("Upload File")
+                        .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 120)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(
-                            style: StrokeStyle(lineWidth: 2, dash: [8])
-                        )
-                        .foregroundColor(theme.primaryColor.opacity(0.5))
-                )
+                .padding(.vertical, 12)
+                .background(theme.primaryColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
             }
             .buttonStyle(PlainButtonStyle())
-            .disabled(uploadedFileName != nil)
-            .sheet(isPresented: $showPicker) {
-                DocumentPickerView(
-                    allowedTypes: state.allowedTypes,
-                    onPick: { url in
-                        uploadedFileName = url.lastPathComponent
-                        onUpload(["url": url.absoluteString, "name": url.lastPathComponent])
+        }
+    }
+
+    // MARK: - Uploading View
+
+    private var uploadingView: some View {
+        VStack(spacing: 12) {
+            if let file = selectedFile {
+                UploadProgressView(
+                    progress: uploadProgress,
+                    filename: file.filename
+                ) {
+                    // Cancel upload
+                    uploadService?.cancelUpload()
+                    uploadState = .fileSelected
+                    uploadProgress = nil
+                }
+            }
+        }
+    }
+
+    // MARK: - Success View
+
+    private var successView: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(.green)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Upload Complete")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    if let file = selectedFile {
+                        Text(file.filename)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
+                }
+
+                Spacer()
+            }
+            .padding()
+            .background(Color(UIColor.systemGray6))
+            .cornerRadius(12)
+        }
+    }
+
+    // MARK: - Error View
+
+    private var errorView: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(.red)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Upload Failed")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    Text(errorMessage ?? "An error occurred")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .background(Color(UIColor.systemGray6))
+            .cornerRadius(12)
+
+            // Retry button
+            Button(action: {
+                uploadState = selectedFile != nil ? .fileSelected : .idle
+                errorMessage = nil
+            }) {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Try Again")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(theme.primaryColor)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
+    // MARK: - Action Sheet
+
+    private var sourceActionSheet: ActionSheet {
+        var buttons: [ActionSheet.Button] = []
+
+        // Document picker (always available)
+        buttons.append(.default(Text("Choose File")) {
+            showDocumentPicker = true
+        })
+
+        // Photo library (if images allowed)
+        if allowsImages {
+            buttons.append(.default(Text("Photo Library")) {
+                showPhotoPicker = true
+            })
+        }
+
+        // Camera (if images allowed and camera available)
+        if allowsImages && UIImagePickerController.isSourceTypeAvailable(.camera) {
+            buttons.append(.default(Text("Take Photo")) {
+                checkCameraAndShow()
+            })
+        }
+
+        buttons.append(.cancel())
+
+        return ActionSheet(
+            title: Text("Select Source"),
+            message: Text("Choose where to select your file from"),
+            buttons: buttons
+        )
+    }
+
+    // MARK: - Picker Sheets
+
+    private var documentPickerSheet: some View {
+        DocumentPickerRepresentable(
+            contentTypes: documentContentTypes,
+            maxSize: state.maxSizeMb * 1024 * 1024
+        ) { result in
+            handlePickerResult(result)
+        }
+    }
+
+    private var photoPickerSheet: some View {
+        PhotoPickerRepresentable(
+            filter: photoFilter,
+            selectionLimit: 1,
+            maxSize: state.maxSizeMb * 1024 * 1024
+        ) { result in
+            handlePickerResult(result)
+        }
+    }
+
+    private var cameraSheet: some View {
+        CameraPickerRepresentable(
+            maxSize: state.maxSizeMb * 1024 * 1024
+        ) { result in
+            handlePickerResult(result)
+        }
+    }
+
+    // MARK: - Helper Properties
+
+    private var allowsImages: Bool {
+        guard let types = state.allowedTypes else { return true }
+        return types.isEmpty || types.contains { type in
+            let lower = type.lowercased()
+            return lower.contains("image") ||
+                   lower == "jpg" || lower == "jpeg" ||
+                   lower == "png" || lower == "gif" ||
+                   lower == "heic" || lower == "*/*"
+        }
+    }
+
+    private var documentContentTypes: [UTType] {
+        guard let types = state.allowedTypes, !types.isEmpty else {
+            return [.item]
+        }
+
+        var utTypes: [UTType] = []
+
+        for type in types {
+            let lower = type.lowercased()
+
+            if lower.contains("/") {
+                // MIME type
+                if lower == "image/*" {
+                    utTypes.append(.image)
+                } else if lower == "video/*" {
+                    utTypes.append(.movie)
+                } else if lower == "audio/*" {
+                    utTypes.append(.audio)
+                } else if lower == "*/*" {
+                    utTypes.append(.item)
+                } else if let ut = UTType(mimeType: lower) {
+                    utTypes.append(ut)
+                }
+            } else {
+                // Extension
+                let ext = lower.replacingOccurrences(of: ".", with: "")
+                if let ut = UTType(filenameExtension: ext) {
+                    utTypes.append(ut)
+                }
+            }
+        }
+
+        return utTypes.isEmpty ? [.item] : utTypes
+    }
+
+    private var photoFilter: PHPickerFilter {
+        guard let types = state.allowedTypes, !types.isEmpty else {
+            return .any(of: [.images, .videos])
+        }
+
+        var hasImages = false
+        var hasVideos = false
+
+        for type in types {
+            let lower = type.lowercased()
+            if lower.contains("image") || lower == "jpg" || lower == "jpeg" ||
+               lower == "png" || lower == "gif" || lower == "heic" {
+                hasImages = true
+            }
+            if lower.contains("video") || lower == "mp4" || lower == "mov" {
+                hasVideos = true
+            }
+        }
+
+        if hasImages && hasVideos {
+            return .any(of: [.images, .videos])
+        } else if hasImages {
+            return .images
+        } else if hasVideos {
+            return .videos
+        } else {
+            return .any(of: [.images, .videos])
+        }
+    }
+
+    // MARK: - Methods
+
+    private func checkCameraAndShow() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            showCamera = true
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        showCamera = true
+                    } else {
+                        errorMessage = "Camera access denied"
+                    }
+                }
+            }
+        case .denied, .restricted:
+            errorMessage = "Camera access denied. Please enable in Settings."
+        @unknown default:
+            errorMessage = "Camera not available"
+        }
+    }
+
+    private func handlePickerResult(_ result: Result<SelectedFile, Error>) {
+        switch result {
+        case .success(let file):
+            selectedFile = file
+            uploadState = .fileSelected
+            errorMessage = nil
+        case .failure(let error):
+            if case FileUploadError.cancelled = error {
+                // User cancelled, don't show error
+                return
+            }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func uploadFile() {
+        guard let file = selectedFile else { return }
+
+        uploadState = .uploading
+        errorMessage = nil
+
+        // Create upload service if not exists
+        // Note: In production, you would inject the API key and bot ID
+        // For now, we'll use a placeholder approach
+        let apiKey = ChatState.shared.getVariable(name: "_apiKey") as? String ?? ""
+        let botId = ChatState.shared.record["botId"] as? String ?? ""
+        let sessionId = ChatState.shared.record["sessionId"] as? String
+
+        if uploadService == nil {
+            uploadService = FileUploadService(apiKey: apiKey, botId: botId)
+        }
+
+        // Subscribe to progress updates
+        progressCancellable = uploadService?.progressPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { progress in
+                self.uploadProgress = progress
+            }
+
+        // Perform upload
+        Task {
+            do {
+                let url = try await uploadService?.uploadFile(
+                    data: file.data,
+                    filename: file.filename,
+                    mimeType: file.mimeType,
+                    sessionId: sessionId
                 )
+
+                await MainActor.run {
+                    uploadedUrl = url
+                    uploadState = .success
+                    progressCancellable?.cancel()
+
+                    // Call the completion handler with the upload result
+                    onUpload([
+                        "url": url ?? "",
+                        "filename": file.filename,
+                        "mimeType": file.mimeType,
+                        "fileSize": file.fileSize
+                    ])
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    uploadState = .error
+                    progressCancellable?.cancel()
+                }
             }
         }
     }
 }
 
+// MARK: - File Upload UI State
+
 @available(iOS 14.0, *)
-private struct DocumentPickerView: UIViewControllerRepresentable {
-    let allowedTypes: [String]?
-    let onPick: (URL) -> Void
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let types: [UTType]
-        if let allowed = allowedTypes {
-            types = allowed.compactMap { UTType(filenameExtension: $0) }
-        } else {
-            types = [.item]
-        }
-
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types)
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
-    }
-
-    class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-
-        init(onPick: @escaping (URL) -> Void) {
-            self.onPick = onPick
-        }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            if let url = urls.first {
-                onPick(url)
-            }
-        }
-    }
+private enum FileUploadUIState {
+    case idle
+    case fileSelected
+    case uploading
+    case success
+    case error
 }
 
 // MARK: - 17. LiveChatView
