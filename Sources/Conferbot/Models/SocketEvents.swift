@@ -19,7 +19,43 @@ public struct SocketEvents {
     public static let endChat = "end-chat"
     public static let emailNodeTrigger = "email-node-trigger"
     public static let zapierNodeTrigger = "zapier-node-trigger"
+    public static let discordNodeTrigger = "discord-node-trigger"
     public static let calendarSlotSelectionRecord = "calendar-slot-selection-record"
+    public static let notionNodeTrigger = "notion-node-trigger"
+    public static let googleDriveNodeTrigger = "google-drive-node-trigger"
+    public static let zohoCrmNodeTrigger = "zohocrm-node-trigger"
+    public static let airtableNodeTrigger = "airtable-node-trigger"
+    public static let googleMeetNodeTrigger = "google-meet-node-trigger"
+    public static let googleDocsNodeTrigger = "google-docs-node-trigger"
+    public static let googleCalendarNodeTrigger = "google-calendar-node-trigger"
+    public static let stripeNodeTrigger = "stripe-node-trigger"
+
+    // Analytics events
+    public static let trackChatStart = "track-chat-start"
+    public static let trackChatEngagement = "track-chat-engagement"
+    public static let trackNodeVisit = "track-node-visit"
+    public static let trackNodeExit = "track-node-exit"
+    public static let trackSentiment = "track-sentiment"
+    public static let trackInteraction = "track-interaction"
+    public static let trackGoalCompletion = "track-goal-completion"
+    public static let trackDropOff = "track-drop-off"
+    public static let submitChatRating = "submit-chat-rating"
+    public static let finalizeAnalytics = "finalize-analytics"
+    public static let trackAnalytics = "track-analytics"
+
+    // Knowledge Base events - Client to server
+    public static let trackArticleView = "track-article-view"
+    public static let trackArticleEngagement = "track-article-engagement"
+    public static let rateArticle = "rate-article"
+    public static let getKnowledgeBaseCategories = "get-knowledge-base-categories"
+    public static let getKnowledgeBaseArticle = "get-knowledge-base-article"
+    public static let searchKnowledgeBase = "search-knowledge-base"
+
+    // Knowledge Base events - Server to client
+    public static let knowledgeBaseCategoriesResponse = "knowledge-base-categories-response"
+    public static let knowledgeBaseArticleResponse = "knowledge-base-article-response"
+    public static let knowledgeBaseSearchResponse = "knowledge-base-search-response"
+    public static let articleRated = "article-rated"
 
     // Deprecated - use joinChatRoomVisitor instead
     @available(*, deprecated, renamed: "joinChatRoomVisitor")
@@ -41,6 +77,11 @@ public struct SocketEvents {
     public static let visitorDisconnected = "visitor-disconnected"
     public static let visitorInputToggled = "visitor-input-toggled"
     public static let destroyNotification = "destroy-notification"
+
+    // Stripe payment events - Server to client
+    public static let stripePaymentUrlResponse = "stripe-payment-url-response"
+    public static let stripePaymentComplete = "stripe-payment-complete"
+    public static let stripePaymentFailed = "stripe-payment-failed"
 
     // Connection events
     public static let connect = "connect"
