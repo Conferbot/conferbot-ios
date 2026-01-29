@@ -177,7 +177,7 @@ public enum NodeTypes {
         ]
     }
 
-    // MARK: - Integration Nodes (17 types)
+    // MARK: - Integration Nodes (18 types)
 
     /// Integration nodes that connect to external services
     public enum Integration {
@@ -207,11 +207,33 @@ public enum NodeTypes {
         /// Integrates with Zendesk support
         public static let zendesk = "zendesk"
 
+        /// Integrates with Zoho CRM
+        public static let zohoCrm = "zoho_crm"
+
         /// Integrates with Slack messaging
         public static let slack = "slack"
 
+        /// Integrates with Discord messaging
+        public static let discord = "discord"
+
         /// Integrates with Zapier automation
         public static let zapier = "zapier"
+
+        // MARK: Google Workspace Integrations
+
+        /// Integrates with Google Drive for file/folder operations
+        public static let googleDrive = "google_drive"
+
+        /// Integrates with Google Calendar for scheduling appointments
+        public static let googleCalendar = "google_calendar"
+
+        /// Integrates with Google Docs for document creation/updates
+        public static let googleDocs = "google_docs"
+
+        // MARK: Productivity Integrations
+
+        /// Integrates with Notion databases and pages
+        public static let notion = "notion"
 
         // MARK: AI & NLP Integrations
 
@@ -241,12 +263,18 @@ public enum NodeTypes {
         /// Hands over to human agent
         public static let humanHandover = "human_handover"
 
+        // MARK: Payment Integrations
+
+        /// Integrates with Stripe for payments
+        public static let stripe = "stripe"
+
         /// All integration node types
         public static let allTypes: Set<String> = [
             webhook, googleSheets, sendEmail,
-            calendly, hubspot, salesforce, zendesk, slack, zapier,
+            calendly, hubspot, salesforce, zendesk, zohoCrm, slack, discord, zapier,
+            googleDrive, googleCalendar, googleDocs, notion,
             dialogflow, openai, gemini, perplexity, claude, groq, customLlm,
-            humanHandover
+            humanHandover, stripe
         ]
 
         /// AI/LLM integration types
@@ -256,7 +284,12 @@ public enum NodeTypes {
 
         /// CRM integration types
         public static let crmTypes: Set<String> = [
-            hubspot, salesforce, zendesk
+            hubspot, salesforce, zendesk, zohoCrm
+        ]
+
+        /// Payment integration types
+        public static let paymentTypes: Set<String> = [
+            stripe
         ]
     }
 
@@ -279,7 +312,7 @@ public enum NodeTypes {
 
     // MARK: - All Types Combined
 
-    /// All 51 node types
+    /// All node types
     public static let allTypes: Set<String> = {
         var types = Set<String>()
         types.formUnion(Display.allTypes)
@@ -346,6 +379,13 @@ public func isAINode(_ type: String) -> Bool {
 /// - Returns: True if the node is a CRM integration
 public func isCRMNode(_ type: String) -> Bool {
     return NodeTypes.Integration.crmTypes.contains(type)
+}
+
+/// Checks if a node type is a payment integration
+/// - Parameter type: The node type string
+/// - Returns: True if the node is a payment integration
+public func isPaymentNode(_ type: String) -> Bool {
+    return NodeTypes.Integration.paymentTypes.contains(type)
 }
 
 // MARK: - Node Type Utilities
@@ -448,8 +488,14 @@ public struct NodeType {
     public static let hubspot = NodeTypes.Integration.hubspot
     public static let salesforce = NodeTypes.Integration.salesforce
     public static let zendesk = NodeTypes.Integration.zendesk
+    public static let zohoCrm = NodeTypes.Integration.zohoCrm
     public static let slack = NodeTypes.Integration.slack
+    public static let discord = NodeTypes.Integration.discord
     public static let zapier = NodeTypes.Integration.zapier
+    public static let googleDrive = NodeTypes.Integration.googleDrive
+    public static let googleCalendar = NodeTypes.Integration.googleCalendar
+    public static let googleDocs = NodeTypes.Integration.googleDocs
+    public static let notion = NodeTypes.Integration.notion
     public static let dialogflow = NodeTypes.Integration.dialogflow
     public static let openai = NodeTypes.Integration.openai
     public static let gemini = NodeTypes.Integration.gemini
@@ -458,6 +504,7 @@ public struct NodeType {
     public static let groq = NodeTypes.Integration.groq
     public static let customLlm = NodeTypes.Integration.customLlm
     public static let humanHandover = NodeTypes.Integration.humanHandover
+    public static let stripe = NodeTypes.Integration.stripe
 
     // MARK: Flow Nodes
     public static let goal = NodeTypes.Flow.goal
