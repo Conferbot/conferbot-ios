@@ -21,6 +21,8 @@ public protocol ConferBotDelegate: AnyObject {
     func conferBot(_ conferBot: ConferBot, didUpdateUIState state: NodeUIState?)
     func conferBot(_ conferBot: ConferBot, didCompleteFlow success: Bool)
     func conferBot(_ conferBot: ConferBot, didReachGoal goalName: String, value: Any?)
+    func conferBot(_ conferBot: ConferBot, didUpdateQueuedMessageCount count: Int)
+    func conferBot(_ conferBot: ConferBot, didChangeNetworkStatus isOnline: Bool)
 }
 
 /// Default implementations for new delegate methods
@@ -28,6 +30,8 @@ public extension ConferBotDelegate {
     func conferBot(_ conferBot: ConferBot, didUpdateUIState state: NodeUIState?) {}
     func conferBot(_ conferBot: ConferBot, didCompleteFlow success: Bool) {}
     func conferBot(_ conferBot: ConferBot, didReachGoal goalName: String, value: Any?) {}
+    func conferBot(_ conferBot: ConferBot, didUpdateQueuedMessageCount count: Int) {}
+    func conferBot(_ conferBot: ConferBot, didChangeNetworkStatus isOnline: Bool) {}
 }
 
 /// Main ConferBot SDK class (Singleton)
@@ -40,12 +44,21 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var messages: [any RecordItem] = []
     @Published public private(set) var unreadCount: Int = 0
     @Published public private(set) var isAgentTyping: Bool = false
+    @Published public private(set) var hasRestoredSession: Bool = false
 
     // Node Flow Engine - Published properties
     @Published public private(set) var currentUIState: NodeUIState?
     @Published public private(set) var isProcessingNode: Bool = false
     @Published public private(set) var nodeErrorMessage: String?
     @Published public private(set) var isFlowComplete: Bool = false
+
+    // Offline support - Published properties
+    @Published public private(set) var isOnline: Bool = true
+    @Published public private(set) var queuedMessageCount: Int = 0
+
+    // Knowledge Base - Published properties
+    @Published public private(set) var knowledgeBaseCategories: [KnowledgeBaseCategory] = []
+    @Published public private(set) var isLoadingKnowledgeBase: Bool = false
 
     // Configuration
     private var apiKey: String?
@@ -58,9 +71,30 @@ public class ConferBot: ObservableObject {
     private var apiClient: APIClient?
     private var socketClient: SocketClient?
 
+    // Knowledge Base Service
+    public private(set) var knowledgeBaseService: KnowledgeBaseService?
+
     // Node Flow Engine
     private var flowEngine: NodeFlowEngine?
     private var flowEngineCancellables = Set<AnyCancellable>()
+
+    // Offline Manager
+    private var offlineManagerCancellables = Set<AnyCancellable>()
+
+    // Session Storage
+    private var sessionStorage: SessionStorageProtocol {
+        return SessionStorageManager.shared.storage
+    }
+
+    // Analytics
+    public var analytics: ChatAnalytics {
+        return ChatAnalytics.shared
+    }
+
+    // Offline Manager
+    public var offlineManager: OfflineManager {
+        return OfflineManager.shared
+    }
 
     // Delegate
     public weak var delegate: ConferBotDelegate?
@@ -75,6 +109,41 @@ public class ConferBot: ObservableObject {
 
     private init() {
         setupFlowEngine()
+        setupAnalytics()
+        setupOfflineManager()
+    }
+
+    // MARK: - Offline Manager Setup
+
+    private func setupOfflineManager() {
+        // Subscribe to offline manager state changes
+        offlineManager.$isOnline
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] online in
+                guard let self = self else { return }
+                self.isOnline = online
+                self.delegate?.conferBot(self, didChangeNetworkStatus: online)
+            }
+            .store(in: &offlineManagerCancellables)
+
+        offlineManager.$queuedMessageCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                guard let self = self else { return }
+                self.queuedMessageCount = count
+                self.delegate?.conferBot(self, didUpdateQueuedMessageCount: count)
+            }
+            .store(in: &offlineManagerCancellables)
+
+        // Set up the send message handler for the offline manager
+        offlineManager.sendMessageHandler = { [weak self] queuedMessage in
+            guard let self = self else {
+                throw OfflineManagerError.socketNotConnected
+            }
+            try await self.sendQueuedMessage(queuedMessage)
+        }
+
+        debugPrint("[ConferBot] Offline manager setup complete")
     }
 
     /// Initialize the SDK
@@ -103,13 +172,152 @@ public class ConferBot: ObservableObject {
             socketURL: config.socketURL
         )
 
+        // Initialize Knowledge Base Service
+        self.knowledgeBaseService = KnowledgeBaseService(
+            apiKey: apiKey,
+            botId: botId,
+            baseURL: config.apiBaseURL,
+            socketClient: self.socketClient
+        )
+
         // Register all node handlers
         registerAllNodeHandlers()
 
         setupSocketListeners()
         connectSocket()
 
+        // Attempt to restore existing session
+        restoreSessionIfValid()
+
         debugPrint("[ConferBot] Initialized with botId: \(botId)")
+    }
+
+    // MARK: - Session Persistence
+
+    /// Attempt to restore a valid session from storage
+    private func restoreSessionIfValid() {
+        guard let botId = botId else { return }
+
+        // Check if there's a valid stored session
+        if let storedSession = sessionStorage.loadSession(botId: botId) {
+            debugPrint("[ConferBot] Found stored session: \(storedSession.chatSessionId)")
+
+            // Restore the session
+            self.currentSession = storedSession
+
+            // Restore messages
+            let storedMessages = sessionStorage.loadMessages(sessionId: storedSession.chatSessionId)
+            if !storedMessages.isEmpty {
+                self.messages = storedMessages
+                debugPrint("[ConferBot] Restored \(storedMessages.count) messages")
+            }
+
+            // Restore chat state
+            restoreChatState(sessionId: storedSession.chatSessionId)
+
+            // Update session activity to extend expiry
+            sessionStorage.updateSessionActivity(sessionId: storedSession.chatSessionId)
+
+            // Rejoin chat room
+            socketClient?.joinChatRoomVisitor(
+                chatSessionId: storedSession.chatSessionId,
+                deviceInfo: getDeviceInfo()
+            )
+
+            hasRestoredSession = true
+            delegate?.conferBot(self, didStartSession: storedSession.chatSessionId)
+
+            debugPrint("[ConferBot] Session restored successfully")
+        }
+    }
+
+    /// Restore chat state from storage
+    private func restoreChatState(sessionId: String) {
+        // Restore answer variables
+        let answerVariables = sessionStorage.loadAnswerVariables(sessionId: sessionId)
+        for variable in answerVariables {
+            chatState.setAnswer(nodeId: variable.nodeId, value: variable.value.value)
+        }
+
+        // Restore user metadata
+        if let metadata = sessionStorage.loadUserMetadata(sessionId: sessionId) {
+            chatState.updateMetadata(metadata.toDictionary())
+        }
+
+        // Restore transcript
+        let transcript = sessionStorage.loadTranscript(sessionId: sessionId)
+        for entry in transcript {
+            chatState.addToTranscript(entry: entry.toDictionary())
+        }
+
+        debugPrint("[ConferBot] Chat state restored")
+    }
+
+    /// Save current session state to storage
+    private func saveSessionState() {
+        guard let session = currentSession else { return }
+
+        do {
+            // Save session
+            try sessionStorage.saveSession(session: session)
+
+            // Save messages
+            try sessionStorage.saveMessages(messages: messages, sessionId: session.chatSessionId)
+
+            // Save chat state
+            saveChatState(sessionId: session.chatSessionId)
+
+            debugPrint("[ConferBot] Session state saved")
+        } catch {
+            debugPrint("[ConferBot] Failed to save session state: \(error)")
+        }
+    }
+
+    /// Save chat state to storage
+    private func saveChatState(sessionId: String) {
+        do {
+            // Convert answer variables to storable format
+            let answerVars = chatState.getAllAnswers().map { key, value in
+                AnswerVariable(nodeId: key, value: value)
+            }
+            try sessionStorage.saveAnswerVariables(variables: answerVars, sessionId: sessionId)
+
+            // Save user metadata
+            let metadata = UserMetadata(from: chatState.userMetadata)
+            try sessionStorage.saveUserMetadata(metadata: metadata, sessionId: sessionId)
+
+            // Save transcript
+            let transcript = chatState.getTranscript().map { TranscriptEntry(from: $0) }
+            try sessionStorage.saveTranscript(transcript: transcript, sessionId: sessionId)
+
+        } catch {
+            debugPrint("[ConferBot] Failed to save chat state: \(error)")
+        }
+    }
+
+    /// Check if there's a valid stored session
+    public func hasValidStoredSession() -> Bool {
+        guard let botId = botId else { return false }
+        return sessionStorage.loadSession(botId: botId) != nil
+    }
+
+    /// Get session expiry date
+    public func getSessionExpiry() -> Date? {
+        guard let session = currentSession else { return nil }
+        return sessionStorage.getSessionExpiry(sessionId: session.chatSessionId)
+    }
+
+    /// Clear stored session data (logout/end chat)
+    public func clearStoredSession() {
+        guard let session = currentSession else { return }
+        sessionStorage.clearSession(sessionId: session.chatSessionId)
+        hasRestoredSession = false
+        debugPrint("[ConferBot] Stored session cleared")
+    }
+
+    /// Configure session storage with custom expiry time
+    public func configureSessionStorage(expiryMinutes: Int) {
+        SessionStorageManager.shared.configure(expiryMinutes: expiryMinutes)
     }
 
     // MARK: - Flow Engine Setup
@@ -140,9 +348,45 @@ public class ConferBot: ObservableObject {
                 self?.isFlowComplete = isComplete
                 if isComplete {
                     self?.delegate?.conferBot(self!, didCompleteFlow: true)
+                    // Finalize analytics when flow completes
+                    self?.analytics.finalizeChatAnalytics()
                 }
             }
             .store(in: &flowEngineCancellables)
+
+        // Subscribe to node changes for analytics tracking
+        flowEngine?.$currentNodeId
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] nodeId in
+                guard let self = self,
+                      let nodeInfo = self.flowEngine?.getNodeInfo(nodeId),
+                      let nodeType = nodeInfo["type"] as? String else { return }
+
+                // Track node entry in analytics
+                self.analytics.trackNodeEntry(
+                    nodeId: nodeId,
+                    nodeType: nodeType,
+                    nodeName: nodeInfo["name"] as? String
+                )
+            }
+            .store(in: &flowEngineCancellables)
+    }
+
+    // MARK: - Analytics Setup
+
+    private func setupAnalytics() {
+        // Configure analytics emit handler to send events via socket
+        analytics.setEmitHandler { [weak self] event, data in
+            guard let self = self,
+                  let socketClient = self.socketClient,
+                  socketClient.isConnected else {
+                return
+            }
+
+            socketClient.emit(event, data)
+            self.debugPrint("[ConferBot] Analytics event emitted: \(event)")
+        }
     }
 
     private func registerAllNodeHandlers() {
@@ -227,9 +471,22 @@ public class ConferBot: ObservableObject {
     }
 
     /// Start a new chat session
-    public func startSession() async throws {
-        guard let apiClient = apiClient else {
+    /// - Parameter forceNew: If true, creates a new session even if a valid one exists
+    public func startSession(forceNew: Bool = false) async throws {
+        guard let apiClient = apiClient,
+              let botId = botId else {
             throw ConferBotError.notInitialized
+        }
+
+        // If not forcing new and we have a restored session, just return
+        if !forceNew && hasRestoredSession && currentSession != nil {
+            debugPrint("[ConferBot] Using restored session: \(currentSession!.chatSessionId)")
+            return
+        }
+
+        // Clear any existing stored session if forcing new
+        if forceNew, let existingSession = currentSession {
+            sessionStorage.clearSession(sessionId: existingSession.chatSessionId)
         }
 
         let session = try await apiClient.initSession(userId: currentUser?.id)
@@ -237,6 +494,7 @@ public class ConferBot: ObservableObject {
         await MainActor.run {
             self.currentSession = session
             self.messages = session.record.map { $0.value }
+            self.hasRestoredSession = false
             delegate?.conferBot(self, didStartSession: session.chatSessionId)
         }
 
@@ -246,10 +504,20 @@ public class ConferBot: ObservableObject {
             deviceInfo: getDeviceInfo()
         )
 
+        // Initialize analytics tracking for this session
+        analytics.initializeChatAnalytics(
+            sessionId: session.chatSessionId,
+            botIdentifier: botId,
+            visitorIdentifier: session.visitorId ?? currentUser?.id ?? UUID().uuidString
+        )
+
+        // Save the new session to storage
+        saveSessionState()
+
         debugPrint("[ConferBot] Session started: \(session.chatSessionId)")
     }
 
-    /// Send a message
+    /// Send a message (with offline support)
     public func sendMessage(_ text: String, metadata: [String: AnyCodable]? = nil) async throws {
         guard let session = currentSession else {
             throw ConferBotError.notInitialized
@@ -273,7 +541,35 @@ public class ConferBot: ObservableObject {
             messages.append(userMessage)
         }
 
-        // Send via socket using response-record event (matches embed-server)
+        // Check if we can send immediately or need to queue
+        if offlineManager.canSendMessages {
+            // Send via socket
+            sendMessageViaSocket(text: text, messageId: messageId, session: session)
+
+            // Track user message in analytics
+            analytics.trackUserMessage(text: text, messageIndex: messages.count)
+
+            debugPrint("[ConferBot] Message sent: \(text)")
+        } else {
+            // Queue message for later sending
+            offlineManager.queueMessage(
+                content: text,
+                metadata: metadata,
+                chatSessionId: session.chatSessionId
+            )
+
+            debugPrint("[ConferBot] Message queued (offline): \(text)")
+        }
+
+        // Save session state after sending/queueing message
+        saveSessionState()
+
+        // Update session activity to extend expiry
+        sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
+    }
+
+    /// Internal method to send a message via socket
+    private func sendMessageViaSocket(text: String, messageId: String, session: ChatSession) {
         let record: [String: Any] = [
             "_id": messageId,
             "type": "user-input-response",
@@ -307,14 +603,61 @@ public class ConferBot: ObservableObject {
             record: allRecords,
             answerVariables: []
         )
+    }
 
-        debugPrint("[ConferBot] Message sent: \(text)")
+    /// Send a queued message (called by OfflineManager)
+    private func sendQueuedMessage(_ queuedMessage: QueuedMessage) async throws {
+        guard let session = currentSession else {
+            throw ConferBotError.notInitialized
+        }
+
+        guard socketClient?.isConnected == true else {
+            throw OfflineManagerError.socketNotConnected
+        }
+
+        // Use the original message ID
+        let messageId = queuedMessage.id
+
+        // Send via socket
+        sendMessageViaSocket(text: queuedMessage.content, messageId: messageId, session: session)
+
+        // Track user message in analytics
+        analytics.trackUserMessage(text: queuedMessage.content, messageIndex: messages.count)
+
+        debugPrint("[ConferBot] Queued message sent: \(queuedMessage.content)")
+    }
+
+    /// Get queued messages
+    public var queuedMessages: [QueuedMessage] {
+        return offlineManager.queuedMessages
+    }
+
+    /// Manually flush the message queue
+    public func flushMessageQueue() {
+        offlineManager.flushQueue()
+    }
+
+    /// Retry failed messages
+    public func retryFailedMessages() {
+        offlineManager.retryFailedMessages()
+    }
+
+    /// Clear the message queue
+    public func clearMessageQueue() {
+        offlineManager.clearQueue()
     }
 
     /// Send typing indicator
     public func sendTypingIndicator(isTyping: Bool) {
         guard let session = currentSession else { return }
         socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: isTyping)
+
+        // Track typing behavior for analytics
+        if isTyping {
+            analytics.trackTypingStart()
+        } else {
+            analytics.trackTypingEnd()
+        }
     }
 
     // MARK: - Node Flow Engine Methods
@@ -364,9 +707,35 @@ public class ConferBot: ObservableObject {
         ]
         chatState.addToTranscript(entry: transcript)
 
+        // Track node exit with user input for analytics
+        let inputString = stringValue(from: input)
+        analytics.trackNodeExit(
+            nodeId: nodeId,
+            exitType: .proceeded,
+            userInput: inputString,
+            selectedOption: nil
+        )
+
+        // Track user message
+        analytics.trackUserMessage(text: inputString)
+
+        // Track form submission interaction
+        analytics.trackInteraction(type: .formSubmitted, data: [
+            "nodeId": nodeId,
+            "inputType": "text"
+        ])
+
         // Process the input
         Task {
             await flowEngine.handleUserInput(input, forNodeId: nodeId)
+        }
+
+        // Save session state after handling input
+        saveSessionState()
+
+        // Update session activity
+        if let session = currentSession {
+            sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
         }
 
         debugPrint("[ConferBot] Node input handled for node: \(nodeId)")
@@ -379,8 +748,30 @@ public class ConferBot: ObservableObject {
         // Store button selection
         chatState.setAnswer(nodeId: nodeId, value: buttonId)
 
+        // Track node exit with selected option for analytics
+        analytics.trackNodeExit(
+            nodeId: nodeId,
+            exitType: .proceeded,
+            userInput: nil,
+            selectedOption: buttonId
+        )
+
+        // Track button click interaction
+        analytics.trackInteraction(type: .buttonsClicked, data: [
+            "nodeId": nodeId,
+            "buttonId": buttonId
+        ])
+
         Task {
             await flowEngine.handleButtonClick(buttonId: buttonId, forNodeId: nodeId)
+        }
+
+        // Save session state after button click
+        saveSessionState()
+
+        // Update session activity
+        if let session = currentSession {
+            sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
         }
 
         debugPrint("[ConferBot] Button clicked: \(buttonId) for node: \(nodeId)")
@@ -393,8 +784,30 @@ public class ConferBot: ObservableObject {
         // Store choice selection
         chatState.setAnswer(nodeId: nodeId, value: optionId)
 
+        // Track node exit with selected option for analytics
+        analytics.trackNodeExit(
+            nodeId: nodeId,
+            exitType: .proceeded,
+            userInput: nil,
+            selectedOption: optionId
+        )
+
+        // Track quick reply selection interaction
+        analytics.trackInteraction(type: .quickReplySelected, data: [
+            "nodeId": nodeId,
+            "optionId": optionId
+        ])
+
         Task {
             await flowEngine.handleChoiceSelection(optionId: optionId, forNodeId: nodeId)
+        }
+
+        // Save session state after choice selection
+        saveSessionState()
+
+        // Update session activity
+        if let session = currentSession {
+            sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
         }
 
         debugPrint("[ConferBot] Choice selected: \(optionId) for node: \(nodeId)")
@@ -414,22 +827,50 @@ public class ConferBot: ObservableObject {
             }
         }
 
+        // Save session state after multiple choice selection
+        saveSessionState()
+
+        // Update session activity
+        if let session = currentSession {
+            sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
+        }
+
         debugPrint("[ConferBot] Multiple choices selected: \(optionIds) for node: \(nodeId)")
     }
 
     /// Handle rating selection
     public func handleRatingSelection(rating: Int, forNodeId nodeId: String) {
+        // Track rating interaction
+        analytics.trackInteraction(type: .ratingSubmitted, data: [
+            "nodeId": nodeId,
+            "rating": rating
+        ])
+
         handleNodeInput(rating, forNodeId: nodeId)
     }
 
     /// Handle date/time selection
     public func handleDateSelection(date: Date, forNodeId nodeId: String) {
         let formatter = ISO8601DateFormatter()
+
+        // Track date selection interaction
+        analytics.trackInteraction(type: .dateSelected, data: [
+            "nodeId": nodeId,
+            "date": formatter.string(from: date)
+        ])
+
         handleNodeInput(formatter.string(from: date), forNodeId: nodeId)
     }
 
     /// Handle file upload completion
     public func handleFileUpload(fileURL: URL, forNodeId nodeId: String) {
+        // Track file upload interaction
+        analytics.trackInteraction(type: .filesUploaded, data: [
+            "nodeId": nodeId,
+            "fileURL": fileURL.absoluteString,
+            "fileExtension": fileURL.pathExtension
+        ])
+
         handleNodeInput(fileURL.absoluteString, forNodeId: nodeId)
     }
 
@@ -441,6 +882,29 @@ public class ConferBot: ObservableObject {
     /// Check if a specific node type requires user interaction
     public func nodeRequiresInteraction(_ nodeType: String) -> Bool {
         return NodeTypes.requiresUserInteraction(nodeType)
+    }
+
+    /// Track goal completion
+    /// - Parameters:
+    ///   - goalId: The goal identifier
+    ///   - goalName: Optional display name for the goal
+    ///   - value: Optional conversion value
+    public func trackGoal(goalId: String, goalName: String? = nil, value: Any? = nil) {
+        var goalData: [String: Any] = [:]
+
+        if let goalName = goalName {
+            goalData["goalName"] = goalName
+        }
+        if let value = value {
+            goalData["conversionValue"] = value
+        }
+
+        analytics.trackGoalCompletion(goalId: goalId, data: goalData)
+
+        // Notify delegate
+        delegate?.conferBot(self, didReachGoal: goalName ?? goalId, value: value)
+
+        debugPrint("[ConferBot] Goal tracked: \(goalId)")
     }
 
     /// Emit socket event (for integration nodes)
@@ -470,17 +934,27 @@ public class ConferBot: ObservableObject {
     }
 
     /// End current session
-    public func endSession() {
+    /// - Parameter clearStorage: If true, clears stored session data (default: true)
+    public func endSession(clearStorage: Bool = true) {
         guard let session = currentSession else { return }
+
+        // Finalize analytics before ending session
+        analytics.finalizeChatAnalytics()
 
         socketClient?.leaveChatRoom(chatSessionId: session.chatSessionId)
         socketClient?.endChat(chatSessionId: session.chatSessionId)
+
+        // Clear stored session data if requested
+        if clearStorage {
+            sessionStorage.clearSession(sessionId: session.chatSessionId)
+        }
 
         delegate?.conferBot(self, didEndSession: session.chatSessionId)
 
         currentSession = nil
         messages = []
         unreadCount = 0
+        hasRestoredSession = false
 
         debugPrint("[ConferBot] Session ended: \(session.chatSessionId)")
     }
@@ -546,6 +1020,9 @@ public class ConferBot: ObservableObject {
             Task { @MainActor in
                 self.isConnected = true
                 self.delegate?.conferBot(self, didChangeConnectionStatus: true)
+
+                // Notify offline manager that socket connected
+                self.offlineManager.handleSocketConnected()
             }
         }
 
@@ -554,6 +1031,18 @@ public class ConferBot: ObservableObject {
             Task { @MainActor in
                 self.isConnected = false
                 self.delegate?.conferBot(self, didChangeConnectionStatus: false)
+
+                // Notify offline manager that socket disconnected
+                self.offlineManager.handleSocketDisconnected()
+            }
+        }
+
+        // Reconnect event - flush queue after reconnection
+        socketClient?.on(SocketEvents.reconnect) { [weak self] _, _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.debugPrint("[ConferBot] Socket reconnected, flushing message queue")
+                self.offlineManager.handleSocketConnected()
             }
         }
 
@@ -626,6 +1115,9 @@ public class ConferBot: ObservableObject {
             Task { @MainActor in
                 self.messages.append(message.value)
                 self.delegate?.conferBot(self, didReceiveMessage: message.value)
+
+                // Save session state after receiving message
+                self.saveSessionState()
             }
         } catch {
             debugPrint("[ConferBot] Failed to decode bot response: \(error)")
@@ -682,6 +1174,9 @@ public class ConferBot: ObservableObject {
                 self.unreadCount += 1
                 self.delegate?.conferBot(self, didReceiveMessage: message.value)
                 self.delegate?.conferBot(self, didUpdateUnreadCount: self.unreadCount)
+
+                // Save session state after receiving agent message
+                self.saveSessionState()
             }
         } catch {
             debugPrint("[ConferBot] Failed to decode agent message: \(error)")
@@ -767,9 +1262,129 @@ public class ConferBot: ObservableObject {
         #endif
     }
 
+    /// Convert any value to string representation for analytics
+    private func stringValue(from value: Any) -> String {
+        switch value {
+        case let string as String:
+            return string
+        case let number as NSNumber:
+            return number.stringValue
+        case let bool as Bool:
+            return bool ? "Yes" : "No"
+        case let array as [Any]:
+            return array.compactMap { stringValue(from: $0) }.joined(separator: ", ")
+        default:
+            return String(describing: value)
+        }
+    }
+
     /// Disconnect socket
     public func disconnect() {
         socketClient?.disconnect()
         isConnected = false
+        offlineManager.handleSocketDisconnected()
+    }
+
+    // MARK: - Knowledge Base Methods
+
+    /// Fetch Knowledge Base categories
+    @MainActor
+    public func fetchKnowledgeBaseCategories() async throws -> [KnowledgeBaseCategory] {
+        guard let service = knowledgeBaseService else {
+            throw ConferBotError.notInitialized
+        }
+
+        isLoadingKnowledgeBase = true
+        defer { isLoadingKnowledgeBase = false }
+
+        let categories = try await service.fetchCategories()
+        knowledgeBaseCategories = categories
+        return categories
+    }
+
+    /// Fetch Knowledge Base articles
+    @MainActor
+    public func fetchKnowledgeBaseArticles() async throws -> [KnowledgeBaseArticle] {
+        guard let service = knowledgeBaseService else {
+            throw ConferBotError.notInitialized
+        }
+
+        return try await service.fetchArticles()
+    }
+
+    /// Search Knowledge Base articles
+    @MainActor
+    public func searchKnowledgeBaseArticles(query: String) async throws -> [KnowledgeBaseArticle] {
+        guard let service = knowledgeBaseService else {
+            throw ConferBotError.notInitialized
+        }
+
+        return try await service.searchArticles(query: query)
+    }
+
+    /// Get a specific Knowledge Base article
+    @MainActor
+    public func getKnowledgeBaseArticle(id: String) async throws -> KnowledgeBaseArticle {
+        guard let service = knowledgeBaseService else {
+            throw ConferBotError.notInitialized
+        }
+
+        return try await service.getArticle(id: id)
+    }
+
+    /// Track Knowledge Base article view
+    public func trackKnowledgeBaseArticleView(articleId: String) {
+        knowledgeBaseService?.trackArticleView(
+            articleId: articleId,
+            visitorId: currentSession?.visitorId,
+            sessionId: currentSession?.chatSessionId
+        )
+    }
+
+    /// Rate a Knowledge Base article
+    public func rateKnowledgeBaseArticle(
+        articleId: String,
+        helpful: Bool,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        knowledgeBaseService?.rateArticle(
+            articleId: articleId,
+            helpful: helpful,
+            visitorId: currentSession?.visitorId,
+            sessionId: currentSession?.chatSessionId,
+            completion: completion
+        )
+    }
+
+    /// Start tracking engagement for a Knowledge Base article
+    public func startKnowledgeBaseArticleEngagement(articleId: String) {
+        knowledgeBaseService?.startArticleEngagement(
+            articleId: articleId,
+            visitorId: currentSession?.visitorId,
+            sessionId: currentSession?.chatSessionId
+        )
+    }
+
+    /// Update scroll depth for Knowledge Base article engagement
+    public func updateKnowledgeBaseScrollDepth(_ scrollDepth: Double) {
+        knowledgeBaseService?.updateScrollDepth(scrollDepth)
+    }
+
+    /// Send Knowledge Base article engagement data
+    public func sendKnowledgeBaseEngagement() {
+        knowledgeBaseService?.sendCurrentEngagement()
+    }
+
+    /// Get related Knowledge Base articles
+    public func getRelatedKnowledgeBaseArticles(
+        for article: KnowledgeBaseArticle,
+        limit: Int = 3
+    ) -> [KnowledgeBaseArticle] {
+        return knowledgeBaseService?.getRelatedArticles(for: article, limit: limit) ?? []
+    }
+
+    /// Clear Knowledge Base cache
+    public func clearKnowledgeBaseCache() {
+        knowledgeBaseService?.clearCache()
     }
 }
