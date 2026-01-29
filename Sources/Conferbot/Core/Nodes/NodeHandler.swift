@@ -97,6 +97,15 @@ public enum NodeUIState {
     /// Display embedded HTML content
     case embed(html: String)
 
+    /// Display payment UI (Stripe, etc.)
+    /// - Parameters:
+    ///   - paymentUrl: The URL to open for payment (checkout session URL)
+    ///   - amount: Optional payment amount for display
+    ///   - currency: Currency code (e.g., "USD", "EUR")
+    ///   - description: Optional description of the payment
+    ///   - nodeId: The node ID for tracking
+    case payment(paymentUrl: String, amount: Double?, currency: String, description: String?, nodeId: String)
+
     /// Display loading state
     case loading
 
