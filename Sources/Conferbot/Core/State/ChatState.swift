@@ -503,3 +503,118 @@ public extension ChatState {
         return userMetadata["phone"] as? String
     }
 }
+
+// MARK: - Persistence Extensions
+
+@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+public extension ChatState {
+
+    /// Restore state from stored answer variables
+    /// - Parameter variables: Array of stored answer variables
+    func restoreAnswerVariables(_ variables: [AnswerVariable]) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for variable in variables {
+            answerVariables[variable.nodeId] = variable.value.value
+        }
+    }
+
+    /// Restore state from stored user metadata
+    /// - Parameter metadata: Stored user metadata
+    func restoreUserMetadata(_ metadata: UserMetadata) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        userMetadata = metadata.toDictionary()
+    }
+
+    /// Restore state from stored transcript entries
+    /// - Parameter entries: Array of stored transcript entries
+    func restoreTranscript(_ entries: [TranscriptEntry]) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        transcript = entries.map { $0.toDictionary() }
+    }
+
+    /// Restore state from stored flow variables
+    /// - Parameter vars: Dictionary of stored variables
+    func restoreVariables(_ vars: [String: AnyCodable]) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for (key, value) in vars {
+            variables[key] = value.value
+        }
+    }
+
+    /// Restore complete state from stored chat state
+    /// - Parameter storedState: The stored chat state to restore from
+    func restoreFromStoredState(_ storedState: StoredChatState) {
+        restoreAnswerVariables(storedState.answerVariables)
+        restoreUserMetadata(storedState.userMetadata)
+        restoreTranscript(storedState.transcript)
+        restoreVariables(storedState.variables)
+    }
+
+    /// Convert current state to storable format
+    /// - Parameter sessionId: The session ID to associate with this state
+    /// - Returns: A StoredChatState containing all current state data
+    func toStoredState(sessionId: String) -> StoredChatState {
+        lock.lock()
+        defer { lock.unlock() }
+
+        // Convert answer variables
+        let storedAnswers = answerVariables.map { key, value in
+            AnswerVariable(nodeId: key, value: value)
+        }
+
+        // Convert user metadata
+        let storedMetadata = UserMetadata(from: userMetadata)
+
+        // Convert transcript
+        let storedTranscript = transcript.map { TranscriptEntry(from: $0) }
+
+        // Convert variables
+        let storedVariables = variables.mapValues { AnyCodable($0) }
+
+        return StoredChatState(
+            sessionId: sessionId,
+            answerVariables: storedAnswers,
+            userMetadata: storedMetadata,
+            transcript: storedTranscript,
+            variables: storedVariables
+        )
+    }
+
+    /// Save current state to storage
+    /// - Parameter sessionId: The session ID to save state for
+    func saveToStorage(sessionId: String) {
+        let storage = SessionStorageManager.shared.storage
+        let storedState = toStoredState(sessionId: sessionId)
+
+        do {
+            try storage.saveChatState(state: storedState)
+        } catch {
+            #if DEBUG
+            print("[ChatState] Failed to save state: \(error)")
+            #endif
+        }
+    }
+
+    /// Load state from storage
+    /// - Parameter sessionId: The session ID to load state for
+    /// - Returns: True if state was loaded successfully
+    @discardableResult
+    func loadFromStorage(sessionId: String) -> Bool {
+        let storage = SessionStorageManager.shared.storage
+
+        guard let storedState = storage.loadChatState(sessionId: sessionId) else {
+            return false
+        }
+
+        restoreFromStoredState(storedState)
+        return true
+    }
+}
