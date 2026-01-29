@@ -116,11 +116,16 @@ final class ConferbotTests: XCTestCase {
     // MARK: - Socket Events Tests
 
     func testSocketEvents() {
-        XCTAssertEqual(SocketEvents.mobileInit, "mobile-init")
-        XCTAssertEqual(SocketEvents.sendVisitorMessage, "send-visitor-message")
+        // Test current socket events (these map to embed-server events)
+        XCTAssertEqual(SocketEvents.joinChatRoomVisitor, "join-chat-room-visitor")
+        XCTAssertEqual(SocketEvents.responseRecord, "response-record")
         XCTAssertEqual(SocketEvents.botResponse, "bot-response")
         XCTAssertEqual(SocketEvents.agentMessage, "agent-message")
         XCTAssertEqual(SocketEvents.connect, "connect")
+
+        // Verify deprecated events still map to correct values for backward compatibility
+        XCTAssertEqual(SocketEvents.mobileInit, "join-chat-room-visitor")
+        XCTAssertEqual(SocketEvents.sendVisitorMessage, "response-record")
     }
 
     // MARK: - Message Type Tests
