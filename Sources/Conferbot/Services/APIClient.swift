@@ -41,7 +41,7 @@ public class APIClient {
     public init(
         apiKey: String,
         botId: String,
-        baseURL: String = ConferBotConstants.defaultApiBaseURL,
+        baseURL: String = ConferBotEndpoints.apiBaseURL,
         session: URLSession = .shared
     ) {
         self.apiKey = apiKey
@@ -50,12 +50,22 @@ public class APIClient {
         self.session = session
     }
 
+    deinit {
+        // Cancel all outstanding tasks when this client is deallocated.
+        // Only invalidate if we own a non-shared session; shared session must not be invalidated.
+        if session !== URLSession.shared {
+            session.invalidateAndCancel()
+        }
+    }
+
     /// Initialize a new chat session
     public func initSession(userId: String? = nil) async throws -> ChatSession {
-        let url = URL(string: "\(baseURL)/session/init")!
+        guard let url = URL(string: "\(baseURL)/session/init") else {
+            throw ConferBotError.apiError("Invalid URL: \(baseURL)/session/init")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = ConferBotConstants.apiTimeout
+        request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
 
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
@@ -96,10 +106,12 @@ public class APIClient {
 
     /// Get session history
     public func getSessionHistory(chatSessionId: String) async throws -> [AnyRecordItem] {
-        let url = URL(string: "\(baseURL)/session/\(chatSessionId)")!
+        guard let url = URL(string: "\(baseURL)/session/\(chatSessionId)") else {
+            throw ConferBotError.apiError("Invalid URL: \(baseURL)/session/\(chatSessionId)")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = ConferBotConstants.apiTimeout
+        request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
 
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
@@ -134,10 +146,12 @@ public class APIClient {
         message: String,
         metadata: [String: AnyCodable]? = nil
     ) async throws -> [String: Any] {
-        let url = URL(string: "\(baseURL)/session/\(chatSessionId)/message")!
+        guard let url = URL(string: "\(baseURL)/session/\(chatSessionId)/message") else {
+            throw ConferBotError.apiError("Invalid URL: \(baseURL)/session/\(chatSessionId)/message")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = ConferBotConstants.apiTimeout
+        request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
 
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
@@ -167,10 +181,12 @@ public class APIClient {
         token: String,
         chatSessionId: String
     ) async throws {
-        let url = URL(string: "\(baseURL)/push/register")!
+        guard let url = URL(string: "\(baseURL)/push/register") else {
+            throw ConferBotError.apiError("Invalid URL: \(baseURL)/push/register")
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = ConferBotConstants.apiTimeout
+        request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
 
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
