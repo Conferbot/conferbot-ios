@@ -9,27 +9,26 @@ import Foundation
 
 // MARK: - Integration Node Types
 
-/// All supported integration node types
+/// All supported integration node types (server-format kebab-case-node)
 public enum IntegrationNodeType: String, CaseIterable {
-    case webhook = "webhook"
-    case googleSheets = "google_sheets"
-    case sendEmail = "send_email"
-    case calendly = "calendly"
-    case googleMeet = "google_meet"
-    case hubspot = "hubspot"
-    case salesforce = "salesforce"
-    case zendesk = "zendesk"
-    case slack = "slack"
-    case discord = "discord"
-    case zapier = "zapier"
-    case dialogflow = "dialogflow"
-    case openai = "openai"
-    case gemini = "gemini"
-    case perplexity = "perplexity"
-    case claude = "claude"
-    case groq = "groq"
-    case customLLM = "custom_llm"
-    case humanHandover = "human_handover"
+    case webhook = "webhook-node"
+    case googleSheets = "google-sheets-node"
+    case email = "email-node"
+    case gpt = "gpt-node"
+    case zapier = "zapier-node"
+    case gmail = "gmail-node"
+    case googleCalendar = "google-calendar-node"
+    case googleMeet = "google-meet-node"
+    case googleDrive = "google-drive-node"
+    case googleDocs = "google-docs-node"
+    case slack = "slack-node"
+    case discord = "discord-node"
+    case airtable = "airtable-node"
+    case hubspot = "hubspot-node"
+    case notion = "notion-node"
+    case zohoCrm = "zohocrm-node"
+    case stripe = "stripe-node"
+    case humanHandover = "human-handover-node"
 }
 
 // MARK: - Handler Result
@@ -126,8 +125,9 @@ public protocol NodeState {
 
 // MARK: - Node Handler Protocol
 
-/// Protocol that all node handlers must conform to
-public protocol NodeHandler {
+/// Protocol that all integration node handlers must conform to
+/// Note: This is separate from the main NodeHandler protocol in NodeHandler.swift
+public protocol IntegrationNodeHandler {
     /// The node type this handler processes
     static var nodeType: String { get }
 
@@ -138,7 +138,7 @@ public protocol NodeHandler {
 // MARK: - Base Integration Handler
 
 /// Base class for integration node handlers with common functionality
-open class BaseIntegrationHandler: NodeHandler {
+open class BaseIntegrationHandler: IntegrationNodeHandler {
     open class var nodeType: String { "" }
 
     public init() {}
@@ -248,7 +248,7 @@ open class BaseIntegrationHandler: NodeHandler {
 /// Handles webhook integration nodes
 /// Makes HTTP requests to external URLs with custom headers and body
 public final class WebhookHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "webhook" }
+    public override class var nodeType: String { NodeTypes.Integration.webhook }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing webhook node")
@@ -358,7 +358,7 @@ public final class WebhookHandler: BaseIntegrationHandler {
 /// Handles Google Sheets integration nodes
 /// Server-side processing - emits socket event for server to handle
 public final class GoogleSheetsHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "google_sheets" }
+    public override class var nodeType: String { NodeTypes.Integration.googleSheets }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Google Sheets node")
@@ -419,7 +419,7 @@ public final class GoogleSheetsHandler: BaseIntegrationHandler {
 /// Handles email sending integration nodes
 /// Server-side processing - emits socket event for server to send email
 public final class SendEmailHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "send_email" }
+    public override class var nodeType: String { NodeTypes.Integration.email }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing send email node")
@@ -488,7 +488,8 @@ public final class SendEmailHandler: BaseIntegrationHandler {
 /// Handles Calendly integration nodes
 /// Returns displayUI result for embedding or linking to Calendly
 public final class CalendlyHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "calendly" }
+    // Legacy: calendly is not a server node type; kept for compat
+    public override class var nodeType: String { "calendly-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Calendly node")
@@ -551,7 +552,7 @@ public final class CalendlyHandler: BaseIntegrationHandler {
 /// Handles HubSpot CRM integration nodes
 /// Server-side processing - emits socket event for server to handle
 public final class HubspotHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "hubspot" }
+    public override class var nodeType: String { NodeTypes.Integration.hubspot }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing HubSpot node")
@@ -620,7 +621,8 @@ public final class HubspotHandler: BaseIntegrationHandler {
 /// Handles Salesforce CRM integration nodes
 /// Server-side processing - emits socket event for server to handle
 public final class SalesforceHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "salesforce" }
+    // Legacy: salesforce is not in server types; kept for compat
+    public override class var nodeType: String { "salesforce-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Salesforce node")
@@ -690,7 +692,8 @@ public final class SalesforceHandler: BaseIntegrationHandler {
 /// Handles Zendesk support integration nodes
 /// Server-side processing - emits socket event for server to create tickets
 public final class ZendeskHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "zendesk" }
+    // Legacy: zendesk is not in server types; kept for compat
+    public override class var nodeType: String { "zendesk-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Zendesk node")
@@ -770,7 +773,7 @@ public final class ZendeskHandler: BaseIntegrationHandler {
 /// Handles Slack messaging integration nodes
 /// Server-side processing - emits socket event for server to send Slack messages
 public final class SlackHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "slack" }
+    public override class var nodeType: String { NodeTypes.Integration.slack }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Slack node")
@@ -834,7 +837,7 @@ public final class SlackHandler: BaseIntegrationHandler {
 /// Handles Discord messaging integration nodes
 /// Server-side processing - emits socket event for server to send Discord messages
 public final class DiscordHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "discord" }
+    public override class var nodeType: String { NodeTypes.Integration.discord }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Discord node")
@@ -901,7 +904,7 @@ public final class DiscordHandler: BaseIntegrationHandler {
 /// Handles Zapier webhook integration nodes
 /// Makes HTTP POST request to Zapier webhook URL
 public final class ZapierHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "zapier" }
+    public override class var nodeType: String { NodeTypes.Integration.zapier }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Zapier node")
@@ -986,7 +989,8 @@ public final class ZapierHandler: BaseIntegrationHandler {
 /// Handles Dialogflow NLU integration nodes
 /// Server-side processing - emits socket event for server to process
 public final class DialogflowHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "dialogflow" }
+    // Legacy: dialogflow is not in server types; kept for compat
+    public override class var nodeType: String { "dialogflow-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Dialogflow node")
@@ -1053,7 +1057,8 @@ public final class DialogflowHandler: BaseIntegrationHandler {
 /// Handles OpenAI GPT integration nodes
 /// Server-side processing - emits socket event for server to call OpenAI API
 public final class OpenAIHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "openai" }
+    // Legacy: openai is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "openai-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing OpenAI node")
@@ -1120,7 +1125,8 @@ public final class OpenAIHandler: BaseIntegrationHandler {
 /// Handles Google Gemini AI integration nodes
 /// Server-side processing - emits socket event for server to call Gemini API
 public final class GeminiHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "gemini" }
+    // Legacy: gemini is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "gemini-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Gemini node")
@@ -1181,7 +1187,8 @@ public final class GeminiHandler: BaseIntegrationHandler {
 /// Handles Perplexity AI integration nodes
 /// Server-side processing - emits socket event for server to call Perplexity API
 public final class PerplexityHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "perplexity" }
+    // Legacy: perplexity is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "perplexity-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Perplexity node")
@@ -1239,7 +1246,8 @@ public final class PerplexityHandler: BaseIntegrationHandler {
 /// Handles Anthropic Claude AI integration nodes
 /// Server-side processing - emits socket event for server to call Claude API
 public final class ClaudeHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "claude" }
+    // Legacy: claude is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "claude-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Claude node")
@@ -1304,7 +1312,8 @@ public final class ClaudeHandler: BaseIntegrationHandler {
 /// Handles Groq AI integration nodes
 /// Server-side processing - emits socket event for server to call Groq API
 public final class GroqHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "groq" }
+    // Legacy: groq is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "groq-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Groq node")
@@ -1367,7 +1376,8 @@ public final class GroqHandler: BaseIntegrationHandler {
 /// Handles custom LLM integration nodes
 /// Server-side processing - emits socket event for server to call custom LLM endpoint
 public final class CustomLLMHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "custom_llm" }
+    // Legacy: custom_llm is handled by gpt-node; kept for compat
+    public override class var nodeType: String { "custom-llm-node" }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Custom LLM node")
@@ -1449,7 +1459,7 @@ public final class CustomLLMHandler: BaseIntegrationHandler {
 /// Creates Google Meet meetings via server-side integration
 /// Server emits google-meet-node-trigger event for backend processing
 public final class GoogleMeetHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "google_meet" }
+    public override class var nodeType: String { NodeTypes.Integration.googleMeet }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Google Meet node")
@@ -1903,7 +1913,7 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
 /// Handles human handover integration nodes
 /// Returns displayUI result for showing handover UI and notifies server
 public final class HumanHandoverHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "human_handover" }
+    public override class var nodeType: String { NodeTypes.Special.humanHandover }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Human Handover node")
@@ -1982,7 +1992,7 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
 /// Handles Airtable integration nodes
 /// Server-side processing - emits socket event for server to perform CRUD operations on Airtable
 public final class AirtableHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "airtable" }
+    public override class var nodeType: String { NodeTypes.Integration.airtable }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Airtable node")
@@ -2086,7 +2096,7 @@ public final class AirtableHandler: BaseIntegrationHandler {
 /// Creates/updates records in Zoho CRM modules (Contacts, Leads, Deals, etc.)
 /// Server-side processing - emits socket event for server to handle
 public final class ZohoCRMHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "zoho_crm" }
+    public override class var nodeType: String { NodeTypes.Integration.zohoCrm }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Zoho CRM node")
@@ -2337,7 +2347,7 @@ public final class GoogleDocsHandler: BaseIntegrationHandler {
 /// Supports file/folder operations including upload, download, create, list, share
 /// Server-side processing - emits socket event for server to handle Google Drive API calls
 public final class GoogleDriveHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "google_drive" }
+    public override class var nodeType: String { NodeTypes.Integration.googleDrive }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Google Drive node")
@@ -2496,7 +2506,7 @@ public final class GoogleDriveHandler: BaseIntegrationHandler {
 /// Handles Notion integration nodes
 /// Server-side processing - emits socket event for server to perform operations on Notion databases and pages
 public final class NotionHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "notion" }
+    public override class var nodeType: String { NodeTypes.Integration.notion }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Notion node")
@@ -2735,7 +2745,7 @@ public struct StripePaymentResult {
 /// Creates payment links/checkout sessions via server-side integration
 /// Fixes the Android bug by properly waiting for the payment URL from the server
 public final class StripeHandler: BaseIntegrationHandler {
-    public override class var nodeType: String { "stripe" }
+    public override class var nodeType: String { NodeTypes.Integration.stripe }
 
     /// Timeout for waiting for payment URL response (in seconds)
     private let paymentUrlTimeout: TimeInterval = 30.0
