@@ -214,11 +214,15 @@ extension ChatViewController: UITableViewDataSource {
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         // Check if this is typing indicator
         if isAgentTyping && indexPath.row == messages.count {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "TypingCell", for: indexPath) as! TypingIndicatorCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: "TypingCell", for: indexPath) as? TypingIndicatorCell else {
+                return UITableViewCell()
+            }
             return cell
         }
 
-        let cell = tableView.dequeueReusableCell(withIdentifier: "MessageCell", for: indexPath) as! MessageCell
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: "MessageCell", for: indexPath) as? MessageCell else {
+            return UITableViewCell()
+        }
         let message = messages[indexPath.row]
         cell.configure(with: message, customization: ConferBot.shared.customization)
         return cell
