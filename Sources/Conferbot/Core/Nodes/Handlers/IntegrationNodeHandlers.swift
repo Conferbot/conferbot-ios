@@ -2925,7 +2925,7 @@ public final class StripeHandler: BaseIntegrationHandler {
                 state?.setValue(paymentInfo, forKey: answerVariable)
 
                 // Return display UI with payment information
-                let displayAmount = amount != nil ? Double(amount!) / 100.0 : nil
+                let displayAmount = amount.flatMap { Double($0) / 100.0 }
 
                 let uiData: [String: Any] = [
                     "paymentUrl": paymentUrl,
