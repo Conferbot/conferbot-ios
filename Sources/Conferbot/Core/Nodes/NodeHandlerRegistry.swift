@@ -153,6 +153,9 @@ public final class NodeHandlerRegistry {
 
         // Special flow node handlers (goal, end_conversation)
         registerSpecialFlowHandlers()
+
+        // All 19 missing handlers (legacy, choice, logic, integration)
+        registerMissingHandlers()
     }
 
     // MARK: - Convenience Methods
@@ -194,7 +197,7 @@ public final class NodeHandlerRegistry {
 
 /// Handler for message nodes
 public class MessageNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "message" }
+    public override var nodeType: String { NodeTypes.Display.sendMessage }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -210,7 +213,7 @@ public class MessageNodeHandler: BaseNodeHandler {
 
 /// Handler for image nodes
 public class ImageNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "image" }
+    public override var nodeType: String { NodeTypes.Display.sendImage }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -228,7 +231,7 @@ public class ImageNodeHandler: BaseNodeHandler {
 
 /// Handler for video nodes
 public class VideoNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "video" }
+    public override var nodeType: String { NodeTypes.Display.sendVideo }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -246,7 +249,7 @@ public class VideoNodeHandler: BaseNodeHandler {
 
 /// Handler for audio nodes
 public class AudioNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "audio" }
+    public override var nodeType: String { NodeTypes.Display.sendAudio }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -263,7 +266,7 @@ public class AudioNodeHandler: BaseNodeHandler {
 
 /// Handler for file nodes
 public class FileNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "file" }
+    public override var nodeType: String { NodeTypes.Display.sendFile }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -281,7 +284,7 @@ public class FileNodeHandler: BaseNodeHandler {
 
 /// Handler for GIF nodes
 public class GifNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "gif" }
+    public override var nodeType: String { "send-gif-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -298,7 +301,7 @@ public class GifNodeHandler: BaseNodeHandler {
 
 /// Handler for text input nodes
 public class TextInputNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "textInput" }
+    public override var nodeType: String { NodeTypes.Display.askCustomQuestion }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -332,7 +335,7 @@ public class TextInputNodeHandler: BaseNodeHandler {
 
 /// Handler for single choice nodes
 public class SingleChoiceNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "singleChoice" }
+    public override var nodeType: String { NodeTypes.Display.nChoices }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -348,7 +351,7 @@ public class SingleChoiceNodeHandler: BaseNodeHandler {
 
 /// Handler for multi choice nodes
 public class MultiChoiceNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "multiChoice" }
+    public override var nodeType: String { NodeTypes.Display.nCheckOptions }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -364,7 +367,8 @@ public class MultiChoiceNodeHandler: BaseNodeHandler {
 
 /// Handler for buttons nodes
 public class ButtonsNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "buttons" }
+    // Legacy alias for n-choices-node; SingleChoiceNodeHandler handles the canonical type
+    public override var nodeType: String { "buttons-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -380,7 +384,7 @@ public class ButtonsNodeHandler: BaseNodeHandler {
 
 /// Handler for quick replies nodes
 public class QuickRepliesNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "quickReplies" }
+    public override var nodeType: String { "send-quick-replies-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -396,7 +400,7 @@ public class QuickRepliesNodeHandler: BaseNodeHandler {
 
 /// Handler for cards nodes
 public class CardsNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "cards" }
+    public override var nodeType: String { "send-cards-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -412,7 +416,7 @@ public class CardsNodeHandler: BaseNodeHandler {
 
 /// Handler for rating nodes
 public class RatingNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "rating" }
+    public override var nodeType: String { NodeTypes.Display.ratingChoice }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -433,7 +437,7 @@ public class RatingNodeHandler: BaseNodeHandler {
 
 /// Handler for opinion scale nodes
 public class OpinionScaleNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "opinionScale" }
+    public override var nodeType: String { NodeTypes.Display.opinionScaleChoice }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -452,7 +456,7 @@ public class OpinionScaleNodeHandler: BaseNodeHandler {
 
 /// Handler for calendar nodes
 public class CalendarNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "calendar" }
+    public override var nodeType: String { NodeTypes.Display.calendar }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -472,7 +476,7 @@ public class CalendarNodeHandler: BaseNodeHandler {
 
 /// Handler for file upload nodes
 public class FileUploadNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "fileUpload" }
+    public override var nodeType: String { NodeTypes.Display.askFile }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -489,7 +493,7 @@ public class FileUploadNodeHandler: BaseNodeHandler {
 
 /// Handler for live chat nodes
 public class LiveChatNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "liveChat" }
+    public override var nodeType: String { "live-chat-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -501,7 +505,7 @@ public class LiveChatNodeHandler: BaseNodeHandler {
 
 /// Handler for human handover nodes
 public class HumanHandoverNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "humanHandover" }
+    public override var nodeType: String { NodeTypes.Special.humanHandover }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -513,7 +517,7 @@ public class HumanHandoverNodeHandler: BaseNodeHandler {
 
 /// Handler for link nodes
 public class LinkNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "link" }
+    public override var nodeType: String { NodeTypes.Display.userRedirect }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -531,7 +535,7 @@ public class LinkNodeHandler: BaseNodeHandler {
 
 /// Handler for embed nodes
 public class EmbedNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "embed" }
+    public override var nodeType: String { NodeTypes.Display.html }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -548,7 +552,7 @@ public class EmbedNodeHandler: BaseNodeHandler {
 
 /// Handler for condition nodes (legacy type)
 public class ConditionNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "condition" }
+    public override var nodeType: String { NodeTypes.Logic.condition }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Delegate to ConditionalHandler for actual implementation
@@ -559,7 +563,7 @@ public class ConditionNodeHandler: BaseNodeHandler {
 
 /// Handler for jump nodes
 public class JumpNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "jump" }
+    public override var nodeType: String { NodeTypes.Logic.jumpTo }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -576,7 +580,7 @@ public class JumpNodeHandler: BaseNodeHandler {
 
 /// Handler for delay nodes (legacy type)
 public class DelayNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "delay" }
+    public override var nodeType: String { NodeTypes.Special.delay }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Delegate to LogicDelayHandler for actual implementation
@@ -587,7 +591,7 @@ public class DelayNodeHandler: BaseNodeHandler {
 
 /// Handler for end nodes
 public class EndNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "end" }
+    public override var nodeType: String { "end-conversation-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         return .displayUI(.none)
@@ -596,7 +600,7 @@ public class EndNodeHandler: BaseNodeHandler {
 
 /// Handler for webhook nodes
 public class WebhookNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "webhook" }
+    public override var nodeType: String { NodeTypes.Integration.webhook }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Webhook execution would be implemented here
@@ -607,7 +611,7 @@ public class WebhookNodeHandler: BaseNodeHandler {
 
 /// Handler for API nodes
 public class ApiNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "api" }
+    public override var nodeType: String { "api-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // API call would be implemented here
@@ -618,7 +622,7 @@ public class ApiNodeHandler: BaseNodeHandler {
 
 /// Handler for email nodes
 public class EmailNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "email" }
+    public override var nodeType: String { NodeTypes.Integration.email }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Email sending would be implemented here
@@ -670,7 +674,7 @@ public class GoogleMeetNodeHandler: BaseNodeHandler {
 
 /// Handler for set variable nodes (legacy type)
 public class SetVariableNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "setVariable" }
+    public override var nodeType: String { NodeTypes.Logic.variable }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Delegate to SetVariableHandler for actual implementation
@@ -681,7 +685,7 @@ public class SetVariableNodeHandler: BaseNodeHandler {
 
 /// Handler for get variable nodes
 public class GetVariableNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "getVariable" }
+    public override var nodeType: String { "get-variable-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         // Variable getting would be implemented here
@@ -693,7 +697,7 @@ public class GetVariableNodeHandler: BaseNodeHandler {
 /// Handler for Airtable integration nodes
 /// Emits socket event for server-side CRUD operations on Airtable
 public class AirtableNodeHandler: BaseNodeHandler {
-    public override var nodeType: String { "airtable" }
+    public override var nodeType: String { NodeTypes.Integration.airtable }
 
     /// Reference to socket client for emitting events
     private weak var socketClient: SocketClient?
