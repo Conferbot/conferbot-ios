@@ -153,6 +153,17 @@ public class ConferBot: ObservableObject {
         config: ConferBotConfig = ConferBotConfig(),
         customization: ConferBotCustomization? = nil
     ) {
+        // Validate required parameters
+        guard !apiKey.isEmpty else {
+            fatalError("ConferBot: API key must not be empty")
+        }
+        guard !botId.isEmpty else {
+            fatalError("ConferBot: Bot ID must not be empty")
+        }
+        guard apiKey.hasPrefix("conf_") else {
+            fatalError("ConferBot: Invalid API key format. API key must start with 'conf_'")
+        }
+
         self.apiKey = apiKey
         self.botId = botId
         self.config = config
@@ -329,8 +340,9 @@ public class ConferBot: ObservableObject {
         flowEngine?.$currentUIState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.currentUIState = state
-                self?.delegate?.conferBot(self!, didUpdateUIState: state)
+                guard let self = self else { return }
+                self.currentUIState = state
+                self.delegate?.conferBot(self, didUpdateUIState: state)
             }
             .store(in: &flowEngineCancellables)
 
@@ -345,11 +357,12 @@ public class ConferBot: ObservableObject {
         flowEngine?.$isFlowComplete
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isComplete in
-                self?.isFlowComplete = isComplete
+                guard let self = self else { return }
+                self.isFlowComplete = isComplete
                 if isComplete {
-                    self?.delegate?.conferBot(self!, didCompleteFlow: true)
+                    self.delegate?.conferBot(self, didCompleteFlow: true)
                     // Finalize analytics when flow completes
-                    self?.analytics.finalizeChatAnalytics()
+                    self.analytics.finalizeChatAnalytics()
                 }
             }
             .store(in: &flowEngineCancellables)
@@ -480,7 +493,7 @@ public class ConferBot: ObservableObject {
 
         // If not forcing new and we have a restored session, just return
         if !forceNew && hasRestoredSession && currentSession != nil {
-            debugPrint("[ConferBot] Using restored session: \(currentSession!.chatSessionId)")
+            debugPrint("[ConferBot] Using restored session: \(currentSession?.chatSessionId ?? "unknown")")
             return
         }
 
@@ -536,9 +549,11 @@ public class ConferBot: ObservableObject {
             metadata: metadata
         )
 
-        // Add to local messages immediately
+        // Add to local messages immediately (with deduplication)
         await MainActor.run {
-            messages.append(userMessage)
+            if !messages.contains(where: { $0.id == messageId }) {
+                messages.append(userMessage)
+            }
         }
 
         // Check if we can send immediately or need to queue
@@ -921,6 +936,7 @@ public class ConferBot: ObservableObject {
     /// Reset flow state
     public func resetFlow() {
         chatState.reset()
+        flowEngine?.restartFlow()
         isFlowComplete = false
         currentUIState = nil
         nodeErrorMessage = nil
@@ -1113,6 +1129,9 @@ public class ConferBot: ObservableObject {
             let message = try decoder.decode(AnyRecordItem.self, from: jsonData)
 
             Task { @MainActor in
+                // Deduplicate by message ID
+                let messageId = message.value.id
+                guard !self.messages.contains(where: { $0.id == messageId }) else { return }
                 self.messages.append(message.value)
                 self.delegate?.conferBot(self, didReceiveMessage: message.value)
 
@@ -1120,7 +1139,7 @@ public class ConferBot: ObservableObject {
                 self.saveSessionState()
             }
         } catch {
-            debugPrint("[ConferBot] Failed to decode bot response: \(error)")
+            ConferBotLogger.error("Failed to decode bot response: \(error.localizedDescription)")
         }
     }
 
@@ -1170,6 +1189,9 @@ public class ConferBot: ObservableObject {
             let message = try decoder.decode(AnyRecordItem.self, from: jsonData)
 
             Task { @MainActor in
+                // Deduplicate by message ID
+                let messageId = message.value.id
+                guard !self.messages.contains(where: { $0.id == messageId }) else { return }
                 self.messages.append(message.value)
                 self.unreadCount += 1
                 self.delegate?.conferBot(self, didReceiveMessage: message.value)
@@ -1179,7 +1201,7 @@ public class ConferBot: ObservableObject {
                 self.saveSessionState()
             }
         } catch {
-            debugPrint("[ConferBot] Failed to decode agent message: \(error)")
+            ConferBotLogger.error("Failed to decode agent message: \(error.localizedDescription)")
         }
     }
 
@@ -1205,7 +1227,7 @@ public class ConferBot: ObservableObject {
                 self.delegate?.conferBot(self, agentDidJoin: agent)
             }
         } catch {
-            debugPrint("[ConferBot] Failed to decode agent: \(error)")
+            ConferBotLogger.error("Failed to decode agent joined: \(error.localizedDescription)")
         }
     }
 
@@ -1231,7 +1253,7 @@ public class ConferBot: ObservableObject {
                 self.delegate?.conferBot(self, agentDidLeave: agent)
             }
         } catch {
-            debugPrint("[ConferBot] Failed to decode agent: \(error)")
+            ConferBotLogger.error("Failed to decode agent left: \(error.localizedDescription)")
         }
     }
 
@@ -1257,9 +1279,7 @@ public class ConferBot: ObservableObject {
     }
 
     private func debugPrint(_ message: String) {
-        #if DEBUG
-        print(message)
-        #endif
+        ConferBotLogger.debug(message)
     }
 
     /// Convert any value to string representation for analytics
@@ -1278,9 +1298,11 @@ public class ConferBot: ObservableObject {
         }
     }
 
-    /// Disconnect socket
+    /// Disconnect socket and clean up resources
     public func disconnect() {
         socketClient?.disconnect()
+        apiClient = nil
+        socketClient = nil
         isConnected = false
         offlineManager.handleSocketDisconnected()
     }
