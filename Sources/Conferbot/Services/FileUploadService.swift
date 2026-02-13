@@ -152,7 +152,7 @@ public final class FileUploadService: NSObject {
     public init(
         apiKey: String,
         botId: String,
-        baseURL: String = ConferBotConstants.defaultApiBaseURL
+        baseURL: String = ConferBotEndpoints.apiBaseURL
     ) {
         self.apiKey = apiKey
         self.botId = botId
@@ -164,6 +164,12 @@ public final class FileUploadService: NSObject {
         config.timeoutIntervalForRequest = 120 // 2 minute timeout for uploads
         config.timeoutIntervalForResource = 300 // 5 minute total timeout
         uploadSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+    }
+
+    deinit {
+        cancelUpload()
+        uploadSession?.invalidateAndCancel()
+        uploadSession = nil
     }
 
     // MARK: - Public Methods
@@ -211,26 +217,26 @@ public final class FileUploadService: NSObject {
         var body = Data()
 
         // Add file data
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8) ?? Data())
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8) ?? Data())
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) ?? Data())
         body.append(data)
-        body.append("\r\n".data(using: .utf8)!)
+        body.append("\r\n".data(using: .utf8) ?? Data())
 
         // Add session ID if provided
         if let sessionId = sessionId {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"sessionId\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(sessionId)\r\n".data(using: .utf8)!)
+            body.append("--\(boundary)\r\n".data(using: .utf8) ?? Data())
+            body.append("Content-Disposition: form-data; name=\"sessionId\"\r\n\r\n".data(using: .utf8) ?? Data())
+            body.append("\(sessionId)\r\n".data(using: .utf8) ?? Data())
         }
 
         // Add bot ID
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"botId\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(botId)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8) ?? Data())
+        body.append("Content-Disposition: form-data; name=\"botId\"\r\n\r\n".data(using: .utf8) ?? Data())
+        body.append("\(botId)\r\n".data(using: .utf8) ?? Data())
 
         // Close boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8) ?? Data())
 
         // Create request
         guard let url = URL(string: "\(baseURL)/upload") else {
