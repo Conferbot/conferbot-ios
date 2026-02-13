@@ -51,7 +51,7 @@ public class KnowledgeBaseService: ObservableObject {
     public init(
         apiKey: String,
         botId: String,
-        baseURL: String = ConferBotConstants.defaultApiBaseURL,
+        baseURL: String = ConferBotEndpoints.apiBaseURL,
         socketClient: SocketClient? = nil,
         session: URLSession = .shared
     ) {
@@ -70,7 +70,9 @@ public class KnowledgeBaseService: ObservableObject {
         loadingState = .loading
 
         do {
-            let url = URL(string: "\(baseURL)/knowledge-base/articles")!
+            guard let url = URL(string: "\(baseURL)/knowledge-base/articles") else {
+                throw ConferBotError.apiError("Invalid URL: \(baseURL)/knowledge-base/articles")
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = ConferBotConstants.apiTimeout
@@ -118,7 +120,9 @@ public class KnowledgeBaseService: ObservableObject {
         loadingState = .loading
 
         do {
-            let url = URL(string: "\(baseURL)/knowledge-base/categories")!
+            guard let url = URL(string: "\(baseURL)/knowledge-base/categories") else {
+                throw ConferBotError.apiError("Invalid URL: \(baseURL)/knowledge-base/categories")
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = ConferBotConstants.apiTimeout
@@ -172,7 +176,9 @@ public class KnowledgeBaseService: ObservableObject {
 
         do {
             let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            let url = URL(string: "\(baseURL)/knowledge-base/search?q=\(encodedQuery)")!
+            guard let url = URL(string: "\(baseURL)/knowledge-base/search?q=\(encodedQuery)") else {
+                throw ConferBotError.apiError("Invalid URL: \(baseURL)/knowledge-base/search")
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = ConferBotConstants.apiTimeout
@@ -240,7 +246,9 @@ public class KnowledgeBaseService: ObservableObject {
         loadingState = .loading
 
         do {
-            let url = URL(string: "\(baseURL)/knowledge-base/articles/\(id)")!
+            guard let url = URL(string: "\(baseURL)/knowledge-base/articles/\(id)") else {
+                throw ConferBotError.apiError("Invalid URL: \(baseURL)/knowledge-base/articles/\(id)")
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = ConferBotConstants.apiTimeout
