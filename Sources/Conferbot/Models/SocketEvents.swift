@@ -29,6 +29,12 @@ public struct SocketEvents {
     public static let googleDocsNodeTrigger = "google-docs-node-trigger"
     public static let googleCalendarNodeTrigger = "google-calendar-node-trigger"
     public static let stripeNodeTrigger = "stripe-node-trigger"
+    public static let gptNodeTrigger = "gpt-node-trigger"
+    public static let gmailNodeTrigger = "gmail-node-trigger"
+    public static let webhookNodeTrigger = "webhook-node-trigger"
+    public static let googleSheetsNodeTrigger = "google-sheets-node-trigger"
+    public static let hubspotNodeTrigger = "hubspot-node-trigger"
+    public static let slackNodeTrigger = "slack-node-trigger"
 
     // Analytics events
     public static let trackChatStart = "track-chat-start"
