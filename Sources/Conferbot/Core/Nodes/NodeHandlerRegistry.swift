@@ -493,7 +493,7 @@ public class LiveChatNodeHandler: BaseNodeHandler {
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
-        let message = data != nil ? getString(data!, "message") : nil
+        let message = data.flatMap { getString($0, "message") }
 
         return .displayUI(.liveChat(message: message))
     }
@@ -505,7 +505,7 @@ public class HumanHandoverNodeHandler: BaseNodeHandler {
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
-        let message = data != nil ? getString(data!, "message") : nil
+        let message = data.flatMap { getString($0, "message") }
 
         return .displayUI(.humanHandover(message: message))
     }
@@ -1681,7 +1681,7 @@ public class StripeNodeHandler: BaseNodeHandler {
 
             // Return a payment UI state that indicates we're waiting for URL
             // The actual URL will come via socket event: stripe-payment-url-response
-            let displayAmount = amount != nil ? Double(amount!) / 100.0 : nil
+            let displayAmount = amount.flatMap { Double($0) / 100.0 }
 
             return .displayUI(.payment(
                 paymentUrl: "", // Will be populated by socket response
