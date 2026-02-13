@@ -51,6 +51,12 @@ public final class NodeFlowEngine: ObservableObject {
     /// Cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
 
+    /// Tracks visited nodes for infinite loop detection
+    private var visitedNodes: Set<String> = []
+
+    /// Maximum number of node visits before detecting a cycle
+    private let maxNodeVisits = 100
+
     /// Lock for thread-safe state modifications
     private let lock = NSLock()
 
@@ -105,9 +111,7 @@ public final class NodeFlowEngine: ObservableObject {
         resetFlowState()
 
         // Log flow info for debugging
-        #if DEBUG
-        print("[NodeFlowEngine] Loaded flow with \(nodes.count) nodes and \(edges.count) edges")
-        #endif
+        ConferBotLogger.info("[NodeFlowEngine] Loaded flow with \(nodes.count) nodes and \(edges.count) edges")
     }
 
     /// Resets the flow state without clearing the loaded flow
@@ -117,6 +121,7 @@ public final class NodeFlowEngine: ObservableObject {
         errorMessage = nil
         isFlowComplete = false
         currentNodeId = nil
+        visitedNodes.removeAll()
         state.resetConversation()
     }
 
@@ -160,6 +165,16 @@ public final class NodeFlowEngine: ObservableObject {
     /// - Parameter nodeId: The ID of the node to process
     @MainActor
     public func processNode(_ nodeId: String) async {
+        // FIX 3: Infinite loop protection
+        guard visitedNodes.count < maxNodeVisits else {
+            ConferBotLogger.error("Flow cycle detected after \(maxNodeVisits) nodes")
+            setError("Flow cycle detected")
+            isProcessing = false
+            state.isTyping = false
+            return
+        }
+        visitedNodes.insert(nodeId)
+
         // Find the node
         guard let node = findNodeById(nodeId) else {
             setError("Node not found: \(nodeId)")
@@ -181,9 +196,7 @@ public final class NodeFlowEngine: ObservableObject {
         state.currentNodeId = nodeId
         state.isTyping = true
 
-        #if DEBUG
-        print("[NodeFlowEngine] Processing node: \(nodeId) (type: \(nodeType))")
-        #endif
+        ConferBotLogger.debug("[NodeFlowEngine] Processing node: \(nodeId) (type: \(nodeType))")
 
         // Check for end/goal nodes
         if isEndNode(nodeType) {
@@ -194,15 +207,24 @@ public final class NodeFlowEngine: ObservableObject {
         // Get handler for this node type
         let handler = registry.getHandler(for: nodeType)
 
-        // Execute the handler
+        // FIX 2: Execute the handler with a 30-second timeout
         let result: NodeResult
         if let handler = handler {
-            result = await handler.handle(node: node, state: state)
+            result = await withTaskGroup(of: NodeResult?.self) { group in
+                group.addTask {
+                    return await handler.handle(node: node, state: self.state)
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+                    return nil // timeout sentinel
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first ?? nil
+            } ?? .error("Node processing timed out for node: \(nodeId)")
         } else {
             // No handler registered - try to proceed to next node
-            #if DEBUG
-            print("[NodeFlowEngine] No handler for node type: \(nodeType), attempting to proceed")
-            #endif
+            ConferBotLogger.warning("[NodeFlowEngine] No handler for node type: \(nodeType), attempting to proceed")
             result = .proceed(nil, nil)
         }
 
@@ -230,9 +252,7 @@ public final class NodeFlowEngine: ObservableObject {
                 state.addBotMessage(text, nodeId: nodeId, nodeType: node["type"] as? String)
             }
 
-            #if DEBUG
-            print("[NodeFlowEngine] Displaying UI for node: \(nodeId)")
-            #endif
+            ConferBotLogger.debug("[NodeFlowEngine] Displaying UI for node: \(nodeId)")
 
         case .proceed(let nextNodeId, let data):
             // Continue to next node
@@ -263,9 +283,7 @@ public final class NodeFlowEngine: ObservableObject {
             isProcessing = true
             state.isTyping = true
 
-            #if DEBUG
-            print("[NodeFlowEngine] Delaying \(delay)s before proceeding")
-            #endif
+            ConferBotLogger.debug("[NodeFlowEngine] Delaying \(delay)s before proceeding")
 
             // Wait for the specified delay
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -288,9 +306,7 @@ public final class NodeFlowEngine: ObservableObject {
             state.isTyping = false
             currentUIState = nil
 
-            #if DEBUG
-            print("[NodeFlowEngine] Jumping to node: \(targetNodeId)")
-            #endif
+            ConferBotLogger.debug("[NodeFlowEngine] Jumping to node: \(targetNodeId)")
 
             await processNode(targetNodeId)
 
@@ -318,9 +334,7 @@ public final class NodeFlowEngine: ObservableObject {
             "finalNodeId": node["id"] as? String ?? "unknown"
         ])
 
-        #if DEBUG
-        print("[NodeFlowEngine] Flow completed")
-        #endif
+        ConferBotLogger.info("[NodeFlowEngine] Flow completed")
     }
 
     // MARK: - User Input Handling
@@ -343,9 +357,7 @@ public final class NodeFlowEngine: ObservableObject {
         let inputString = stringValue(from: input)
         state.addUserMessage(inputString, nodeId: nodeId)
 
-        #if DEBUG
-        print("[NodeFlowEngine] Received input for node \(nodeId): \(inputString)")
-        #endif
+        ConferBotLogger.debug("[NodeFlowEngine] Received input for node \(nodeId): \(inputString)")
 
         // Validate input if needed
         if !validateInput(input, forNode: node) {
@@ -387,9 +399,7 @@ public final class NodeFlowEngine: ObservableObject {
         state.setAnswer(nodeId: nodeId, value: buttonValue)
         state.addUserMessage(buttonValue, nodeId: nodeId)
 
-        #if DEBUG
-        print("[NodeFlowEngine] Button clicked: \(buttonId) for node \(nodeId)")
-        #endif
+        ConferBotLogger.debug("[NodeFlowEngine] Button clicked: \(buttonId) for node \(nodeId)")
 
         // Clear current UI state
         currentUIState = nil
@@ -427,9 +437,7 @@ public final class NodeFlowEngine: ObservableObject {
         state.setAnswer(nodeId: nodeId, value: optionValue)
         state.addUserMessage(optionValue, nodeId: nodeId)
 
-        #if DEBUG
-        print("[NodeFlowEngine] Choice selected: \(optionId) for node \(nodeId)")
-        #endif
+        ConferBotLogger.debug("[NodeFlowEngine] Choice selected: \(optionId) for node \(nodeId)")
 
         // Clear current UI state
         currentUIState = nil
@@ -502,6 +510,9 @@ public final class NodeFlowEngine: ObservableObject {
                     return edge["target"] as? String
                 }
             }
+
+            // FIX 5: Log when no edge is found for a specific port
+            ConferBotLogger.warning("[NodeFlowEngine] No edge found for port: \(port ?? "nil") on node: \(currentNodeId)")
         }
 
         return nil
@@ -737,9 +748,7 @@ public final class NodeFlowEngine: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.errorMessage = message
         }
-        #if DEBUG
-        print("[NodeFlowEngine] Error: \(message)")
-        #endif
+        ConferBotLogger.error("[NodeFlowEngine] \(message)")
     }
 
     /// Clears any existing error
