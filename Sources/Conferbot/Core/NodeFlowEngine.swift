@@ -633,7 +633,7 @@ public final class NodeFlowEngine: ObservableObject {
     /// - Parameter nodeType: The node type to check
     /// - Returns: True if this is an end node
     private func isEndNode(_ nodeType: String) -> Bool {
-        let endTypes = ["end", "end_conversation", "goal", "END", "GOAL"]
+        let endTypes = ["end", "end_conversation", "goal", "END", "GOAL", "end-conversation-node", "goal-node"]
         return endTypes.contains(nodeType) || nodeType.lowercased().contains("end")
     }
 
