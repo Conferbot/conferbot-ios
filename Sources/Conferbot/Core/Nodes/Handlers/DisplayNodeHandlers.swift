@@ -53,7 +53,7 @@ public final class SendMessageHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Display.sendMessage }
 
     /// Additional node types this handler can process
-    public static let additionalTypes: [String] = [NodeTypes.Display.text]
+    public static let additionalTypes: [String] = ["TEXT"]
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -101,7 +101,7 @@ public final class SendImageHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Display.sendImage }
 
     /// Additional node types this handler can process
-    public static let additionalTypes: [String] = [NodeTypes.Display.image]
+    public static let additionalTypes: [String] = ["IMAGE"]
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -256,7 +256,8 @@ public final class SendFileHandler: BaseNodeHandler {
 /// Displays an animated GIF and proceeds
 public final class SendGifHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.sendGif }
+    // Note: send_gif is not a server-recognized type; kept for backward compat
+    public override var nodeType: String { "send-gif-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -439,7 +440,7 @@ public final class AskUrlHandler: BaseNodeHandler {
 /// Displays text input for address entry and waits for user input
 public final class AskAddressHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askAddress }
+    public override var nodeType: String { NodeTypes.Display.askLocation }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -470,7 +471,8 @@ public final class AskAddressHandler: BaseNodeHandler {
 /// Displays a calendar picker in date mode and waits for user selection
 public final class AskDateHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askDate }
+    // Legacy: ask_date is not a server type; kept for backward compat
+    public override var nodeType: String { "ask-date-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -493,7 +495,8 @@ public final class AskDateHandler: BaseNodeHandler {
 /// Displays a calendar picker in time mode and waits for user selection
 public final class AskTimeHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askTime }
+    // Legacy: ask_time is not a server type; kept for backward compat
+    public override var nodeType: String { "ask-time-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -516,7 +519,8 @@ public final class AskTimeHandler: BaseNodeHandler {
 /// Displays a calendar picker in dateTime mode and waits for user selection
 public final class AskDateTimeHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askDateTime }
+    // Legacy: ask_date_time is not a server type; kept for backward compat
+    public override var nodeType: String { "ask-date-time-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -539,7 +543,8 @@ public final class AskDateTimeHandler: BaseNodeHandler {
 /// Displays a calendar picker in dateRange mode and waits for user selection
 public final class AskDateRangeHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askDateRange }
+    // Legacy: ask_date_range is not a server type; kept for backward compat
+    public override var nodeType: String { "ask-date-range-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -562,7 +567,7 @@ public final class AskDateRangeHandler: BaseNodeHandler {
 /// Displays a file upload interface with allowed types and waits for upload
 public final class AskFileUploadHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askFileUpload }
+    public override var nodeType: String { NodeTypes.Display.askFile }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -607,7 +612,7 @@ public final class AskFileUploadHandler: BaseNodeHandler {
 /// Displays a generic text input with optional validation and waits for input
 public final class AskQuestionHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askQuestion }
+    public override var nodeType: String { NodeTypes.Display.askCustomQuestion }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -662,7 +667,7 @@ public final class AskQuestionHandler: BaseNodeHandler {
 /// Displays action buttons with labels and optional URLs/actions
 public final class SendButtonsHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.sendButtons }
+    public override var nodeType: String { NodeTypes.Display.nChoices }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -711,7 +716,8 @@ public final class SendButtonsHandler: BaseNodeHandler {
 /// Displays quick reply options as chips/pills
 public final class SendQuickRepliesHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.sendQuickReplies }
+    // Legacy: send_quick_replies is not a server type; n-choices-node is the modern equivalent
+    public override var nodeType: String { "send-quick-replies-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -758,7 +764,8 @@ public final class SendQuickRepliesHandler: BaseNodeHandler {
 /// Displays a carousel of cards with title, subtitle, image, and buttons
 public final class SendCardsHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.sendCards }
+    // Legacy: send_cards is not a server type; kept for backward compat
+    public override var nodeType: String { "send-cards-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -824,7 +831,7 @@ public final class SendCardsHandler: BaseNodeHandler {
 /// Displays a rating input with configurable max and style
 public final class AskRatingHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.askRating }
+    public override var nodeType: String { NodeTypes.Display.ratingChoice }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -866,7 +873,7 @@ public final class AskRatingHandler: BaseNodeHandler {
 /// Displays an NPS-style scale with configurable min/max and labels
 public final class OpinionScaleHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.opinionScale }
+    public override var nodeType: String { NodeTypes.Display.opinionScaleChoice }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -905,7 +912,8 @@ public final class OpinionScaleHandler: BaseNodeHandler {
 /// Initiates human handover/live chat request
 public final class LiveChatHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.liveChat }
+    // Legacy: live_chat is not a server type; human-handover-node replaces it
+    public override var nodeType: String { "live-chat-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -932,7 +940,7 @@ public final class LiveChatHandler: BaseNodeHandler {
 /// Displays a clickable link with optional text
 public final class SendLinkHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.sendLink }
+    public override var nodeType: String { NodeTypes.Display.userRedirect }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -972,7 +980,7 @@ public final class SendLinkHandler: BaseNodeHandler {
 /// Converts a URL to an embedded iframe
 public final class EmbedLinkHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.embedLink }
+    public override var nodeType: String { NodeTypes.Display.html }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -1023,7 +1031,8 @@ public final class EmbedLinkHandler: BaseNodeHandler {
 /// Embeds custom HTML/CSS/JS code
 public final class EmbedCustomCodeHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Display.embedCustomCode }
+    // Legacy: embed_custom_code maps to html-node on the server
+    public override var nodeType: String { "embed-custom-code-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -1155,8 +1164,8 @@ public final class DisplayHandlerRegistry {
         registerHandler(SendGifHandler())
 
         // Legacy types
-        handlers[NodeTypes.Display.text] = SendMessageHandler()
-        handlers[NodeTypes.Display.image] = SendImageHandler()
+        handlers["TEXT"] = SendMessageHandler()
+        handlers["IMAGE"] = SendImageHandler()
 
         // Ask nodes
         registerHandler(AskNameHandler())
