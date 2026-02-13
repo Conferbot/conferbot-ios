@@ -224,7 +224,8 @@ public struct ButtonOption: Identifiable, Equatable, Codable {
 
     /// Whether this button opens a URL
     public var isLink: Bool {
-        return url != nil && !url!.isEmpty
+        guard let url = url else { return false }
+        return !url.isEmpty
     }
 }
 
