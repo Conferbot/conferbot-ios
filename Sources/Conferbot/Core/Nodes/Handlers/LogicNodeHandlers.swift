@@ -20,7 +20,8 @@ import Foundation
 /// Extracts URL from node data and returns proceed with redirect action
 public final class RedirectUrlHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.redirectUrl }
+    // Legacy: redirect_url doesn't exist in server types; kept for compat
+    public override var nodeType: String { "redirect-url-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -52,7 +53,7 @@ public final class RedirectUrlHandler: BaseNodeHandler {
 /// Sets a variable in the chat state and proceeds immediately
 public final class SetVariableHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.setVariable }
+    public override var nodeType: String { NodeTypes.Logic.variable }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -93,7 +94,8 @@ public final class SetVariableHandler: BaseNodeHandler {
 /// On mobile, JavaScript cannot execute natively, so this logs a warning and proceeds
 public final class JavaScriptFunctionHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.javascriptFunction }
+    // Legacy: javascript_function doesn't exist in server types; kept for compat
+    public override var nodeType: String { "javascript-function-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
@@ -176,7 +178,7 @@ public enum ConditionalLogic: String {
 /// Evaluates conditions and branches to appropriate node based on result
 public final class ConditionalHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.conditional }
+    public override var nodeType: String { NodeTypes.Logic.condition }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -419,7 +421,7 @@ public final class ConditionalHandler: BaseNodeHandler {
 /// Randomly selects a variant based on percentage weights
 public final class ABTestHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.abTest }
+    public override var nodeType: String { NodeTypes.Logic.randomFlow }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -496,7 +498,8 @@ public final class ABTestHandler: BaseNodeHandler {
 /// Similar to AB test but for conversation branching
 public final class SplitConversationHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.splitConversation }
+    // Legacy: split_conversation is not a separate server type; kept for compat
+    public override var nodeType: String { "split-conversation-node" }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -575,7 +578,7 @@ public final class SplitConversationHandler: BaseNodeHandler {
 /// Returns delayedProceed with the specified delay time
 public final class LogicDelayHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Logic.delay }
+    public override var nodeType: String { NodeTypes.Special.delay }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let data = getNodeData(node)
