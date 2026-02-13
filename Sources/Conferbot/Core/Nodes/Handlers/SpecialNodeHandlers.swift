@@ -134,7 +134,8 @@ public enum SpecialNodeSocketEvents {
 /// Marks conversion goals and emits goal_reached socket events for analytics
 public final class GoalHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Flow.goal }
+    // Legacy: goal is not a server node type; kept for compat
+    public override var nodeType: String { "goal-node" }
 
     /// Weak reference to flow completion delegate
     public weak var flowCompletionDelegate: FlowCompletionDelegate?
@@ -283,7 +284,8 @@ public final class GoalHandler: BaseNodeHandler {
 /// Ends the conversation flow and optionally displays a final message
 public final class EndConversationHandler: BaseNodeHandler {
 
-    public override var nodeType: String { NodeTypes.Flow.endConversation }
+    // Legacy: end_conversation is not a server node type; kept for compat
+    public override var nodeType: String { "end-conversation-node" }
 
     /// Weak reference to flow completion delegate
     public weak var flowCompletionDelegate: FlowCompletionDelegate?
