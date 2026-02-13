@@ -85,7 +85,7 @@ public class ChatInputView: UIView {
             textView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
             textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
             textView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8),
-            textViewHeightConstraint!,
+            textViewHeightConstraint ?? textView.heightAnchor.constraint(equalToConstant: 36),
 
             placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 10),
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 17),
