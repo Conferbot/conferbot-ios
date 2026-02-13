@@ -49,8 +49,8 @@ public struct ConferBotConfig {
     public init(
         enableNotifications: Bool = true,
         enableOfflineMode: Bool = true,
-        apiBaseURL: String = ConferBotConstants.defaultApiBaseURL,
-        socketURL: String = ConferBotConstants.defaultSocketURL
+        apiBaseURL: String = ConferBotEndpoints.apiBaseURL,
+        socketURL: String = ConferBotEndpoints.socketURL
     ) {
         self.enableNotifications = enableNotifications
         self.enableOfflineMode = enableOfflineMode
