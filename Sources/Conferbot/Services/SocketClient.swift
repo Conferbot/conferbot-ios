@@ -23,11 +23,15 @@ public class SocketClient {
     public init(
         apiKey: String,
         botId: String,
-        socketURL: String = ConferBotConstants.defaultSocketURL
+        socketURL: String = ConferBotEndpoints.socketURL
     ) {
         self.apiKey = apiKey
         self.botId = botId
         self.socketURL = socketURL
+    }
+
+    deinit {
+        disconnect()
     }
 
     /// Connect to socket server
@@ -51,9 +55,9 @@ public class SocketClient {
                 ConferBotConstants.headerPlatform: ConferBotConstants.platformIdentifier
             ]),
             .reconnects(true),
-            .reconnectAttempts(ConferBotConstants.socketReconnectionAttempts),
-            .reconnectWait(Int(ConferBotConstants.socketReconnectionDelay * 1000)),
-            .reconnectWaitMax(Int(ConferBotConstants.socketReconnectionDelayMax * 1000))
+            .reconnectAttempts(ConferBotNetworkConfig.reconnectionAttempts),
+            .reconnectWait(Int(ConferBotNetworkConfig.reconnectionDelay * 1000)),
+            .reconnectWaitMax(Int(ConferBotNetworkConfig.reconnectionDelayMax * 1000))
         ]
 
         guard let url = URL(string: socketURL) else {
