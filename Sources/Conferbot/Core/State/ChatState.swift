@@ -47,17 +47,38 @@ public final class ChatState: ObservableObject {
     /// Lock for thread-safe access
     private let lock = NSLock()
 
+    /// Maximum number of transcript entries to retain (prevents unbounded memory growth)
+    private let maxTranscriptEntries = 500
+
     /// Variable pattern regex for {{varName}} syntax
-    private let doubleBracePattern = try! NSRegularExpression(
-        pattern: "\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}\\}",
-        options: []
-    )
+    private let doubleBracePattern: NSRegularExpression? = {
+        do {
+            return try NSRegularExpression(
+                pattern: "\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}\\}",
+                options: []
+            )
+        } catch {
+            #if DEBUG
+            print("[ChatState] Failed to compile doubleBracePattern regex: \(error)")
+            #endif
+            return nil
+        }
+    }()
 
     /// Variable pattern regex for ${varName} syntax
-    private let dollarBracePattern = try! NSRegularExpression(
-        pattern: "\\$\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}",
-        options: []
-    )
+    private let dollarBracePattern: NSRegularExpression? = {
+        do {
+            return try NSRegularExpression(
+                pattern: "\\$\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}",
+                options: []
+            )
+        } catch {
+            #if DEBUG
+            print("[ChatState] Failed to compile dollarBracePattern regex: \(error)")
+            #endif
+            return nil
+        }
+    }()
 
     // MARK: - Initialization
 
@@ -155,22 +176,26 @@ public final class ChatState: ObservableObject {
         var result = text
 
         // Process {{varName}} pattern
-        result = resolvePattern(
-            in: result,
-            using: doubleBracePattern,
-            variables: currentVariables,
-            answers: currentAnswers,
-            metadata: currentMetadata
-        )
+        if let doubleBracePattern = doubleBracePattern {
+            result = resolvePattern(
+                in: result,
+                using: doubleBracePattern,
+                variables: currentVariables,
+                answers: currentAnswers,
+                metadata: currentMetadata
+            )
+        }
 
         // Process ${varName} pattern
-        result = resolvePattern(
-            in: result,
-            using: dollarBracePattern,
-            variables: currentVariables,
-            answers: currentAnswers,
-            metadata: currentMetadata
-        )
+        if let dollarBracePattern = dollarBracePattern {
+            result = resolvePattern(
+                in: result,
+                using: dollarBracePattern,
+                variables: currentVariables,
+                answers: currentAnswers,
+                metadata: currentMetadata
+            )
+        }
 
         return result
     }
@@ -336,6 +361,11 @@ public final class ChatState: ObservableObject {
         }
 
         transcript.append(entryWithTimestamp)
+
+        // Enforce size limit to prevent unbounded memory growth
+        if transcript.count > maxTranscriptEntries {
+            transcript = Array(transcript.suffix(maxTranscriptEntries))
+        }
     }
 
     /// Adds a bot message to the transcript
