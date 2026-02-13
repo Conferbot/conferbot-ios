@@ -240,7 +240,7 @@ public final class SendFileHandler: BaseNodeHandler {
         }
 
         // Resolve variables in file name
-        let resolvedFileName = fileName != nil ? state.resolveVariables(text: fileName!) : "file"
+        let resolvedFileName = fileName.map { state.resolveVariables(text: $0) } ?? "file"
 
         // Add to transcript
         let nodeId = getNodeId(node)
