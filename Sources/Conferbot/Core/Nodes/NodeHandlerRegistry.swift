@@ -27,6 +27,10 @@ public final class NodeHandlerRegistry {
     /// Lock for thread-safe access
     private let lock = NSLock()
 
+    /// Socket client reference for integration handlers that need to emit events.
+    /// Set during ConferBot initialization.
+    public weak var socketClient: SocketClient?
+
     // MARK: - Initialization
 
     public init() {}
@@ -1370,6 +1374,14 @@ public class GoogleCalendarNodeHandler: BaseNodeHandler {
 public class NotionNodeHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Integration.notion }
 
+    /// Reference to socket client for emitting events
+    private weak var socketClient: SocketClient?
+
+    public init(socketClient: SocketClient? = nil) {
+        self.socketClient = socketClient
+        super.init()
+    }
+
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let nodeId = getString(node, "id") ?? "unknown"
         let data = node["data"] as? [String: Any] ?? [:]
@@ -1397,7 +1409,7 @@ public class NotionNodeHandler: BaseNodeHandler {
                 if let notionProperty = mapping["notionProperty"] as? String,
                    let variableName = mapping["variableName"] as? String {
                     // Get value from state variables
-                    if let value = state.getVariable(variableName) {
+                    if let value = state.getVariable(name: variableName) {
                         // Determine property type and format appropriately
                         let propertyType = mapping["propertyType"] as? String ?? "text"
                         properties[notionProperty] = formatPropertyValue(value, type: propertyType)
