@@ -1,47 +1,50 @@
 # Conferbot iOS SDK
 
-Native iOS SDK for integrating Conferbot AI-powered customer support chat into your iOS applications.
+Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applications.
 
-[![Platform](https://img.shields.io/badge/platform-iOS-blue.svg)](https://www.apple.com/ios/)
-[![Swift](https://img.shields.io/badge/Swift-5.7+-orange.svg)](https://swift.org)
-[![iOS](https://img.shields.io/badge/iOS-14.0+-green.svg)](https://developer.apple.com/ios/)
-[![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-iOS-blue.svg)](https://developer.apple.com/ios/)
+[![Swift](https://img.shields.io/badge/Swift-5.7+-F05138.svg)](https://swift.org)
+[![iOS](https://img.shields.io/badge/iOS-14.0+-000000.svg)](https://developer.apple.com/ios/)
+[![License](https://img.shields.io/badge/License-Proprietary-lightgrey.svg)](LICENSE)
 
 ## Features
 
-- **Real-time Chat**: Socket.IO powered instant messaging
-- **Live Agent Handover**: Seamless transition from bot to human agent
-- **Native UI**: Both UIKit and SwiftUI support with native design patterns
-- **Push Notifications**: APNs integration for agent responses
-- **Offline Support**: Messages queued when offline, sent when back online
-- **File Uploads**: Support for images and documents
-- **Typing Indicators**: See when agent is typing
-- **Full Customization**: Colors, fonts, avatars, and more
-- **Dark Mode**: Automatic light/dark theme adaptation
+- Real-time chat powered by Socket.IO
+- Live agent handover with typing indicators
+- Native UIKit and SwiftUI components
+- Headless mode for fully custom UIs
+- Push notifications via APNs
+- Offline message queuing
+- File and image uploads
+- Knowledge base integration
+- Session analytics and event tracking
+- Full theming support with automatic dark mode
 
 ## Requirements
 
-- iOS 14.0+
-- Xcode 14.0+
-- Swift 5.7+
-- CocoaPods or Swift Package Manager
+| Dependency | Version |
+|------------|---------|
+| iOS        | 14.0+   |
+| Xcode      | 14.0+   |
+| Swift      | 5.7+    |
 
 ## Installation
 
 ### Swift Package Manager (Recommended)
 
-Add the following to your `Package.swift`:
+In Xcode, go to **File > Add Packages** and enter:
+
+```
+https://github.com/conferbot/conferbot-ios
+```
+
+Or add the dependency directly in your `Package.swift`:
 
 ```swift
 dependencies: [
     .package(url: "https://github.com/conferbot/conferbot-ios", from: "1.0.0")
 ]
 ```
-
-Or in Xcode:
-1. File → Add Packages
-2. Enter: `https://github.com/conferbot/conferbot-ios`
-3. Select version: `1.0.0`
 
 ### CocoaPods
 
@@ -57,73 +60,44 @@ end
 ```
 
 Then run:
+
 ```bash
 pod install
 ```
 
 ## Quick Start
 
-### UIKit
+Initialize the SDK early in your app lifecycle, then present chat using whichever pattern fits your project.
 
-**1. Initialize in AppDelegate:**
+### Initialize
 
 ```swift
-import UIKit
 import Conferbot
 
-@main
-class AppDelegate: UIResponder, UIApplicationDelegate {
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-    ) -> Bool {
-        Conferbot.shared.initialize(
-            apiKey: "conf_sk_your_api_key_here",
-            botId: "your_bot_id_here"
-        )
-        return true
-    }
-}
+// In AppDelegate or @main App init
+Conferbot.shared.initialize(
+    apiKey: "YOUR_API_KEY",
+    botId: "YOUR_BOT_ID"
+)
 ```
 
-**2. Open Chat:**
+### Pattern 1 -- Present as Modal (UIKit)
+
+The simplest integration. One line opens a full-screen chat modal:
 
 ```swift
 import Conferbot
 
 class ViewController: UIViewController {
-    @IBAction func openChatTapped(_ sender: UIButton) {
+    @IBAction func openChat(_ sender: UIButton) {
         Conferbot.shared.present(from: self)
     }
 }
 ```
 
-### SwiftUI
+### Pattern 2 -- SwiftUI ChatView
 
-**1. Initialize in App:**
-
-```swift
-import SwiftUI
-import Conferbot
-
-@main
-struct YourApp: App {
-    init() {
-        Conferbot.shared.initialize(
-            apiKey: "conf_sk_your_api_key_here",
-            botId: "your_bot_id_here"
-        )
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
-}
-```
-
-**2. Show Chat:**
+Use the built-in `ChatView` inside a sheet, navigation destination, or any SwiftUI container:
 
 ```swift
 import SwiftUI
@@ -133,7 +107,7 @@ struct ContentView: View {
     @State private var showChat = false
 
     var body: some View {
-        Button("Support Chat") {
+        Button("Contact Support") {
             showChat = true
         }
         .sheet(isPresented: $showChat) {
@@ -143,15 +117,84 @@ struct ContentView: View {
 }
 ```
 
-## Advanced Usage
+### Pattern 3 -- Headless (Custom UI)
+
+Use the SDK as a messaging transport layer and render everything yourself:
+
+```swift
+import Conferbot
+
+class ChatManager: ConferBotDelegate {
+    init() {
+        Conferbot.shared.delegate = self
+        Task { try? await Conferbot.shared.startSession() }
+    }
+
+    func send(_ text: String) {
+        Task { try? await Conferbot.shared.sendMessage(text) }
+    }
+
+    func conferBot(_ conferBot: ConferBot, didReceiveMessage message: any RecordItem) {
+        // Route message to your custom UI
+    }
+}
+```
+
+## Configuration
+
+### ConferBotConfig
+
+Pass a `ConferBotConfig` during initialization to control SDK behavior:
+
+```swift
+let config = ConferBotConfig(
+    enablePushNotifications: true,
+    enableOfflineQueue: true,
+    enableAnalytics: true,
+    logLevel: .warning
+)
+
+Conferbot.shared.initialize(
+    apiKey: "YOUR_API_KEY",
+    botId: "YOUR_BOT_ID",
+    config: config
+)
+```
+
+### ConferBotCustomization
+
+Customize the appearance of the built-in chat UI:
+
+```swift
+let customization = ConferBotCustomization(
+    primaryColor: .systemBlue,
+    fontFamily: "SFProText-Regular",
+    bubbleCornerRadius: 16,
+    headerTitle: "Support",
+    showAvatar: true,
+    avatarURL: URL(string: "https://example.com/avatar.png"),
+    botBubbleColor: .systemGray6,
+    userBubbleColor: .systemBlue
+)
+
+Conferbot.shared.initialize(
+    apiKey: "YOUR_API_KEY",
+    botId: "YOUR_BOT_ID",
+    customization: customization
+)
+```
+
+Dark mode is handled automatically. The SDK respects the system appearance by default.
 
 ### User Identification
+
+Attach user context so conversations carry identity and metadata:
 
 ```swift
 let user = ConferBotUser(
     id: "user-123",
-    name: "John Doe",
-    email: "john@example.com",
+    name: "Jane Smith",
+    email: "jane@example.com",
     phone: "+1234567890",
     metadata: [
         "plan": AnyCodable("premium"),
@@ -162,87 +205,11 @@ let user = ConferBotUser(
 Conferbot.shared.identify(user: user)
 ```
 
-### Customization
+## Push Notifications
+
+Register for APNs and forward the device token to the SDK:
 
 ```swift
-let customization = ConferBotCustomization(
-    primaryColor: UIColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 1.0),
-    fontFamily: "SFProText-Regular",
-    bubbleCornerRadius: 16,
-    headerTitle: "Customer Support",
-    showAvatar: true,
-    avatarURL: URL(string: "https://your-domain.com/avatar.png"),
-    botBubbleColor: UIColor(red: 0.0, green: 0.0, blue: 0.93, alpha: 1.0),
-    userBubbleColor: UIColor(red: 0.93, green: 0.93, blue: 0.93, alpha: 1.0)
-)
-
-Conferbot.shared.initialize(
-    apiKey: "conf_sk_...",
-    botId: "bot_...",
-    customization: customization
-)
-```
-
-### Event Handling (UIKit)
-
-```swift
-class ChatCoordinator: ConferBotDelegate {
-    init() {
-        Conferbot.shared.delegate = self
-    }
-
-    func conferBot(_ conferBot: ConferBot, didReceiveMessage message: any RecordItem) {
-        print("New message received")
-    }
-
-    func conferBot(_ conferBot: ConferBot, agentDidJoin agent: Agent) {
-        print("Agent joined: \(agent.name)")
-    }
-
-    func conferBot(_ conferBot: ConferBot, didUpdateUnreadCount count: Int) {
-        // Update badge
-    }
-}
-```
-
-### Programmatic Messaging
-
-```swift
-// Send a message
-Task {
-    try? await Conferbot.shared.sendMessage("Hello, I need help!")
-}
-
-// Initiate handover to agent
-Conferbot.shared.initiateHandover(message: "I need to speak with a human")
-
-// End session
-Conferbot.shared.endSession()
-```
-
-### Push Notifications
-
-**1. Register for Notifications:**
-
-```swift
-import UserNotifications
-
-func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-) -> Bool {
-    UNUserNotificationCenter.current().requestAuthorization(
-        options: [.alert, .sound, .badge]
-    ) { granted, error in
-        if granted {
-            DispatchQueue.main.async {
-                application.registerForRemoteNotifications()
-            }
-        }
-    }
-    return true
-}
-
 func application(
     _ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -252,7 +219,7 @@ func application(
 }
 ```
 
-**2. Handle Notifications:**
+Handle incoming notifications:
 
 ```swift
 func application(
@@ -268,80 +235,38 @@ func application(
 }
 ```
 
-## Usage Patterns
+## Offline Support
 
-### 1. Drop-in Widget (Modal)
+When the device loses connectivity, outbound messages are queued locally and delivered automatically once the connection is restored. No additional setup is required beyond keeping `enableOfflineQueue` set to `true` (the default).
 
-```swift
-// UIKit
-Conferbot.shared.present(from: self)
+## Knowledge Base
 
-// SwiftUI
-.sheet(isPresented: $showChat) {
-    ChatView()
-}
-```
+If your bot is configured with a knowledge base on the Conferbot dashboard, the SDK surfaces those answers automatically during conversation. No client-side setup is needed.
 
-### 2. Embedded in View (UIKit)
+## Analytics
 
-```swift
-class SupportViewController: UIViewController {
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        let chatVC = ChatViewController()
-        addChild(chatVC)
-        view.addSubview(chatVC.view)
-        chatVC.view.frame = view.bounds
-        chatVC.didMove(toParent: self)
-    }
-}
-```
-
-### 3. Headless (API Only)
-
-```swift
-class CustomChatManager: ConferBotDelegate {
-    func setupHeadless() {
-        Conferbot.shared.delegate = self
-
-        Task {
-            try? await Conferbot.shared.startSession()
-        }
-    }
-
-    func sendCustomMessage(_ text: String) {
-        Task {
-            try? await Conferbot.shared.sendMessage(text)
-        }
-    }
-
-    func conferBot(_ conferBot: ConferBot, didReceiveMessage message: any RecordItem) {
-        // Handle message in your custom UI
-    }
-}
-```
+When `enableAnalytics` is set to `true` in `ConferBotConfig`, the SDK reports session and message events to the Conferbot analytics dashboard. You can also listen for events locally via the `ConferBotDelegate` protocol.
 
 ## API Reference
 
-### `ConferBot` Class
+### Core Methods
 
 | Method | Description |
 |--------|-------------|
 | `initialize(apiKey:botId:config:customization:)` | Initialize the SDK |
-| `identify(user:)` | Identify current user |
-| `startSession()` | Start a new chat session |
-| `sendMessage(_:metadata:)` | Send a message |
+| `identify(user:)` | Set the current user |
+| `startSession()` | Start a chat session |
+| `sendMessage(_:metadata:)` | Send a text message |
 | `sendTypingIndicator(isTyping:)` | Send typing status |
-| `initiateHandover(message:)` | Request live agent |
-| `endSession()` | End current session |
-| `present(from:animated:)` | Show chat modal (UIKit) |
-| `registerPushToken(_:)` | Register APNs token |
+| `initiateHandover(message:)` | Request a live agent |
+| `endSession()` | End the current session |
+| `present(from:animated:)` | Show the chat modal (UIKit) |
+| `registerPushToken(_:)` | Register an APNs device token |
 | `getUnreadCount()` | Get unread message count |
-| `clearHistory()` | Clear chat history |
-| `disconnect()` | Disconnect socket |
+| `clearHistory()` | Clear local chat history |
+| `disconnect()` | Disconnect the socket |
 
-### `ConferBotDelegate` Protocol
+### ConferBotDelegate
 
 ```swift
 protocol ConferBotDelegate: AnyObject {
@@ -355,50 +280,47 @@ protocol ConferBotDelegate: AnyObject {
 }
 ```
 
+For the full API reference, see [docs/API.md](docs/API.md).
+
 ## Documentation
 
 - [Architecture Guide](docs/ARCHITECTURE.md)
 - [UI Components](docs/COMPONENTS.md)
 - [API Reference](docs/API.md)
 - [Examples](docs/EXAMPLES.md)
+- [Testing](docs/TESTING.md)
 - [Publishing Guide](docs/PUBLISHING.md)
+- [Full Documentation](https://docs.conferbot.com/mobile/ios)
 
 ## Example App
 
-Check out the `Example/` directory for complete UIKit and SwiftUI implementations.
+The `Example/` directory contains complete UIKit and SwiftUI sample projects demonstrating all integration patterns.
 
 ## Troubleshooting
 
-**Issue: Build errors with Socket.IO**
-```bash
-# Clean derived data
-rm -rf ~/Library/Developer/Xcode/DerivedData
+**Build errors with Socket.IO**
 
-# Update dependencies
+```bash
+rm -rf ~/Library/Developer/Xcode/DerivedData
 pod deintegrate && pod install
 ```
 
-**Issue: Socket not connecting**
-- Verify API key and Bot ID are correct
-- Check network connection
-- Enable logging: `print` statements are enabled in DEBUG mode
+**Socket not connecting**
 
-**Issue: Messages not appearing**
-- Ensure `startSession()` is called
-- Check delegate/publisher subscriptions
-- Verify socket connection status
+- Verify your API key and bot ID are correct.
+- Check the device network connection.
+- Enable debug logging via `ConferBotConfig(logLevel: .debug)`.
 
-## Support
+**Messages not appearing**
 
-- **Documentation**: https://docs.conferbot.com/mobile/ios
-- **GitHub Issues**: https://github.com/conferbot/conferbot-ios/issues
-- **Discord**: https://discord.gg/conferbot
-- **Email**: mobile-support@conferbot.com
+- Ensure `startSession()` has been called.
+- Confirm your delegate is set or your SwiftUI view is subscribed.
+- Check the socket connection status via `didChangeConnectionStatus`.
+
+## Contributing
+
+Bug reports and pull requests are welcome on GitHub at [conferbot/conferbot-ios](https://github.com/conferbot/conferbot-ios). Please open an issue before starting any significant work so we can discuss the approach.
 
 ## License
 
-Proprietary - Copyright 2025 Conferbot. All rights reserved.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+Proprietary -- Copyright 2025 Conferbot. All rights reserved. See [LICENSE](LICENSE) for details.
