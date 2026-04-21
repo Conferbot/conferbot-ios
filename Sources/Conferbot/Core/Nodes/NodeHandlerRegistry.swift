@@ -171,7 +171,17 @@ public final class NodeHandlerRegistry {
         }
 
         guard let handler = getHandler(for: nodeType) else {
-            return .error("No handler registered for node type: \(nodeType)")
+            #if DEBUG
+            print("[NodeHandlerRegistry] WARNING: No handler registered for node type: \(nodeType) - skipping node")
+            #endif
+            // Gracefully skip unhandled node types instead of returning an error.
+            // Extract nextNodeId so the flow can continue.
+            let data = node["data"] as? [String: Any]
+            let nextNodeId = data?["nextNodeId"] as? String
+                ?? data?["next"] as? String
+                ?? node["nextNodeId"] as? String
+                ?? node["next"] as? String
+            return .proceed(nextNodeId, nil)
         }
 
         return await handler.handle(node: node, state: state)
@@ -191,9 +201,7 @@ public final class NodeHandlerRegistry {
     }
 }
 
-// MARK: - Placeholder Node Handlers
-
-// These are placeholder implementations that should be replaced with actual implementations
+// MARK: - Built-in Node Handlers
 
 /// Handler for message nodes
 public class MessageNodeHandler: BaseNodeHandler {
@@ -1435,14 +1443,18 @@ public class NotionNodeHandler: BaseNodeHandler {
         let icon = getString(data, "icon").map { state.resolveVariables(text: $0) }
         let cover = getString(data, "cover").map { state.resolveVariables(text: $0) }
 
+        // Get session ID and bot ID from state
+        let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
+        let botId = state.record["botId"] as? String ?? ""
+
         // Build payload for server processing
         var payload: [String: Any] = [
-            "chatSessionId": state.sessionId,
-            "botId": state.botId,
+            "chatSessionId": sessionId,
+            "botId": botId,
             "nodeType": "notion",
             "operation": operation,
             "responseVariable": responseVariable,
-            "variables": state.allVariables
+            "variables": state.variables
         ]
 
         // Add optional fields based on operation
