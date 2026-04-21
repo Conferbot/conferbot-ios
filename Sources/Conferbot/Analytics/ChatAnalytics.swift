@@ -936,9 +936,10 @@ public final class ChatAnalytics: ObservableObject {
 
     /// Get attribution data (deep link, referrer, etc.)
     private func getAttributionData() -> [String: Any] {
+        let sdkVersion = Bundle(for: ChatAnalytics.self).infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         var attribution: [String: Any] = [
             "platform": "iOS",
-            "sdkVersion": "1.0.0" // TODO: Get from bundle
+            "sdkVersion": sdkVersion
         ]
 
         // Add any stored attribution from UserDefaults
