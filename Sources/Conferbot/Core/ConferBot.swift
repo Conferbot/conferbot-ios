@@ -405,6 +405,9 @@ public class ConferBot: ObservableObject {
     private func registerAllNodeHandlers() {
         let registry = NodeHandlerRegistry.shared
 
+        // Store socket client on registry so integration handlers can emit events
+        registry.socketClient = self.socketClient
+
         // Register Display Node Handlers
         registry.register(SendMessageHandler())
         registry.register(SendImageHandler())
@@ -451,24 +454,30 @@ public class ConferBot: ObservableObject {
         registry.register(SplitConversationHandler())
         registry.register(LogicDelayHandler())
 
-        // Integration Node Handlers
-        registry.register(WebhookHandler())
-        registry.register(GoogleSheetsHandler())
-        registry.register(SendEmailHandler())
-        registry.register(CalendlyHandler())
-        registry.register(HubspotHandler())
-        registry.register(SalesforceHandler())
-        registry.register(ZendeskHandler())
-        registry.register(SlackHandler())
-        registry.register(ZapierHandler())
-        registry.register(DialogflowHandler())
-        registry.register(OpenAIHandler())
-        registry.register(GeminiHandler())
-        registry.register(PerplexityHandler())
-        registry.register(ClaudeHandler())
-        registry.register(GroqHandler())
-        registry.register(CustomLLMHandler())
-        registry.register(HumanHandoverHandler())
+        // Integration Node Handlers (inject socketClient for server-side event emission)
+        let integrationHandlers: [BaseIntegrationHandler] = [
+            WebhookHandler(),
+            GoogleSheetsHandler(),
+            SendEmailHandler(),
+            CalendlyHandler(),
+            HubspotHandler(),
+            SalesforceHandler(),
+            ZendeskHandler(),
+            SlackHandler(),
+            ZapierHandler(),
+            DialogflowHandler(),
+            OpenAIHandler(),
+            GeminiHandler(),
+            PerplexityHandler(),
+            ClaudeHandler(),
+            GroqHandler(),
+            CustomLLMHandler(),
+            HumanHandoverHandler(),
+        ]
+        for handler in integrationHandlers {
+            handler.socketClient = self.socketClient
+            registry.register(handler)
+        }
 
         // Special Flow Handlers
         registry.register(GoalHandler())
