@@ -127,6 +127,8 @@ public protocol NodeState {
 
 /// Protocol that all integration node handlers must conform to
 /// Note: This is separate from the main NodeHandler protocol in NodeHandler.swift
+/// but BaseIntegrationHandler bridges to NodeHandler so integration handlers
+/// can be registered in NodeHandlerRegistry.
 public protocol IntegrationNodeHandler {
     /// The node type this handler processes
     static var nodeType: String { get }
@@ -137,14 +139,30 @@ public protocol IntegrationNodeHandler {
 
 // MARK: - Base Integration Handler
 
-/// Base class for integration node handlers with common functionality
-open class BaseIntegrationHandler: IntegrationNodeHandler {
+/// Base class for integration node handlers with common functionality.
+/// Conforms to both IntegrationNodeHandler and NodeHandler so that subclasses
+/// can be registered directly in NodeHandlerRegistry.
+open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     open class var nodeType: String { "" }
+
+    /// Instance-level nodeType required by NodeHandler protocol.
+    /// Delegates to the class-level static property.
+    public var nodeType: String { type(of: self).nodeType }
 
     public init() {}
 
     open func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         fatalError("Subclasses must implement handle(nodeData:state:)")
+    }
+
+    /// NodeHandler protocol bridge: converts ChatState to NodeState adapter,
+    /// extracts node data, delegates to the integration-specific handle method,
+    /// and maps the result back to NodeResult.
+    public func handle(node: [String: Any], state: ChatState) async -> NodeResult {
+        let nodeData = node["data"] as? [String: Any] ?? node
+        let nodeStateAdapter = ChatStateNodeStateAdapter(chatState: state)
+        let integrationResult = await handle(nodeData: nodeData, state: nodeStateAdapter)
+        return integrationResult.toNodeResult(node: node)
     }
 
     /// Extract string value from node data with variable resolution
@@ -3015,14 +3033,16 @@ extension NodeState {
 
 // MARK: - Integration Handler Registry
 
-/// Registry for managing and accessing integration node handlers
+/// Registry for managing and accessing integration node handlers.
+/// This registry uses the IntegrationNodeHandler protocol for handler lookup
+/// and can also vend handlers as NodeHandler for use with NodeHandlerRegistry.
 public final class IntegrationHandlerRegistry {
 
     /// Shared singleton instance
     public static let shared = IntegrationHandlerRegistry()
 
-    /// Map of node types to handlers
-    private var handlers: [String: NodeHandler] = [:]
+    /// Map of node types to handlers (BaseIntegrationHandler conforms to both protocols)
+    private var handlers: [String: BaseIntegrationHandler] = [:]
 
     private init() {
         registerDefaultHandlers()
@@ -3060,12 +3080,17 @@ public final class IntegrationHandlerRegistry {
     }
 
     /// Register a handler
-    public func register(_ handler: NodeHandler) {
+    public func register(_ handler: BaseIntegrationHandler) {
         handlers[type(of: handler).nodeType] = handler
     }
 
-    /// Get handler for a node type
-    public func handler(for nodeType: String) -> NodeHandler? {
+    /// Get handler for a node type (as IntegrationNodeHandler)
+    public func handler(for nodeType: String) -> BaseIntegrationHandler? {
+        return handlers[nodeType]
+    }
+
+    /// Get handler for a node type as NodeHandler (for use with NodeHandlerRegistry)
+    public func nodeHandler(for nodeType: String) -> NodeHandler? {
         return handlers[nodeType]
     }
 
@@ -3079,7 +3104,7 @@ public final class IntegrationHandlerRegistry {
         return Array(handlers.keys)
     }
 
-    /// Handle a node with the appropriate handler
+    /// Handle a node with the appropriate handler using IntegrationNodeHandler protocol
     public func handleNode(
         nodeType: String,
         nodeData: [String: Any],
@@ -3097,6 +3122,112 @@ public final class IntegrationHandlerRegistry {
         #if DEBUG
         print("[IntegrationHandlerRegistry] \(message)")
         #endif
+    }
+}
+
+// MARK: - ChatState to NodeState Adapter
+
+/// Bridges ChatState (used by NodeHandler) to NodeState (used by IntegrationNodeHandler)
+/// so that integration handlers can operate on the standard ChatState.
+@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+public class ChatStateNodeStateAdapter: NodeState {
+
+    private let chatState: ChatState
+
+    public init(chatState: ChatState) {
+        self.chatState = chatState
+    }
+
+    public var chatSessionId: String {
+        return chatState.sessionId ?? chatState.getVariable(name: "_sessionId") as? String ?? ""
+    }
+
+    public var botId: String {
+        return chatState.record["botId"] as? String ?? ""
+    }
+
+    public var variables: [String: Any] {
+        get { chatState.variables }
+        set {
+            for (key, value) in newValue {
+                chatState.setVariable(name: key, value: value)
+            }
+        }
+    }
+
+    public func resolveVariables(in text: String) -> String {
+        return chatState.resolveVariables(text: text)
+    }
+
+    public func setValue(_ value: Any, forKey key: String) {
+        chatState.setVariable(name: key, value: value)
+    }
+
+    public func getValue(forKey key: String) -> Any? {
+        return chatState.getVariable(name: key)
+    }
+
+    public func emitSocketEvent(_ event: String, data: [String: Any]) {
+        // Socket emission is handled by the socket client at a higher level.
+        // Integration handlers that need direct socket access should use
+        // DefaultNodeState with a SocketClient reference instead.
+        #if DEBUG
+        print("[ChatStateNodeStateAdapter] emitSocketEvent called for '\(event)' - requires SocketClient injection")
+        #endif
+    }
+
+    public var isSocketConnected: Bool {
+        // When accessed through ChatState adapter, assume connected
+        // since the flow engine manages connectivity at a higher level.
+        return true
+    }
+}
+
+// MARK: - NodeHandlerResult to NodeResult Conversion
+
+extension NodeHandlerResult {
+
+    /// Convert an IntegrationNodeHandler result to the main NodeResult type
+    /// used by the flow engine.
+    /// - Parameter node: The original node dictionary (used to extract nextNodeId)
+    func toNodeResult(node: [String: Any]) -> NodeResult {
+        switch self {
+        case .proceed:
+            let nextNodeId = Self.extractNextNodeId(from: node)
+            return .proceed(nextNodeId, nil)
+
+        case .proceedTo(let nodeId):
+            return .jumpTo(nodeId)
+
+        case .waitForResponse:
+            return .displayUI(.loading)
+
+        case .displayUI(let type, let data):
+            switch type {
+            case .humanHandover:
+                let message = data["message"] as? String
+                return .displayUI(.humanHandover(message: message))
+            case .calendlyEmbed, .calendlyLink, .externalLink:
+                let url = data["url"] as? String ?? data["paymentUrl"] as? String ?? ""
+                let text = data["text"] as? String ?? data["description"] as? String
+                if !url.isEmpty {
+                    return .displayUI(.link(url: url, text: text))
+                }
+                let nextNodeId = Self.extractNextNodeId(from: node)
+                return .proceed(nextNodeId, data)
+            }
+
+        case .error(let integrationError):
+            return .error(integrationError.localizedDescription)
+        }
+    }
+
+    /// Extract the next node ID from a node dictionary
+    private static func extractNextNodeId(from node: [String: Any]) -> String? {
+        if let data = node["data"] as? [String: Any] {
+            return data["nextNodeId"] as? String ?? data["next"] as? String
+        }
+        return node["nextNodeId"] as? String ?? node["next"] as? String
     }
 }
 
