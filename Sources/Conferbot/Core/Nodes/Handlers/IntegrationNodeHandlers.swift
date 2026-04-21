@@ -149,6 +149,10 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     /// Delegates to the class-level static property.
     public var nodeType: String { type(of: self).nodeType }
 
+    /// Reference to socket client for emitting events via the NodeState adapter.
+    /// Set by the registry or during handler registration.
+    public weak var socketClient: SocketClient?
+
     public init() {}
 
     open func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
@@ -160,13 +164,13 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     /// and maps the result back to NodeResult.
     public func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         let nodeData = node["data"] as? [String: Any] ?? node
-        let nodeStateAdapter = ChatStateNodeStateAdapter(chatState: state)
+        let nodeStateAdapter = ChatStateNodeStateAdapter(chatState: state, socketClient: socketClient)
         let integrationResult = await handle(nodeData: nodeData, state: nodeStateAdapter)
         return integrationResult.toNodeResult(node: node)
     }
 
     /// Extract string value from node data with variable resolution
-    protected func extractString(
+    public func extractString(
         _ key: String,
         from nodeData: [String: Any],
         state: NodeState,
@@ -190,7 +194,7 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     }
 
     /// Extract dictionary value from node data
-    protected func extractDictionary(
+    public func extractDictionary(
         _ key: String,
         from nodeData: [String: Any],
         required: Bool = false
@@ -213,7 +217,7 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     }
 
     /// Extract array value from node data
-    protected func extractArray(
+    public func extractArray(
         _ key: String,
         from nodeData: [String: Any],
         required: Bool = false
@@ -236,7 +240,7 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     }
 
     /// Resolve variables in a dictionary's string values
-    protected func resolveVariablesInDictionary(
+    public func resolveVariablesInDictionary(
         _ dict: [String: Any],
         state: NodeState
     ) -> [String: Any] {
@@ -254,7 +258,7 @@ open class BaseIntegrationHandler: IntegrationNodeHandler, NodeHandler {
     }
 
     /// Log debug message
-    protected func debugLog(_ message: String) {
+    public func debugLog(_ message: String) {
         #if DEBUG
         print("[IntegrationHandler] \(message)")
         #endif
@@ -3133,9 +3137,11 @@ public final class IntegrationHandlerRegistry {
 public class ChatStateNodeStateAdapter: NodeState {
 
     private let chatState: ChatState
+    private weak var socketClient: SocketClient?
 
-    public init(chatState: ChatState) {
+    public init(chatState: ChatState, socketClient: SocketClient? = nil) {
         self.chatState = chatState
+        self.socketClient = socketClient
     }
 
     public var chatSessionId: String {
@@ -3168,18 +3174,17 @@ public class ChatStateNodeStateAdapter: NodeState {
     }
 
     public func emitSocketEvent(_ event: String, data: [String: Any]) {
-        // Socket emission is handled by the socket client at a higher level.
-        // Integration handlers that need direct socket access should use
-        // DefaultNodeState with a SocketClient reference instead.
-        #if DEBUG
-        print("[ChatStateNodeStateAdapter] emitSocketEvent called for '\(event)' - requires SocketClient injection")
-        #endif
+        guard let socketClient = socketClient else {
+            #if DEBUG
+            print("[ChatStateNodeStateAdapter] emitSocketEvent called for '\(event)' but no SocketClient available")
+            #endif
+            return
+        }
+        socketClient.emit(event: event, data: data)
     }
 
     public var isSocketConnected: Bool {
-        // When accessed through ChatState adapter, assume connected
-        // since the flow engine manages connectivity at a higher level.
-        return true
+        return socketClient?.isConnected ?? false
     }
 }
 
