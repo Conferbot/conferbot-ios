@@ -431,31 +431,56 @@ public struct FileMessageBubble: View {
     }
 }
 
-/// Typing indicator view
+/// Typing indicator view with bot avatar — matches web widget
 @available(iOS 14.0, *)
 public struct TypingIndicator: View {
     @State private var animating = false
+    var avatarURL: URL? = nil
 
-    public init() {}
+    public init(avatarURL: URL? = nil) {
+        self.avatarURL = avatarURL
+    }
 
     public var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(Color.gray)
-                    .frame(width: 8, height: 8)
-                    .opacity(animating ? 0.3 : 1.0)
-                    .animation(
-                        Animation.easeInOut(duration: 0.6)
-                            .repeatForever()
-                            .delay(Double(index) * 0.2),
-                        value: animating
-                    )
+        HStack(alignment: .bottom, spacing: 8) {
+            // Bot avatar
+            if let url = avatarURL {
+                AsyncImage(url: url) { image in
+                    image.resizable()
+                } placeholder: {
+                    Circle()
+                        .fill(Color.gray.opacity(0.3))
+                }
+                .frame(width: 32, height: 32)
+                .clipShape(Circle())
+            } else {
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .frame(width: 32, height: 32)
+                    .foregroundColor(.gray)
             }
+
+            // Typing dots in a bubble
+            HStack(spacing: 6) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(Color.gray)
+                        .frame(width: 8, height: 8)
+                        .opacity(animating ? 0.3 : 1.0)
+                        .animation(
+                            Animation.easeInOut(duration: 0.6)
+                                .repeatForever()
+                                .delay(Double(index) * 0.2),
+                            value: animating
+                        )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(UIColor.systemGray5))
+            .cornerRadius(16)
         }
-        .padding(12)
-        .background(Color(UIColor.systemGray5))
-        .cornerRadius(16)
+        .padding(.horizontal, 12)
         .onAppear {
             animating = true
         }
