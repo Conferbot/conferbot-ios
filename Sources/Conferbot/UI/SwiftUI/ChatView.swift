@@ -67,8 +67,18 @@ public struct ChatView: View {
                 // Chat content
                 VStack(spacing: 0) {
                     messagesView
-                    Divider()
-                    inputView
+                    ChatBottomBar(
+                        text: $inputText,
+                        onSend: { message in
+                            Task {
+                                try? await conferBot.sendMessage(message)
+                            }
+                        },
+                        onEditingChanged: { isEditing in
+                            conferBot.sendTypingIndicator(isTyping: isEditing)
+                        },
+                        primaryColor: conferBot.customization?.primaryColor.map { Color($0) } ?? .blue
+                    )
                 }
             }
         }
