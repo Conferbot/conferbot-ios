@@ -11,7 +11,9 @@
 
 import Foundation
 import Combine
+#if canImport(UIKit)
 import UIKit
+#endif
 
 // MARK: - Analytics Event Types
 
@@ -140,6 +142,7 @@ public struct EnvironmentInfo {
     let timezone: String
 
     static func current() -> EnvironmentInfo {
+        #if canImport(UIKit)
         let device = UIDevice.current
         let screen = UIScreen.main
 
@@ -153,9 +156,22 @@ public struct EnvironmentInfo {
             language: Locale.preferredLanguages.first ?? "unknown",
             timezone: TimeZone.current.identifier
         )
+        #else
+        return EnvironmentInfo(
+            deviceType: "unknown",
+            platform: "linux",
+            osVersion: "unknown",
+            deviceModel: "unknown",
+            appVersion: nil,
+            screenResolution: "0x0",
+            language: Locale.preferredLanguages.first ?? "unknown",
+            timezone: TimeZone.current.identifier
+        )
+        #endif
     }
 
     private static func getDeviceType() -> String {
+        #if canImport(UIKit)
         switch UIDevice.current.userInterfaceIdiom {
         case .phone:
             return "mobile"
@@ -170,6 +186,9 @@ public struct EnvironmentInfo {
         default:
             return "unknown"
         }
+        #else
+        return "unknown"
+        #endif
     }
 
     private static func getDeviceModel() -> String {
@@ -960,6 +979,7 @@ public final class ChatAnalytics: ObservableObject {
 
     /// Setup app lifecycle observers
     private func setupAppLifecycleObservers() {
+        #if canImport(UIKit)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAppWillResignActive),
@@ -980,6 +1000,7 @@ public final class ChatAnalytics: ObservableObject {
             name: UIApplication.willTerminateNotification,
             object: nil
         )
+        #endif
     }
 
     @objc private func handleAppWillResignActive() {
