@@ -197,26 +197,14 @@ public final class ConditionalHandler: BaseNodeHandler {
         // Evaluate all conditions
         let result = evaluateConditions(conditions, logic: logic, state: state)
 
-        // Extract branch node IDs from edges or data
-        let trueNodeId = extractTrueNodeId(from: node, data: data)
-        let falseNodeId = extractFalseNodeId(from: node, data: data)
-
+        // Use port-based routing: the flow engine resolves the correct edge
+        // by matching the sourceHandle ("true" or "false") on the edges array.
+        // The _port key is read by NodeFlowEngine.handleNodeResult to call
+        // getNextNodeId(from:port:).
         if result {
-            if let trueNodeId = trueNodeId {
-                return .jumpTo(trueNodeId)
-            } else {
-                // No true branch defined, just proceed
-                let nextNodeId = getNextNodeId(node)
-                return .proceed(nextNodeId, nil)
-            }
+            return .proceed(nil, ["_port": "true"])
         } else {
-            if let falseNodeId = falseNodeId {
-                return .jumpTo(falseNodeId)
-            } else {
-                // No false branch defined, just proceed
-                let nextNodeId = getNextNodeId(node)
-                return .proceed(nextNodeId, nil)
-            }
+            return .proceed(nil, ["_port": "false"])
         }
     }
 
@@ -374,45 +362,6 @@ public final class ConditionalHandler: BaseNodeHandler {
         return nil
     }
 
-    /// Extracts true branch node ID from edges or data
-    private func extractTrueNodeId(from node: [String: Any], data: [String: Any]) -> String? {
-        // Check data first
-        if let trueNodeId = getString(data, "trueNodeId") ?? getString(data, "trueBranch") {
-            return trueNodeId
-        }
-
-        // Check edges array
-        if let edges = node["edges"] as? [[String: Any]] {
-            for edge in edges {
-                let label = getString(edge, "label") ?? getString(edge, "type") ?? ""
-                if label.lowercased() == "true" || label.lowercased() == "yes" {
-                    return getString(edge, "target") ?? getString(edge, "targetNodeId")
-                }
-            }
-        }
-
-        return nil
-    }
-
-    /// Extracts false branch node ID from edges or data
-    private func extractFalseNodeId(from node: [String: Any], data: [String: Any]) -> String? {
-        // Check data first
-        if let falseNodeId = getString(data, "falseNodeId") ?? getString(data, "falseBranch") {
-            return falseNodeId
-        }
-
-        // Check edges array
-        if let edges = node["edges"] as? [[String: Any]] {
-            for edge in edges {
-                let label = getString(edge, "label") ?? getString(edge, "type") ?? ""
-                if label.lowercased() == "false" || label.lowercased() == "no" {
-                    return getString(edge, "target") ?? getString(edge, "targetNodeId")
-                }
-            }
-        }
-
-        return nil
-    }
 }
 
 // MARK: - AB Test Handler
