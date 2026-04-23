@@ -567,6 +567,9 @@ public class ConferBot: ObservableObject {
             }
         }
 
+        // Push user response to server record (matching web widget format)
+        chatState.pushUserRecord(nodeId: messageId, nodeType: nil, text: text)
+
         // Check if we can send immediately or need to queue
         if offlineManager.canSendMessages {
             // Send via socket
@@ -596,33 +599,9 @@ public class ConferBot: ObservableObject {
 
     /// Internal method to send a message via socket
     private func sendMessageViaSocket(text: String, messageId: String, session: ChatSession) {
-        let record: [String: Any] = [
-            "_id": messageId,
-            "type": "user-input-response",
-            "text": text,
-            "time": ISO8601DateFormatter().string(from: Date())
-        ]
-
-        // Get all messages as records for the full conversation history
-        var allRecords: [[String: Any]] = messages.compactMap { msg -> [String: Any]? in
-            if let userMsg = msg as? UserMessageRecord {
-                return [
-                    "_id": userMsg.id,
-                    "type": "user-message",
-                    "text": userMsg.text,
-                    "time": ISO8601DateFormatter().string(from: userMsg.time)
-                ]
-            } else if let userInputMsg = msg as? UserInputResponseRecord {
-                return [
-                    "_id": userInputMsg.id,
-                    "type": "user-input-response",
-                    "text": userInputMsg.text,
-                    "time": ISO8601DateFormatter().string(from: userInputMsg.time)
-                ]
-            }
-            return nil
-        }
-        allRecords.append(record)
+        // Use the server record which includes both bot and user messages
+        // in the web widget format (with data sub-objects for bot messages)
+        let allRecords = chatState.getServerRecord()
 
         socketClient?.sendResponseRecord(
             chatSessionId: session.chatSessionId,
@@ -1101,6 +1080,27 @@ public class ConferBot: ObservableObject {
         // Chat ended
         socketClient?.on(SocketEvents.chatEnded) { [weak self] _, _ in
             self?.endSession()
+        }
+
+        // Fetched chatbot data - extract workspaceId and botName for handover
+        socketClient?.on(SocketEvents.fetchedChatbotData) { [weak self] data, _ in
+            guard let self = self,
+                  let json = data.first as? [String: Any],
+                  let chatbotData = json["chatbotData"] as? [String: Any] else { return }
+
+            // Store workspaceId for handover handler
+            if let workspaceId = chatbotData["workspaceId"] as? String, !workspaceId.isEmpty {
+                self.chatState.setVariable(name: "_workspaceId", value: workspaceId)
+            }
+
+            // Store botName for handover handler
+            let customizations = chatbotData["customizations"] as? [String: Any]
+            let botName = (customizations?["botName"] as? String)
+                ?? (customizations?["logoText"] as? String)
+                ?? ""
+            if !botName.isEmpty {
+                self.chatState.setVariable(name: "_botName", value: botName)
+            }
         }
     }
 
