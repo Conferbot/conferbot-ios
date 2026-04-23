@@ -6,7 +6,9 @@
 //
 
 import Foundation
+#if canImport(Network)
 import Network
+#endif
 import Combine
 
 /// Delegate protocol for offline manager events
