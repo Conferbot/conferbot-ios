@@ -7,7 +7,9 @@
 
 import Foundation
 import Combine
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// ConferBot delegate protocol for event callbacks
 public protocol ConferBotDelegate: AnyObject {
@@ -1278,6 +1280,7 @@ public class ConferBot: ObservableObject {
     }
 
     private func getDeviceInfo() -> [String: Any] {
+        #if canImport(UIKit)
         let device = UIDevice.current
         return [
             "platform": "iOS",
@@ -1285,6 +1288,14 @@ public class ConferBot: ObservableObject {
             "model": device.model,
             "deviceId": device.identifierForVendor?.uuidString ?? ""
         ]
+        #else
+        return [
+            "platform": "linux",
+            "osVersion": "unknown",
+            "model": "unknown",
+            "deviceId": UUID().uuidString
+        ]
+        #endif
     }
 
     private func debugPrint(_ message: String) {
