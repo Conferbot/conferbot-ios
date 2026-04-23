@@ -260,15 +260,24 @@ public final class NodeFlowEngine: ObservableObject {
             state.isTyping = false
             currentUIState = nil
 
-            // Store any data passed forward
+            // Extract port hint before storing data as variables
+            let portHint = data?["_port"] as? String
+
+            // Store any data passed forward (skip internal keys)
             if let data = data {
                 for (key, value) in data {
+                    if key.hasPrefix("_") { continue } // skip internal hints like _port
                     state.setVariable(name: key, value: value)
                 }
             }
 
-            // Find next node
-            let targetNodeId = nextNodeId ?? getNextNodeId(from: nodeId)
+            // Find next node - use port hint for edge-based routing if provided
+            let targetNodeId: String?
+            if let port = portHint {
+                targetNodeId = nextNodeId ?? getNextNodeId(from: nodeId, port: port)
+            } else {
+                targetNodeId = nextNodeId ?? getNextNodeId(from: nodeId)
+            }
 
             if let targetNodeId = targetNodeId {
                 // Process next node
