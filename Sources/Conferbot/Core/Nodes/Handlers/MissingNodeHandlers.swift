@@ -804,6 +804,9 @@ public final class GptNodeHandler: BaseNodeHandler {
         super.init()
     }
 
+    /// Timeout for waiting for GPT response (in seconds)
+    private let responseTimeout: TimeInterval = 30.0
+
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
             return .error("GPT node missing data")
@@ -849,13 +852,6 @@ public final class GptNodeHandler: BaseNodeHandler {
         }
         payload["messages"] = recentMessages
 
-        // Emit socket event for server processing
-        socketClient?.emit(SocketEvents.gptNodeTrigger, payload)
-
-        #if DEBUG
-        print("[Conferbot] GPT node event emitted for server processing (provider: \(provider))")
-        #endif
-
         // Record in transcript
         state.addToTranscript(entry: [
             "type": "system",
@@ -864,8 +860,75 @@ public final class GptNodeHandler: BaseNodeHandler {
             "nodeId": nodeId
         ])
 
-        // Display loading state while waiting for server response
-        return .displayUI(.loading)
+        // Use the registry's socket client (set during ConferBot init) or the handler's own
+        let socket = socketClient ?? NodeHandlerRegistry.shared.socketClient
+
+        guard let socket = socket else {
+            return .error("GPT node: no socket connection available")
+        }
+
+        // Wait for the GPT response from the server with a timeout
+        let responseText: String = await withCheckedContinuation { continuation in
+            var resumed = false
+            let resumeLock = NSLock()
+
+            // Listen for the response
+            socket.on(SocketEvents.gptNodeResponse) { responseData, _ in
+                guard let json = responseData.first as? [String: Any] else { return }
+
+                // Match by nodeId to ensure we get the right response
+                let responseNodeId = json["nodeId"] as? String
+                if responseNodeId != nil && responseNodeId != nodeId { return }
+
+                let text = json["text"] as? String
+                    ?? json["message"] as? String
+                    ?? json["response"] as? String
+                    ?? json["content"] as? String
+                    ?? ""
+
+                resumeLock.lock()
+                if !resumed {
+                    resumed = true
+                    resumeLock.unlock()
+                    // Remove listener after receiving response
+                    socket.off(SocketEvents.gptNodeResponse)
+                    continuation.resume(returning: text)
+                } else {
+                    resumeLock.unlock()
+                }
+            }
+
+            // Emit the trigger event
+            socket.emit(SocketEvents.gptNodeTrigger, payload)
+
+            #if DEBUG
+            print("[Conferbot] GPT node event emitted for server processing (provider: \(provider))")
+            #endif
+
+            // Set up timeout
+            DispatchQueue.global().asyncAfter(deadline: .now() + self.responseTimeout) {
+                resumeLock.lock()
+                if !resumed {
+                    resumed = true
+                    resumeLock.unlock()
+                    socket.off(SocketEvents.gptNodeResponse)
+                    continuation.resume(returning: "Sorry, the AI response timed out. Please try again.")
+                } else {
+                    resumeLock.unlock()
+                }
+            }
+        }
+
+        // Add the GPT response to transcript
+        state.addToTranscript(entry: [
+            "type": "bot",
+            "text": responseText,
+            "nodeType": "gpt",
+            "nodeId": nodeId
+        ])
+
+        // Display the bot message with the GPT response
+        return .displayUI(.message(text: responseText, typing: true))
     }
 }
 
