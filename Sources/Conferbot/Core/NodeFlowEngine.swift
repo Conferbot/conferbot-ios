@@ -252,6 +252,20 @@ public final class NodeFlowEngine: ObservableObject {
                 state.addBotMessage(text, nodeId: nodeId, nodeType: node["type"] as? String)
             }
 
+            // Push bot message to server record (matching web widget format)
+            let nodeType = node["type"] as? String ?? "unknown"
+            let nodeData = node["data"] as? [String: Any]
+            let displayText: String? = {
+                switch uiState {
+                case .message(let text, _): return text
+                case .textInput(let placeholder, _, _): return placeholder
+                case .humanHandover(let message): return message
+                case .liveChat(let message): return message
+                default: return nil
+                }
+            }()
+            state.pushBotRecord(nodeId: nodeId, nodeType: nodeType, nodeData: nodeData, text: displayText)
+
             ConferBotLogger.debug("[NodeFlowEngine] Displaying UI for node: \(nodeId)")
 
         case .proceed(let nextNodeId, let data):
