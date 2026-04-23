@@ -5,7 +5,13 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 [![Platform](https://img.shields.io/badge/Platform-iOS-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.7+-F05138.svg)](https://swift.org)
 [![iOS](https://img.shields.io/badge/iOS-14.0+-000000.svg)](https://developer.apple.com/ios/)
-[![License](https://img.shields.io/badge/License-Proprietary-lightgrey.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+<p align="center">
+  <img src="docs/screenshots/chat-swiftui.png" width="280" alt="SwiftUI Chat" />
+  <img src="docs/screenshots/choice-node.png" width="280" alt="Choice Node" />
+  <img src="docs/screenshots/themed-chat.png" width="280" alt="Themed Chat" />
+</p>
 
 ## Features
 
@@ -64,6 +70,15 @@ Then run:
 ```bash
 pod install
 ```
+
+## Getting Your API Key and Bot ID
+
+You need two credentials to use the SDK:
+
+1. **Log in** to [Conferbot Dashboard](https://app.conferbot.com)
+2. **Create or select a bot** from the dashboard
+3. **Find your Bot ID**: Go to **Bot Settings** > **General** -- the Bot ID is displayed at the top
+4. **Find your API Key**: Go to **Workspace Settings** > **API Keys** -- copy the key starting with `conf_`
 
 ## Quick Start
 
@@ -294,7 +309,34 @@ For the full API reference, see [docs/API.md](docs/API.md).
 
 ## Example App
 
-The `Example/` directory contains complete UIKit and SwiftUI sample projects demonstrating all integration patterns.
+The [`Example/`](Example/) directory contains a SwiftUI sample project demonstrating all integration patterns.
+
+### Running the Example
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/conferbot/conferbot-ios.git
+cd conferbot-ios
+
+# 2. Open the example project in Xcode
+open Example/SwiftUI/Package.swift
+
+# 3. Configure your bot credentials
+#    Open ExampleApp.swift and replace:
+#      apiKey: "YOUR_API_KEY"
+#      botId: "YOUR_BOT_ID"
+#    with your own credentials from the Conferbot dashboard.
+
+# 4. Select a simulator or device and press Cmd+R to run
+```
+
+### What the Example Shows
+
+| View | Pattern | Description |
+|------|---------|-------------|
+| **Modal** | Sheet presentation | Full chat opens as a sheet -- one line of code |
+| **Embedded** | Inline SwiftUI | `ChatView` embedded directly in your view hierarchy |
+| **Headless** | ObservableObject | Full control via `ConferBot.shared` state observation |
 
 ## Troubleshooting
 
@@ -323,4 +365,4 @@ Bug reports and pull requests are welcome on GitHub at [conferbot/conferbot-ios]
 
 ## License
 
-Proprietary -- Copyright 2025 Conferbot. All rights reserved. See [LICENSE](LICENSE) for details.
+Apache 2.0 -- see [LICENSE](LICENSE) for details.
