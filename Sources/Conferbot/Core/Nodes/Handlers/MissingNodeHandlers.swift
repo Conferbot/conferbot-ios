@@ -867,10 +867,25 @@ public final class GptNodeHandler: BaseNodeHandler {
             return .error("GPT node: no socket connection available")
         }
 
+        // Thread-safe one-shot continuation guard
+        final class ContinuationGuard: @unchecked Sendable {
+            private var resumed = false
+            private let lock = NSLock()
+            func tryResume(_ continuation: CheckedContinuation<String, Never>, returning value: String) -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return false }
+                resumed = true
+                continuation.resume(returning: value)
+                return true
+            }
+        }
+
+        let timeout = self.responseTimeout
+
         // Wait for the GPT response from the server with a timeout
         let responseText: String = await withCheckedContinuation { continuation in
-            var resumed = false
-            let resumeLock = NSLock()
+            let guard_ = ContinuationGuard()
 
             // Listen for the response
             socket.on(SocketEvents.gptNodeResponse) { responseData, _ in
@@ -886,15 +901,8 @@ public final class GptNodeHandler: BaseNodeHandler {
                     ?? json["content"] as? String
                     ?? ""
 
-                resumeLock.lock()
-                if !resumed {
-                    resumed = true
-                    resumeLock.unlock()
-                    // Remove listener after receiving response
+                if guard_.tryResume(continuation, returning: text) {
                     socket.off(SocketEvents.gptNodeResponse)
-                    continuation.resume(returning: text)
-                } else {
-                    resumeLock.unlock()
                 }
             }
 
@@ -906,15 +914,9 @@ public final class GptNodeHandler: BaseNodeHandler {
             #endif
 
             // Set up timeout
-            DispatchQueue.global().asyncAfter(deadline: .now() + self.responseTimeout) {
-                resumeLock.lock()
-                if !resumed {
-                    resumed = true
-                    resumeLock.unlock()
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if guard_.tryResume(continuation, returning: "Sorry, the AI response timed out. Please try again.") {
                     socket.off(SocketEvents.gptNodeResponse)
-                    continuation.resume(returning: "Sorry, the AI response timed out. Please try again.")
-                } else {
-                    resumeLock.unlock()
                 }
             }
         }
