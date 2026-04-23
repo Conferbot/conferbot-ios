@@ -69,6 +69,8 @@ public struct ConferBotCustomization {
     public let avatarURL: URL?
     public let botBubbleColor: UIColor?
     public let userBubbleColor: UIColor?
+    /// When true, hides the "Powered by Conferbot" footer
+    public let hideBrand: Bool
 
     public init(
         primaryColor: UIColor? = nil,
@@ -78,7 +80,8 @@ public struct ConferBotCustomization {
         showAvatar: Bool = true,
         avatarURL: URL? = nil,
         botBubbleColor: UIColor? = nil,
-        userBubbleColor: UIColor? = nil
+        userBubbleColor: UIColor? = nil,
+        hideBrand: Bool = false
     ) {
         self.primaryColor = primaryColor
         self.fontFamily = fontFamily
@@ -88,5 +91,6 @@ public struct ConferBotCustomization {
         self.avatarURL = avatarURL
         self.botBubbleColor = botBubbleColor
         self.userBubbleColor = userBubbleColor
+        self.hideBrand = hideBrand
     }
 }
