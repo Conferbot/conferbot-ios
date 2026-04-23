@@ -6,6 +6,27 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+
+// Polyfill: URLSession.data(for:) async is not available in Linux's FoundationNetworking
+extension URLSession {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = self.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let data = data, let response = response {
+                    continuation.resume(returning: (data, response))
+                } else {
+                    continuation.resume(throwing: URLError(.unknown))
+                }
+            }
+            task.resume()
+        }
+    }
+}
+#endif
 
 // MARK: - Integration Node Types
 
@@ -97,7 +118,7 @@ public enum IntegrationError: Error, LocalizedError {
 // MARK: - Node State Protocol
 
 /// Protocol for managing node execution state
-public protocol NodeState {
+public protocol NodeState: AnyObject {
     /// Current chat session ID
     var chatSessionId: String { get }
 
@@ -2836,7 +2857,7 @@ public final class StripeHandler: BaseIntegrationHandler {
         if let amountValue = amount {
             payload["amount"] = amountValue
             // Also include display amount
-            payload["displayAmount"] = amountValue / 100.0
+            payload["displayAmount"] = Double(amountValue) / 100.0
         }
 
         // Add optional fields
