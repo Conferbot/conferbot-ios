@@ -77,6 +77,7 @@ public struct ChatView: View {
                         onEditingChanged: { isEditing in
                             conferBot.sendTypingIndicator(isTyping: isEditing)
                         },
+                        hideBrand: conferBot.customization?.hideBrand ?? false,
                         primaryColor: conferBot.customization?.primaryColor.map { Color($0) } ?? .blue
                     )
                 }
