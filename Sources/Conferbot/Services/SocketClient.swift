@@ -136,7 +136,8 @@ public class SocketClient {
             "chatSessionId": chatSessionId,
             "botId": botId,
             "record": record,
-            "answerVariables": answerVariables
+            "answerVariables": answerVariables,
+            "channel": "mobile"
         ]
 
         if let visitorMeta = visitorMeta {
