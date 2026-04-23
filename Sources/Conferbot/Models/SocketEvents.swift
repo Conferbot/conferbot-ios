@@ -84,6 +84,9 @@ public struct SocketEvents {
     public static let visitorInputToggled = "visitor-input-toggled"
     public static let destroyNotification = "destroy-notification"
 
+    // GPT node events - Server to client
+    public static let gptNodeResponse = "gpt-node-response"
+
     // Stripe payment events - Server to client
     public static let stripePaymentUrlResponse = "stripe-payment-url-response"
     public static let stripePaymentComplete = "stripe-payment-complete"
