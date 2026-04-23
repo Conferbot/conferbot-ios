@@ -923,14 +923,35 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Socket event emitted: \(event)")
     }
 
-    /// Reset flow state
+    /// Reset flow state and start a new session (matching web widget restart behavior)
     public func resetFlow() {
         chatState.reset()
+
+        // Generate a new session so messages don't append to old conversation
+        let newSessionId = String((0..<15).map { _ in
+            "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()!
+        })
+        let newSession = ChatSession(
+            id: newSessionId,
+            chatSessionId: newSessionId,
+            botId: currentSession?.botId ?? "",
+            visitorId: currentSession?.visitorId,
+            record: [],
+            chatDate: Date(),
+            visitorMeta: nil,
+            isActive: true
+        )
+        currentSession = newSession
+        messages = []
+
+        // Join new chat room
+        socketClient?.joinChatRoomVisitor(chatSessionId: newSessionId)
+
         flowEngine?.restartFlow()
         isFlowComplete = false
         currentUIState = nil
         nodeErrorMessage = nil
-        debugPrint("[ConferBot] Flow state reset")
+        debugPrint("[ConferBot] Flow reset with new session: \(newSessionId)")
     }
 
     /// Initiate handover to live agent
