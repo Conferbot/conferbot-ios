@@ -1996,22 +1996,58 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
         // Extract estimated wait time display setting
         let showEstimatedWaitTime = nodeData["showEstimatedWaitTime"] as? Bool ?? true
 
-        // Notify server of handover request
+        // Notify server of handover request — payload matches web widget format
         if state.isSocketConnected {
-            var handoverPayload: [String: Any] = [
+            let workspaceId = state.getValue(forKey: "_workspaceId") as? String ?? ""
+            let botName = state.getValue(forKey: "_botName") as? String ?? ""
+            let maxWaitTime = (nodeData["maxWaitTime"] as? Int) ?? 2
+
+            let dateFormatter = ISO8601DateFormatter()
+            dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let now = dateFormatter.string(from: Date())
+
+            // Build chatMetaData matching web widget format exactly
+            let chatMetaData: [String: Any] = [
+                "version": "v2",
+                "workspaceId": workspaceId,
                 "chatSessionId": state.chatSessionId,
                 "botId": state.botId,
-                "message": handoverMessage,
+                "botName": botName,
+                "chatDate": now,
+                "deviceInfo": "iOS/\(ProcessInfo.processInfo.operatingSystemVersionString)",
+                "location": TimeZone.current.identifier,
+                "record": conversationSummary,
+                "answerVariables": state.variables.filter { !$0.key.hasPrefix("_") },
+                "transcript": [] as [[String: String]]
+            ]
+
+            // Build visitor metaData
+            let metaData: [String: Any] = [
+                "visitorId": state.chatSessionId,
+                "chatDate": now,
+                "deviceInfo": "iOS/\(ProcessInfo.processInfo.operatingSystemVersionString)",
+                "location": TimeZone.current.identifier
+            ]
+
+            var handoverPayload: [String: Any] = [
+                "workspaceId": workspaceId,
+                "chatbotId": state.botId,
+                "chatbotName": botName,
+                "chatSessionId": state.chatSessionId,
+                "chatMetaData": chatMetaData,
+                "metaData": metaData,
                 "priority": priority,
-                "conversationSummary": conversationSummary,
-                "customFields": customFields,
-                "variables": state.variables
+                "maxWaitTime": maxWaitTime,
+                "assignmentType": (nodeData["assignmentType"] as? String) ?? "auto",
+                "assignmentStrategy": (nodeData["agentAssignmentStrategy"] as? String) ?? "",
+                "assignedAgents": (nodeData["assignedAgents"] as? [String]) ?? [],
+                "assignedAIAgents": (nodeData["assignedAIAgents"] as? [String]) ?? []
             ]
 
             if let dept = department { handoverPayload["department"] = dept }
 
             state.emitSocketEvent(SocketEvents.initiateHandover, data: handoverPayload)
-            debugLog("Human handover request sent to server")
+            debugLog("Human handover request sent to server with full chatMetaData")
         }
 
         // Prepare UI data for displaying handover interface
