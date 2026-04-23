@@ -6,7 +6,15 @@
 //
 
 import Foundation
+#if canImport(UIKit)
 import UIKit
+public typealias PlatformColor = PlatformColor
+#else
+/// Stub color type for non-Apple platforms (Linux CI)
+public class PlatformColor {
+    public init() {}
+}
+#endif
 
 /// User identification model
 public struct ConferBotUser: Codable {
@@ -61,26 +69,26 @@ public struct ConferBotConfig {
 
 /// UI customization options
 public struct ConferBotCustomization {
-    public let primaryColor: UIColor?
+    public let primaryColor: PlatformColor?
     public let fontFamily: String?
     public let bubbleCornerRadius: CGFloat?
     public let headerTitle: String?
     public let showAvatar: Bool
     public let avatarURL: URL?
-    public let botBubbleColor: UIColor?
-    public let userBubbleColor: UIColor?
+    public let botBubbleColor: PlatformColor?
+    public let userBubbleColor: PlatformColor?
     /// When true, hides the "Powered by Conferbot" footer
     public let hideBrand: Bool
 
     public init(
-        primaryColor: UIColor? = nil,
+        primaryColor: PlatformColor? = nil,
         fontFamily: String? = nil,
         bubbleCornerRadius: CGFloat? = nil,
         headerTitle: String? = nil,
         showAvatar: Bool = true,
         avatarURL: URL? = nil,
-        botBubbleColor: UIColor? = nil,
-        userBubbleColor: UIColor? = nil,
+        botBubbleColor: PlatformColor? = nil,
+        userBubbleColor: PlatformColor? = nil,
         hideBrand: Bool = false
     ) {
         self.primaryColor = primaryColor
