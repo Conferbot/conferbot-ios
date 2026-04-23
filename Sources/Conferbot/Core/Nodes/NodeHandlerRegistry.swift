@@ -12,12 +12,10 @@ public final class NodeHandlerRegistry {
 
     // MARK: - Shared Instance
 
-    /// Shared singleton instance with all handlers pre-registered
-    public static let shared: NodeHandlerRegistry = {
-        let registry = NodeHandlerRegistry()
-        registry.registerAllHandlers()
-        return registry
-    }()
+    /// Shared singleton instance.
+    /// Handlers are registered by ConferBot.registerAllNodeHandlers() during initialization,
+    /// not here, to avoid duplicate registrations.
+    public static let shared = NodeHandlerRegistry()
 
     // MARK: - Properties
 
@@ -98,70 +96,6 @@ public final class NodeHandlerRegistry {
         return handlers.count
     }
 
-    // MARK: - Handler Registration
-
-    /// Register all built-in handlers
-    private func registerAllHandlers() {
-        // Message handlers
-        register(MessageNodeHandler())
-        register(ImageNodeHandler())
-        register(VideoNodeHandler())
-        register(AudioNodeHandler())
-        register(FileNodeHandler())
-        register(GifNodeHandler())
-
-        // Input handlers
-        register(TextInputNodeHandler())
-        register(SingleChoiceNodeHandler())
-        register(MultiChoiceNodeHandler())
-        register(ButtonsNodeHandler())
-        register(QuickRepliesNodeHandler())
-        register(CardsNodeHandler())
-
-        // Special input handlers
-        register(RatingNodeHandler())
-        register(OpinionScaleNodeHandler())
-        register(CalendarNodeHandler())
-        register(FileUploadNodeHandler())
-
-        // Action handlers
-        register(LiveChatNodeHandler())
-        register(HumanHandoverNodeHandler())
-        register(LinkNodeHandler())
-        register(EmbedNodeHandler())
-
-        // Flow control handlers (legacy types)
-        register(ConditionNodeHandler())
-        register(JumpNodeHandler())
-        register(DelayNodeHandler())
-        register(EndNodeHandler())
-
-        // Integration handlers
-        register(WebhookNodeHandler())
-        register(ApiNodeHandler())
-        register(EmailNodeHandler())
-        register(GoogleMeetNodeHandler())
-        register(AirtableNodeHandler())
-        register(GoogleDocsNodeHandler())
-        register(GoogleDriveNodeHandler())
-        register(GoogleCalendarNodeHandler())
-        register(NotionNodeHandler())
-        register(StripeNodeHandler())
-
-        // Variable handlers (legacy types)
-        register(SetVariableNodeHandler())
-        register(GetVariableNodeHandler())
-
-        // Logic node handlers (new standardized types from NodeTypes.Logic)
-        registerLogicHandlers()
-
-        // Special flow node handlers (goal, end_conversation)
-        registerSpecialFlowHandlers()
-
-        // All 19 missing handlers (legacy, choice, logic, integration)
-        registerMissingHandlers()
-    }
-
     // MARK: - Convenience Methods
 
     /// Process a node using the appropriate handler
@@ -198,10 +132,10 @@ public final class NodeHandlerRegistry {
         handlers.removeAll()
     }
 
-    /// Reset to default handlers
+    /// Reset to empty state. Call ConferBot.registerAllNodeHandlers() after
+    /// this to re-populate the registry.
     public func reset() {
         clear()
-        registerAllHandlers()
     }
 }
 
