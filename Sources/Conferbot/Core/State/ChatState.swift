@@ -36,6 +36,9 @@ public final class ChatState: ObservableObject {
     /// Current session record
     @Published public private(set) var record: [String: Any] = [:]
 
+    /// Server-compatible conversation record (array of node entries matching web widget format)
+    @Published public private(set) var serverRecord: [[String: Any]] = []
+
     /// Indicates if the bot is currently typing
     @Published public var isTyping: Bool = false
 
@@ -434,6 +437,53 @@ public final class ChatState: ObservableObject {
         return record
     }
 
+    /// Push a bot message entry to the server record (web widget format)
+    public func pushBotRecord(nodeId: String, nodeType: String, nodeData: [String: Any]?, text: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var dataMap = nodeData ?? [:]
+        if let text = text { dataMap["text"] = text }
+
+        let entry: [String: Any] = [
+            "_id": nodeId,
+            "id": nodeId,
+            "type": nodeType,
+            "data": dataMap,
+            "time": ISO8601DateFormatter().string(from: Date())
+        ]
+
+        // Merge if same ID exists
+        if let idx = serverRecord.firstIndex(where: { ($0["id"] as? String) == nodeId }) {
+            serverRecord[idx] = entry
+        } else {
+            serverRecord.append(entry)
+        }
+    }
+
+    /// Push a user response entry to the server record (web widget format)
+    public func pushUserRecord(nodeId: String, nodeType: String?, text: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let entry: [String: Any] = [
+            "_id": nodeId,
+            "id": nodeId,
+            "shape": "user-input-response",
+            "type": nodeType ?? "user-input-response",
+            "text": text,
+            "time": ISO8601DateFormatter().string(from: Date())
+        ]
+        serverRecord.append(entry)
+    }
+
+    /// Get server record array for socket emit
+    public func getServerRecord() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return serverRecord
+    }
+
     /// Initializes a new session record
     /// - Parameters:
     ///   - sessionId: Unique session identifier
@@ -465,6 +515,7 @@ public final class ChatState: ObservableObject {
         userMetadata = [:]
         transcript = []
         record = [:]
+        serverRecord = []
         isTyping = false
         currentNodeId = nil
     }
