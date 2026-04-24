@@ -42,6 +42,21 @@ public final class ChatState: ObservableObject {
     /// Indicates if the bot is currently typing
     @Published public var isTyping: Bool = false
 
+    /// Indicates if live chat (agent handover) mode is active
+    @Published public var isLiveChatMode: Bool = false
+
+    /// Current live chat agent details
+    @Published public var currentAgent: AgentDetails? = nil
+
+    /// Indicates if the agent is currently typing
+    @Published public var isAgentTyping: Bool = false
+
+    /// Visitor ID for the current session
+    @Published public var visitorId: String?
+
+    /// Workspace ID for the current session
+    @Published public var workspaceId: String?
+
     /// Current node being processed
     @Published public var currentNodeId: String?
 
@@ -68,16 +83,18 @@ public final class ChatState: ObservableObject {
         }
     }()
 
-    /// Variable pattern regex for ${varName} syntax
-    private let dollarBracePattern: NSRegularExpression? = {
+    /// Variable pattern regex for ${varName} and {varName} syntax
+    /// Matches both ${selection} and {selection} (web widget standard)
+    /// Uses negative lookbehind/lookahead to avoid matching inside {{varName}}
+    private let singleBracePattern: NSRegularExpression? = {
         do {
             return try NSRegularExpression(
-                pattern: "\\$\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}",
+                pattern: "(?<!\\{)\\$?\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}(?!\\})",
                 options: []
             )
         } catch {
             #if DEBUG
-            print("[ChatState] Failed to compile dollarBracePattern regex: \(error)")
+            print("[ChatState] Failed to compile singleBracePattern regex: \(error)")
             #endif
             return nil
         }
@@ -166,7 +183,7 @@ public final class ChatState: ObservableObject {
     // MARK: - Variable Resolution
 
     /// Resolves variable placeholders in text
-    /// Supports both {{varName}} and ${varName} patterns
+    /// Supports {{varName}}, ${varName}, and {varName} patterns
     /// - Parameter text: The text containing variable placeholders
     /// - Returns: The text with variables replaced by their values
     public func resolveVariables(text: String) -> String {
@@ -178,7 +195,7 @@ public final class ChatState: ObservableObject {
 
         var result = text
 
-        // Process {{varName}} pattern
+        // Process {{varName}} pattern first (most specific, avoids partial match by single-brace)
         if let doubleBracePattern = doubleBracePattern {
             result = resolvePattern(
                 in: result,
@@ -189,11 +206,11 @@ public final class ChatState: ObservableObject {
             )
         }
 
-        // Process ${varName} pattern
-        if let dollarBracePattern = dollarBracePattern {
+        // Process ${varName} and {varName} patterns (web widget standard)
+        if let singleBracePattern = singleBracePattern {
             result = resolvePattern(
                 in: result,
-                using: dollarBracePattern,
+                using: singleBracePattern,
                 variables: currentVariables,
                 answers: currentAnswers,
                 metadata: currentMetadata
@@ -262,11 +279,11 @@ public final class ChatState: ObservableObject {
         }
 
         // Simple variable name - check all sources
-        // Priority: variables > answers > metadata
-        if let value = variables[varName] {
+        // Priority: answers > variables > metadata
+        if let value = answers[varName] {
             return value
         }
-        if let value = answers[varName] {
+        if let value = variables[varName] {
             return value
         }
         if let value = metadata[varName] {
@@ -462,19 +479,27 @@ public final class ChatState: ObservableObject {
     }
 
     /// Push a user response entry to the server record (web widget format)
+    /// Uses "user-live-message" shape when in live chat mode, otherwise "user-input-response"
     public func pushUserRecord(nodeId: String, nodeType: String?, text: String) {
         lock.lock()
         defer { lock.unlock() }
 
+        let shape = isLiveChatMode ? "user-live-message" : "user-input-response"
         let entry: [String: Any] = [
             "_id": nodeId,
             "id": nodeId,
-            "shape": "user-input-response",
-            "type": nodeType ?? "user-input-response",
+            "shape": shape,
+            "type": nodeType ?? shape,
             "text": text,
             "time": ISO8601DateFormatter().string(from: Date())
         ]
-        serverRecord.append(entry)
+
+        // Merge if same ID exists (deduplication)
+        if let idx = serverRecord.firstIndex(where: { ($0["id"] as? String) == nodeId }) {
+            serverRecord[idx] = entry
+        } else {
+            serverRecord.append(entry)
+        }
     }
 
     /// Get server record array for socket emit
@@ -482,6 +507,51 @@ public final class ChatState: ObservableObject {
         lock.lock()
         defer { lock.unlock() }
         return serverRecord
+    }
+
+    /// Build the full response data dictionary for socket emit,
+    /// including visitorId and workspaceId when available
+    public func buildResponseData(chatSessionId: String, botId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var data: [String: Any] = [
+            "chatSessionId": chatSessionId,
+            "botId": botId,
+            "record": serverRecord,
+            "answerVariables": [],
+            "channel": "mobile"
+        ]
+
+        if let visitorId = visitorId {
+            data["visitorId"] = visitorId
+        }
+        if let workspaceId = workspaceId {
+            data["workspaceId"] = workspaceId
+        }
+
+        return data
+    }
+
+    /// Push a system/agent record entry to the server record (for live chat events)
+    public func pushLiveChatRecord(entryId: String, type: String, text: String? = nil, agentDetails: [String: Any]? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var entry: [String: Any] = [
+            "_id": entryId,
+            "id": entryId,
+            "type": type,
+            "time": ISO8601DateFormatter().string(from: Date())
+        ]
+        if let text = text {
+            entry["text"] = text
+        }
+        if let agentDetails = agentDetails {
+            entry["agentDetails"] = agentDetails
+        }
+
+        serverRecord.append(entry)
     }
 
     /// Initializes a new session record
@@ -517,6 +587,9 @@ public final class ChatState: ObservableObject {
         record = [:]
         serverRecord = []
         isTyping = false
+        isLiveChatMode = false
+        currentAgent = nil
+        isAgentTyping = false
         currentNodeId = nil
     }
 
@@ -528,6 +601,9 @@ public final class ChatState: ObservableObject {
         answerVariables = [:]
         transcript = []
         isTyping = false
+        isLiveChatMode = false
+        currentAgent = nil
+        isAgentTyping = false
         currentNodeId = nil
 
         // Preserve session info but reset answers
