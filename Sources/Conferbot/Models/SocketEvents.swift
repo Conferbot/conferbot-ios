@@ -80,6 +80,7 @@ public struct SocketEvents {
     public static let agentTypingStatus = "agent-typing-status"
     public static let visitorTypingStatus = "visitor-typing-status"
     public static let chatEnded = "chat-ended"
+    public static let noAgentsAvailable = "no-agents-available"
     public static let visitorDisconnected = "visitor-disconnected"
     public static let visitorInputToggled = "visitor-input-toggled"
     public static let destroyNotification = "destroy-notification"
