@@ -11,11 +11,13 @@ import Foundation
 public enum MessageType: String, Codable {
     case userMessage = "user-message"
     case userInputResponse = "user-input-response" // User input from chatbot flow
+    case userLiveMessage = "user-live-message"      // User message during live chat
     case botMessage = "bot-message"
     case agentMessage = "agent-message"
     case agentMessageFile = "agent-message-file"
     case agentMessageAudio = "agent-message-audio"
     case agentJoinedMessage = "agent-joined-message"
+    case agentLeftChat = "agent-left-chat"
     case visitorDisconnectedMessage = "visitor-disconnected-message"
     case visitorReconnectedMessage = "visitor-reconnected-message"
     case systemMessage = "system-message"
@@ -286,6 +288,36 @@ public struct AgentJoinedMessageRecord: RecordItem, Identifiable, Equatable {
     }
 }
 
+/// Agent left chat message record
+public struct AgentLeftMessageRecord: RecordItem, Identifiable, Equatable {
+    public let id: String
+    public let type: MessageType
+    public let time: Date
+    public let agentDetails: AgentDetails
+
+    public init(
+        id: String,
+        time: Date,
+        agentDetails: AgentDetails
+    ) {
+        self.id = id
+        self.type = .agentLeftChat
+        self.time = time
+        self.agentDetails = agentDetails
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case type
+        case time
+        case agentDetails
+    }
+
+    public static func == (lhs: AgentLeftMessageRecord, rhs: AgentLeftMessageRecord) -> Bool {
+        return lhs.id == rhs.id && lhs.time == rhs.time
+    }
+}
+
 /// System message record
 public struct SystemMessageRecord: RecordItem, Identifiable, Equatable {
     public let id: String
@@ -332,7 +364,7 @@ public struct AnyRecordItem: Codable {
         switch messageType {
         case .userMessage:
             value = try UserMessageRecord(from: decoder)
-        case .userInputResponse:
+        case .userInputResponse, .userLiveMessage:
             value = try UserInputResponseRecord(from: decoder)
         case .botMessage:
             value = try BotMessageRecord(from: decoder)
@@ -344,6 +376,8 @@ public struct AnyRecordItem: Codable {
             value = try AgentMessageAudioRecord(from: decoder)
         case .agentJoinedMessage:
             value = try AgentJoinedMessageRecord(from: decoder)
+        case .agentLeftChat:
+            value = try AgentLeftMessageRecord(from: decoder)
         default:
             value = try SystemMessageRecord(from: decoder)
         }
@@ -364,6 +398,8 @@ public struct AnyRecordItem: Codable {
             try audioMessage.encode(to: encoder)
         } else if let joinedMessage = value as? AgentJoinedMessageRecord {
             try joinedMessage.encode(to: encoder)
+        } else if let leftMessage = value as? AgentLeftMessageRecord {
+            try leftMessage.encode(to: encoder)
         } else if let systemMessage = value as? SystemMessageRecord {
             try systemMessage.encode(to: encoder)
         }
