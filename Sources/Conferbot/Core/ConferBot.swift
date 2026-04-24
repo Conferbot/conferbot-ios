@@ -46,6 +46,8 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var messages: [any RecordItem] = []
     @Published public private(set) var unreadCount: Int = 0
     @Published public private(set) var isAgentTyping: Bool = false
+    @Published public private(set) var isLiveChatMode: Bool = false
+    @Published public private(set) var currentAgent: Agent? = nil
     @Published public private(set) var hasRestoredSession: Bool = false
 
     // Node Flow Engine - Published properties
@@ -519,6 +521,12 @@ public class ConferBot: ObservableObject {
             self.currentSession = session
             self.messages = session.record.map { $0.value }
             self.hasRestoredSession = false
+
+            // Store visitorId on ChatState for response-record payloads
+            if let visitorId = session.visitorId {
+                self.chatState.visitorId = visitorId
+            }
+
             delegate?.conferBot(self, didStartSession: session.chatSessionId)
         }
 
@@ -568,7 +576,13 @@ public class ConferBot: ObservableObject {
         }
 
         // Push user response to server record (matching web widget format)
+        // ChatState.pushUserRecord uses "user-live-message" shape when isLiveChatMode is true
         chatState.pushUserRecord(nodeId: messageId, nodeType: nil, text: text)
+
+        // Stop visitor typing indicator when message is sent
+        if chatState.isLiveChatMode {
+            socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: false)
+        }
 
         // Check if we can send immediately or need to queue
         if offlineManager.canSendMessages {
@@ -599,15 +613,15 @@ public class ConferBot: ObservableObject {
 
     /// Internal method to send a message via socket
     private func sendMessageViaSocket(text: String, messageId: String, session: ChatSession) {
-        // Use the server record which includes both bot and user messages
-        // in the web widget format (with data sub-objects for bot messages)
-        let allRecords = chatState.getServerRecord()
+        guard let socketClient = socketClient, let botId = botId else { return }
 
-        socketClient?.sendResponseRecord(
+        // Build the full response data including visitorId and workspaceId
+        let responseData = chatState.buildResponseData(
             chatSessionId: session.chatSessionId,
-            record: allRecords,
-            answerVariables: []
+            botId: botId
         )
+
+        socketClient.emit(event: SocketEvents.responseRecord, data: responseData)
     }
 
     /// Send a queued message (called by OfflineManager)
@@ -653,6 +667,7 @@ public class ConferBot: ObservableObject {
     }
 
     /// Send typing indicator
+    /// During live chat mode, this also emits `visitor-typing` so the agent sees it
     public func sendTypingIndicator(isTyping: Bool) {
         guard let session = currentSession else { return }
         socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: isTyping)
@@ -699,6 +714,21 @@ public class ConferBot: ObservableObject {
     /// Handle user input for the current node
     public func handleNodeInput(_ input: Any, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+
+        // Add user message bubble (right-aligned) showing the input text
+        let inputText = stringValue(from: input)
+        if !inputText.isEmpty {
+            let userMessage = UserMessageRecord(
+                id: "user-input-\(UUID().uuidString)",
+                time: Date(),
+                text: inputText
+            )
+            Task { @MainActor in
+                if !self.messages.contains(where: { $0.id == userMessage.id }) {
+                    self.messages.append(userMessage)
+                }
+            }
+        }
 
         // Store the answer in chat state
         chatState.setAnswer(nodeId: nodeId, value: input)
@@ -750,6 +780,18 @@ public class ConferBot: ObservableObject {
     public func handleButtonClick(buttonId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
 
+        // Add user message bubble (right-aligned) showing the button label
+        let userMessage = UserMessageRecord(
+            id: "user-button-\(UUID().uuidString)",
+            time: Date(),
+            text: buttonId
+        )
+        Task { @MainActor in
+            if !self.messages.contains(where: { $0.id == userMessage.id }) {
+                self.messages.append(userMessage)
+            }
+        }
+
         // Store button selection
         chatState.setAnswer(nodeId: nodeId, value: buttonId)
 
@@ -786,6 +828,18 @@ public class ConferBot: ObservableObject {
     public func handleChoiceSelection(optionId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
 
+        // Add user message bubble (right-aligned) showing the selected option
+        let userMessage = UserMessageRecord(
+            id: "user-choice-\(UUID().uuidString)",
+            time: Date(),
+            text: optionId
+        )
+        Task { @MainActor in
+            if !self.messages.contains(where: { $0.id == userMessage.id }) {
+                self.messages.append(userMessage)
+            }
+        }
+
         // Store choice selection
         chatState.setAnswer(nodeId: nodeId, value: optionId)
 
@@ -821,6 +875,21 @@ public class ConferBot: ObservableObject {
     /// Handle multiple choice selections
     public func handleMultipleChoiceSelection(optionIds: [String], forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+
+        // Add user message bubble (right-aligned) showing the selected options
+        let displayText = optionIds.joined(separator: ", ")
+        if !displayText.isEmpty {
+            let userMessage = UserMessageRecord(
+                id: "user-multi-choice-\(UUID().uuidString)",
+                time: Date(),
+                text: displayText
+            )
+            Task { @MainActor in
+                if !self.messages.contains(where: { $0.id == userMessage.id }) {
+                    self.messages.append(userMessage)
+                }
+            }
+        }
 
         // Store selections
         chatState.setAnswer(nodeId: nodeId, value: optionIds)
@@ -927,6 +996,11 @@ public class ConferBot: ObservableObject {
     public func resetFlow() {
         chatState.reset()
 
+        // Reset live chat state on ConferBot level too
+        isLiveChatMode = false
+        isAgentTyping = false
+        currentAgent = nil
+
         // Generate a new session so messages don't append to old conversation
         let newSessionId = String((0..<15).map { _ in
             "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()!
@@ -1027,12 +1101,14 @@ public class ConferBot: ObservableObject {
     }
 
     /// Present chat view controller modally (UIKit)
+    #if canImport(UIKit)
     public func present(from viewController: UIViewController, animated: Bool = true) {
         let chatVC = ChatViewController()
         let navController = UINavigationController(rootViewController: chatVC)
         navController.modalPresentationStyle = .fullScreen
         viewController.present(navController, animated: animated)
     }
+    #endif
 
     // MARK: - Private Methods
 
@@ -1098,9 +1174,14 @@ public class ConferBot: ObservableObject {
             self?.handleAgentTyping(data: data)
         }
 
+        // No agents available
+        socketClient?.on(SocketEvents.noAgentsAvailable) { [weak self] data, _ in
+            self?.handleNoAgentsAvailable(data: data)
+        }
+
         // Chat ended
         socketClient?.on(SocketEvents.chatEnded) { [weak self] _, _ in
-            self?.endSession()
+            self?.handleChatEnded()
         }
 
         // Fetched chatbot data - extract workspaceId and botName for handover
@@ -1109,9 +1190,10 @@ public class ConferBot: ObservableObject {
                   let json = data.first as? [String: Any],
                   let chatbotData = json["chatbotData"] as? [String: Any] else { return }
 
-            // Store workspaceId for handover handler
+            // Store workspaceId for handover handler and response-record payloads
             if let workspaceId = chatbotData["workspaceId"] as? String, !workspaceId.isEmpty {
                 self.chatState.setVariable(name: "_workspaceId", value: workspaceId)
+                self.chatState.workspaceId = workspaceId
             }
 
             // Store botName for handover handler
@@ -1208,32 +1290,97 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleAgentMessage(data: [Any]) {
-        guard let json = data.first as? [String: Any],
-              let recordData = json["record"] as? [String: Any] else {
-            return
+        // Server sends: { message, agentDetails, isFileInput, isAudioInput, agentMessageId }
+        // NOT a full record. We construct the message from these fields.
+        guard let json = data.first as? [String: Any] else { return }
+
+        let agentData = json["agentDetails"] as? [String: Any]
+        // Strip HTML tags from agent messages (admin sends via rich text editor with <p> tags)
+        let rawMessageText = json["message"] as? String
+        let messageText = rawMessageText?
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let isFileInput = json["isFileInput"] as? Bool ?? false
+        let isAudioInput = json["isAudioInput"] as? Bool ?? false
+        let agentMessageId = json["agentMessageId"] as? String ?? UUID().uuidString
+
+        // Parse agent details
+        var agentDetails: AgentDetails?
+        if let agentData = agentData {
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: agentData)
+                agentDetails = try JSONDecoder().decode(AgentDetails.self, from: jsonData)
+            } catch {
+                ConferBotLogger.error("Failed to decode agent details: \(error.localizedDescription)")
+            }
         }
 
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: recordData)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+        let now = Date()
 
-            let message = try decoder.decode(AnyRecordItem.self, from: jsonData)
+        Task { @MainActor in
+            // Deduplicate by message ID
+            guard !self.messages.contains(where: { $0.id == agentMessageId }) else { return }
 
-            Task { @MainActor in
-                // Deduplicate by message ID
-                let messageId = message.value.id
-                guard !self.messages.contains(where: { $0.id == messageId }) else { return }
-                self.messages.append(message.value)
-                self.unreadCount += 1
-                self.delegate?.conferBot(self, didReceiveMessage: message.value)
-                self.delegate?.conferBot(self, didUpdateUnreadCount: self.unreadCount)
+            // Hide agent typing indicator
+            self.isAgentTyping = false
+            self.chatState.isAgentTyping = false
 
-                // Save session state after receiving agent message
-                self.saveSessionState()
+            let recordItem: any RecordItem
+
+            if isFileInput, let fileUrl = messageText {
+                // Agent sent a file
+                recordItem = AgentMessageFileRecord(
+                    id: agentMessageId,
+                    time: now,
+                    file: fileUrl,
+                    agentDetails: agentDetails
+                )
+                // Push to server record
+                self.chatState.pushLiveChatRecord(
+                    entryId: agentMessageId,
+                    type: MessageType.agentMessageFile.rawValue,
+                    text: fileUrl,
+                    agentDetails: agentData
+                )
+            } else if isAudioInput, let audioUrl = messageText {
+                // Agent sent audio
+                recordItem = AgentMessageAudioRecord(
+                    id: agentMessageId,
+                    time: now,
+                    url: audioUrl,
+                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: "")
+                )
+                self.chatState.pushLiveChatRecord(
+                    entryId: agentMessageId,
+                    type: MessageType.agentMessageAudio.rawValue,
+                    text: audioUrl,
+                    agentDetails: agentData
+                )
+            } else {
+                // Agent sent a text message
+                recordItem = AgentMessageRecord(
+                    id: agentMessageId,
+                    time: now,
+                    text: messageText ?? "",
+                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: "")
+                )
+                self.chatState.pushLiveChatRecord(
+                    entryId: agentMessageId,
+                    type: MessageType.agentMessage.rawValue,
+                    text: messageText,
+                    agentDetails: agentData
+                )
             }
-        } catch {
-            ConferBotLogger.error("Failed to decode agent message: \(error.localizedDescription)")
+
+            self.messages.append(recordItem)
+            self.unreadCount += 1
+            self.delegate?.conferBot(self, didReceiveMessage: recordItem)
+            self.delegate?.conferBot(self, didUpdateUnreadCount: self.unreadCount)
+
+            // Save session state after receiving agent message
+            self.saveSessionState()
         }
     }
 
@@ -1256,7 +1403,33 @@ public class ConferBot: ObservableObject {
             )
 
             Task { @MainActor in
+                // Set live chat mode
+                self.isLiveChatMode = true
+                self.currentAgent = agent
+                self.chatState.isLiveChatMode = true
+                self.chatState.currentAgent = agentDetails
+
+                // Add system message: "{agent name} has joined the chat"
+                let joinedMessageId = UUID().uuidString
+                let joinedRecord = AgentJoinedMessageRecord(
+                    id: joinedMessageId,
+                    time: Date(),
+                    agentDetails: agentDetails
+                )
+                self.messages.append(joinedRecord)
+                self.delegate?.conferBot(self, didReceiveMessage: joinedRecord)
+
+                // Push to server record
+                self.chatState.pushLiveChatRecord(
+                    entryId: joinedMessageId,
+                    type: MessageType.agentJoinedMessage.rawValue,
+                    text: "\(agentDetails.name) has joined the chat",
+                    agentDetails: agentData
+                )
+
                 self.delegate?.conferBot(self, agentDidJoin: agent)
+                self.saveSessionState()
+                self.debugPrint("[ConferBot] Agent joined: \(agentDetails.name), live chat mode ON")
             }
         } catch {
             ConferBotLogger.error("Failed to decode agent joined: \(error.localizedDescription)")
@@ -1282,7 +1455,34 @@ public class ConferBot: ObservableObject {
             )
 
             Task { @MainActor in
+                // Add system message: "{agent name} has left the chat"
+                let leftMessageId = UUID().uuidString
+                let leftRecord = AgentLeftMessageRecord(
+                    id: leftMessageId,
+                    time: Date(),
+                    agentDetails: agentDetails
+                )
+                self.messages.append(leftRecord)
+                self.delegate?.conferBot(self, didReceiveMessage: leftRecord)
+
+                // Push to server record with type "agent-left-chat"
+                self.chatState.pushLiveChatRecord(
+                    entryId: leftMessageId,
+                    type: MessageType.agentLeftChat.rawValue,
+                    text: "\(agentDetails.name) has left the chat",
+                    agentDetails: agentData
+                )
+
+                // Clear agent but keep live chat mode
+                // (another agent might join, or chat-ended will clear it)
+                self.currentAgent = nil
+                self.chatState.currentAgent = nil
+                self.isAgentTyping = false
+                self.chatState.isAgentTyping = false
+
                 self.delegate?.conferBot(self, agentDidLeave: agent)
+                self.saveSessionState()
+                self.debugPrint("[ConferBot] Agent left: \(agentDetails.name)")
             }
         } catch {
             ConferBotLogger.error("Failed to decode agent left: \(error.localizedDescription)")
@@ -1297,7 +1497,65 @@ public class ConferBot: ObservableObject {
 
         Task { @MainActor in
             self.isAgentTyping = isTyping
+            self.chatState.isAgentTyping = isTyping
         }
+    }
+
+    private func handleNoAgentsAvailable(data: [Any]) {
+        Task { @MainActor in
+            // Add system message
+            let messageId = UUID().uuidString
+            let systemMessage = SystemMessageRecord(
+                id: messageId,
+                time: Date(),
+                text: "No agents are currently available. Please try again later."
+            )
+            self.messages.append(systemMessage)
+            self.delegate?.conferBot(self, didReceiveMessage: systemMessage)
+
+            self.chatState.pushLiveChatRecord(
+                entryId: messageId,
+                type: MessageType.systemMessage.rawValue,
+                text: "No agents are currently available. Please try again later."
+            )
+
+            self.saveSessionState()
+            self.debugPrint("[ConferBot] No agents available")
+        }
+    }
+
+    private func handleChatEnded() {
+        Task { @MainActor in
+            // Add system message
+            let messageId = UUID().uuidString
+            let systemMessage = SystemMessageRecord(
+                id: messageId,
+                time: Date(),
+                text: "Chat has ended"
+            )
+            self.messages.append(systemMessage)
+            self.delegate?.conferBot(self, didReceiveMessage: systemMessage)
+
+            self.chatState.pushLiveChatRecord(
+                entryId: messageId,
+                type: MessageType.systemMessage.rawValue,
+                text: "Chat has ended"
+            )
+
+            // Clear live chat state
+            self.isLiveChatMode = false
+            self.currentAgent = nil
+            self.isAgentTyping = false
+            self.chatState.isLiveChatMode = false
+            self.chatState.currentAgent = nil
+            self.chatState.isAgentTyping = false
+
+            self.saveSessionState()
+            self.debugPrint("[ConferBot] Chat ended by server")
+        }
+
+        // Also run the normal session end logic
+        endSession()
     }
 
     private func getDeviceInfo() -> [String: Any] {
