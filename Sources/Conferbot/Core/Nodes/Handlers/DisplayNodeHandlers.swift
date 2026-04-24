@@ -69,6 +69,22 @@ public final class SendMessageHandler: BaseNodeHandler {
         // Resolve any variables in the message
         let resolvedMessage = state.resolveVariables(text: rawMessage)
 
+        // Skip message-nodes that just echo the user's last choice selection
+        if let lastChoice = state.getVariable(name: "_lastUserChoice") as? String {
+            let trimmedMessage = resolvedMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedChoice = lastChoice.trimmingCharacters(in: .whitespacesAndNewlines)
+            #if DEBUG
+            print("[SendMessageHandler] _lastUserChoice check: message='\(trimmedMessage)' vs choice='\(trimmedChoice)' match=\(trimmedMessage == trimmedChoice)")
+            #endif
+            if trimmedMessage == trimmedChoice {
+                state.setVariable(name: "_lastUserChoice", value: NSNull())
+                // Proceed to next node without displaying
+                return .proceed(getNextNodeId(node), nil)
+            }
+        }
+        // Clear the tracker so it doesn't affect later message-nodes
+        state.setVariable(name: "_lastUserChoice", value: NSNull())
+
         // Extract typing indicator preference (default true for better UX)
         let showTyping = getBool(data, "typing")
             ?? getBool(data, "showTyping")
