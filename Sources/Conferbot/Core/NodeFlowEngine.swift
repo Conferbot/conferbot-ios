@@ -275,7 +275,8 @@ public final class NodeFlowEngine: ObservableObject {
             currentUIState = nil
 
             // Extract port hint before storing data as variables
-            let portHint = data?["_port"] as? String
+            // Support both _port (standard) and __targetPort (legacy choice handlers)
+            let portHint = data?["_port"] as? String ?? data?["__targetPort"] as? String
 
             // Store any data passed forward (skip internal keys)
             if let data = data {
@@ -422,13 +423,20 @@ public final class NodeFlowEngine: ObservableObject {
         state.setAnswer(nodeId: nodeId, value: buttonValue)
         state.addUserMessage(buttonValue, nodeId: nodeId)
 
+        // Track last user choice so downstream message-nodes can skip echo
+        state.setVariable(name: "_lastUserChoice", value: buttonValue)
+
         ConferBotLogger.debug("[NodeFlowEngine] Button clicked: \(buttonId) for node \(nodeId)")
 
         // Clear current UI state
         currentUIState = nil
 
         // Use button ID as port for edge routing
-        let nextNodeId = getNextNodeId(from: nodeId, port: buttonId)
+        // Try buttonId directly first, then try "source-{buttonId}" format (legacy nodes)
+        var nextNodeId = getNextNodeId(from: nodeId, port: buttonId)
+        if nextNodeId == nil {
+            nextNodeId = getNextNodeId(from: nodeId, port: "source-\(buttonId)")
+        }
 
         if let nextNodeId = nextNodeId {
             await processNode(nextNodeId)
@@ -460,13 +468,20 @@ public final class NodeFlowEngine: ObservableObject {
         state.setAnswer(nodeId: nodeId, value: optionValue)
         state.addUserMessage(optionValue, nodeId: nodeId)
 
+        // Track last user choice so downstream message-nodes can skip echo
+        state.setVariable(name: "_lastUserChoice", value: optionValue)
+
         ConferBotLogger.debug("[NodeFlowEngine] Choice selected: \(optionId) for node \(nodeId)")
 
         // Clear current UI state
         currentUIState = nil
 
         // Use option ID as port for edge routing
-        let nextNodeId = getNextNodeId(from: nodeId, port: optionId)
+        // Try optionId directly first, then try "source-{optionId}" format (legacy nodes)
+        var nextNodeId = getNextNodeId(from: nodeId, port: optionId)
+        if nextNodeId == nil {
+            nextNodeId = getNextNodeId(from: nodeId, port: "source-\(optionId)")
+        }
 
         if let nextNodeId = nextNodeId {
             await processNode(nextNodeId)
@@ -705,14 +720,23 @@ public final class NodeFlowEngine: ObservableObject {
     ///   - node: The node containing buttons
     /// - Returns: The button's label or value
     private func findButtonValue(buttonId: String, inNode node: [String: Any]) -> String? {
-        guard let data = node["data"] as? [String: Any],
-              let buttons = data["buttons"] as? [[String: Any]] else {
+        guard let data = node["data"] as? [String: Any] else {
             return nil
         }
 
-        for button in buttons {
-            if let id = button["id"] as? String, id == buttonId {
-                return button["label"] as? String ?? button["value"] as? String ?? button["text"] as? String
+        if let buttons = data["buttons"] as? [[String: Any]] {
+            for button in buttons {
+                if let id = button["id"] as? String, id == buttonId {
+                    return button["label"] as? String ?? button["value"] as? String ?? button["text"] as? String
+                }
+            }
+        }
+
+        // Also check legacy choice keys
+        if let index = Int(buttonId) {
+            let choiceKey = "choice\(index + 1)"
+            if let choiceText = data[choiceKey] as? String {
+                return choiceText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             }
         }
 
@@ -725,14 +749,36 @@ public final class NodeFlowEngine: ObservableObject {
     ///   - node: The node containing options
     /// - Returns: The option's label or value
     private func findOptionValue(optionId: String, inNode node: [String: Any]) -> String? {
-        guard let data = node["data"] as? [String: Any],
-              let options = data["options"] as? [[String: Any]] ?? data["choices"] as? [[String: Any]] else {
+        guard let data = node["data"] as? [String: Any] else {
             return nil
         }
 
-        for option in options {
-            if let id = option["id"] as? String, id == optionId {
-                return option["label"] as? String ?? option["value"] as? String ?? option["text"] as? String
+        // Check standard options/choices arrays
+        if let options = data["options"] as? [[String: Any]] ?? data["choices"] as? [[String: Any]] {
+            for option in options {
+                if let id = option["id"] as? String, id == optionId {
+                    return option["label"] as? String
+                        ?? option["optionText"] as? String
+                        ?? option["value"] as? String
+                        ?? option["text"] as? String
+                }
+            }
+        }
+
+        // Check legacy choice keys (choice1, choice2, choice3 for two/three-choices-node)
+        if let index = Int(optionId) {
+            let choiceKey = "choice\(index + 1)"
+            if let choiceText = data[choiceKey] as? String {
+                // Strip HTML tags from legacy choice text
+                return choiceText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            }
+        }
+
+        // Check legacy select option keys (option1..option5 for select-option-node)
+        if let index = Int(optionId) {
+            let optionKey = "option\(index + 1)"
+            if let optionText = data[optionKey] as? String {
+                return optionText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             }
         }
 
