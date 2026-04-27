@@ -1592,7 +1592,7 @@ public final class CustomLLMHandler: BaseIntegrationHandler {
 
 /// Handles Google Meet integration nodes
 /// Creates Google Meet meetings via server-side integration
-/// Server emits google-meet-node-trigger event for backend processing
+/// Server processes via execute-integration event
 public final class GoogleMeetHandler: BaseIntegrationHandler {
     public override class var nodeType: String { NodeTypes.Integration.googleMeet }
 
@@ -2898,8 +2898,20 @@ public final class NotionHandler: BaseIntegrationHandler {
             payload["startCursor"] = state.resolveVariables(in: startCursor)
         }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.notionNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Notion \(operation) event emitted for server processing")
         return .proceed
@@ -3110,8 +3122,18 @@ public final class StripeHandler: BaseIntegrationHandler {
 
         // For payment operations, we need to wait for the payment URL from server
         if operation == "createPaymentLink" || operation == "createCheckoutSession" {
+            let paymentNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+            let paymentIntegrationPayload: [String: Any] = [
+                "nodeType": Self.nodeType,
+                "nodeId": paymentNodeId,
+                "nodeData": nodeData,
+                "chatSessionId": state.chatSessionId,
+                "chatbotId": state.botId,
+                "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            ]
             return await handlePaymentOperation(
-                payload: payload,
+                payload: paymentIntegrationPayload,
                 state: state,
                 amount: amount,
                 currency: currency,
@@ -3121,8 +3143,18 @@ public final class StripeHandler: BaseIntegrationHandler {
         }
 
         // For non-payment operations (createCustomer, listProducts, etc.)
-        // Just emit the event and proceed
-        state.emitSocketEvent(SocketEvents.stripeNodeTrigger, data: payload)
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
         debugLog("Stripe \(operation) event emitted for server processing")
         return .proceed
     }
@@ -3136,7 +3168,7 @@ public final class StripeHandler: BaseIntegrationHandler {
         description: String?,
         answerVariable: String
     ) async -> NodeHandlerResult {
-        debugLog("Emitting stripe-node-trigger and waiting for payment URL response")
+        debugLog("Emitting execute-integration and waiting for payment URL response")
 
         // Create a continuation to wait for the socket response
         return await withCheckedContinuation { continuation in
@@ -3230,7 +3262,7 @@ public final class StripeHandler: BaseIntegrationHandler {
             }
 
             // Emit the socket event to trigger payment URL generation
-            state.emitSocketEvent(SocketEvents.stripeNodeTrigger, data: payload)
+            state.emitSocketEvent("execute-integration", data: payload)
         }
     }
 
