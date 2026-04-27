@@ -1160,11 +1160,18 @@ public class ConferBot: ObservableObject {
             }
         }
 
-        // Reconnect event - flush queue after reconnection
+        // Reconnect event - rejoin room and flush queue after reconnection
         socketClient?.on(SocketEvents.reconnect) { [weak self] _, _ in
             guard let self = self else { return }
             Task { @MainActor in
-                self.debugPrint("[ConferBot] Socket reconnected, flushing message queue")
+                // Re-join chat room (socket.io drops room membership on disconnect)
+                if let sessionId = self.currentSession?.chatSessionId {
+                    self.socketClient?.joinChatRoomVisitor(
+                        chatSessionId: sessionId,
+                        deviceInfo: self.getDeviceInfo()
+                    )
+                    self.debugPrint("[ConferBot] Rejoined chat room on reconnect: \(sessionId)")
+                }
                 self.offlineManager.handleSocketConnected()
             }
         }
