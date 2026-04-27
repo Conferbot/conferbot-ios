@@ -118,6 +118,18 @@ public class ConferBot: ObservableObject {
         setupOfflineManager()
     }
 
+    /// Get or create a persistent visitor ID that survives across sessions and app restarts.
+    /// Stored in UserDefaults and only cleared on app uninstall or explicit logout.
+    private func getOrCreateVisitorId() -> String {
+        let key = "conferbot_visitor_id"
+        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
+            return existing
+        }
+        let newId = "v_\(UUID().uuidString.prefix(12).lowercased())"
+        UserDefaults.standard.set(newId, forKey: key)
+        return newId
+    }
+
     // MARK: - Offline Manager Setup
 
     private func setupOfflineManager() {
@@ -541,7 +553,7 @@ public class ConferBot: ObservableObject {
         analytics.initializeChatAnalytics(
             sessionId: session.chatSessionId,
             botIdentifier: botId,
-            visitorIdentifier: session.visitorId ?? currentUser?.id ?? UUID().uuidString
+            visitorIdentifier: session.visitorId ?? currentUser?.id ?? getOrCreateVisitorId()
         )
 
         // Save the new session to storage
