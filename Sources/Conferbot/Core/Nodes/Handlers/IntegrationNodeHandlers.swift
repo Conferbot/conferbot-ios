@@ -2046,6 +2046,19 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
 
             if let dept = department { handoverPayload["department"] = dept }
 
+            // Send response-record before handover so the server has the
+            // Response document when creating the ticket/notification
+            state.emitSocketEvent("response-record", data: [
+                "chatSessionId": state.chatSessionId,
+                "botId": state.botId,
+                "record": (state.getValue(forKey: "_record") as? [[String: Any]]) ?? [],
+                "answerVariables": (state.getValue(forKey: "_answerVariables") as? [[String: Any]]) ?? [],
+                "channel": "mobile",
+            ])
+
+            // Re-join chat room to ensure socket is in the correct room
+            state.emitSocketEvent("join-chat-room-visitor", data: ["chatSessionId": state.chatSessionId])
+
             state.emitSocketEvent(SocketEvents.initiateHandover, data: handoverPayload)
             debugLog("Human handover request sent to server with full chatMetaData")
         }
