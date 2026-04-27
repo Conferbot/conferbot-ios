@@ -19,22 +19,44 @@ public struct SocketEvents {
     public static let endChat = "end-chat"
     public static let emailNodeTrigger = "email-node-trigger"
     public static let zapierNodeTrigger = "zapier-node-trigger"
-    public static let discordNodeTrigger = "discord-node-trigger"
     public static let calendarSlotSelectionRecord = "calendar-slot-selection-record"
-    public static let notionNodeTrigger = "notion-node-trigger"
-    public static let googleDriveNodeTrigger = "google-drive-node-trigger"
-    public static let zohoCrmNodeTrigger = "zohocrm-node-trigger"
-    public static let airtableNodeTrigger = "airtable-node-trigger"
-    public static let googleMeetNodeTrigger = "google-meet-node-trigger"
-    public static let googleDocsNodeTrigger = "google-docs-node-trigger"
-    public static let googleCalendarNodeTrigger = "google-calendar-node-trigger"
-    public static let stripeNodeTrigger = "stripe-node-trigger"
-    public static let gptNodeTrigger = "gpt-node-trigger"
-    public static let gmailNodeTrigger = "gmail-node-trigger"
-    public static let webhookNodeTrigger = "webhook-node-trigger"
-    public static let googleSheetsNodeTrigger = "google-sheets-node-trigger"
-    public static let hubspotNodeTrigger = "hubspot-node-trigger"
-    public static let slackNodeTrigger = "slack-node-trigger"
+
+    /// Unified integration trigger — the embed-server listens for this single event
+    /// for all integration nodes (except legacy email-node-trigger & zapier-node-trigger).
+    public static let executeIntegration = "execute-integration"
+
+    // Deprecated: individual trigger names that the server never listened for.
+    // Kept only so existing references compile; all call-sites should use executeIntegration.
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let discordNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let notionNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let googleDriveNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let zohoCrmNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let airtableNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let googleMeetNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let googleDocsNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let googleCalendarNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let stripeNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let gptNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let gmailNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let webhookNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let googleSheetsNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let hubspotNodeTrigger = "execute-integration"
+    @available(*, deprecated, message: "Use executeIntegration instead")
+    public static let slackNodeTrigger = "execute-integration"
 
     // Analytics events
     public static let trackChatStart = "track-chat-start"
