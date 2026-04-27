@@ -437,20 +437,19 @@ public final class GoogleSheetsHandler: BaseIntegrationHandler {
         }
 
         // Prepare socket payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
         let payload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "google_sheets",
-            "spreadsheetId": spreadsheetId as Any,
-            "sheetName": sheetName as Any,
-            "action": action,
-            "data": resolvedData,
-            "columnMappings": columnMappings,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: payload)
 
         debugLog("Google Sheets event emitted for server processing")
         return .proceed
@@ -642,17 +641,19 @@ public final class HubspotHandler: BaseIntegrationHandler {
         }
 
         // Prepare socket payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
         let payload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "hubspot",
-            "action": action,
-            "contactData": contactData,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: payload)
 
         debugLog("HubSpot event emitted for server processing")
         return .proceed
@@ -712,18 +713,19 @@ public final class SalesforceHandler: BaseIntegrationHandler {
         }
 
         // Prepare socket payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
         let payload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "salesforce",
-            "action": action,
-            "objectType": objectType,
-            "recordData": recordData,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: payload)
 
         debugLog("Salesforce event emitted for server processing")
         return .proceed
@@ -794,17 +796,19 @@ public final class ZendeskHandler: BaseIntegrationHandler {
         }
 
         // Prepare socket payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
         let payload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "zendesk",
-            "action": action,
-            "ticketData": ticketData,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: payload)
 
         debugLog("Zendesk event emitted for server processing")
         return .proceed
@@ -867,8 +871,20 @@ public final class SlackHandler: BaseIntegrationHandler {
         if let blks = blocks { payload["blocks"] = blks }
         if let atts = attachments { payload["attachments"] = atts }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Slack event emitted for server processing")
         return .proceed
@@ -934,8 +950,20 @@ public final class DiscordHandler: BaseIntegrationHandler {
         if let avatar = avatarUrl { payload["avatarUrl"] = avatar }
         if let emb = embeds { payload["embeds"] = emb }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.discordNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Discord event emitted for server processing")
         return .proceed
@@ -1042,53 +1070,45 @@ public final class DialogflowHandler: BaseIntegrationHandler {
             return .error(.socketNotConnected)
         }
 
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+
         // Extract query text
         guard case .success(let queryText) = extractString("queryText", from: nodeData, state: state, required: true),
               let query = queryText else {
             // If no explicit query, use last user message
-            if let lastMessage = state.getValue(forKey: "_lastUserMessage") as? String {
+            if state.getValue(forKey: "_lastUserMessage") as? String != nil {
                 // Continue with last message
                 let payload: [String: Any] = [
+                    "nodeType": Self.nodeType,
+                    "nodeId": nodeId,
+                    "nodeData": nodeData,
                     "chatSessionId": state.chatSessionId,
-                    "botId": state.botId,
-                    "nodeType": "dialogflow",
-                    "queryText": lastMessage,
-                    "languageCode": nodeData["languageCode"] as? String ?? "en",
-                    "variables": state.variables
+                    "chatbotId": state.botId,
+                    "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+                    "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
                 ]
-                state.emitSocketEvent("integration-node-trigger", data: payload)
+                state.emitSocketEvent("execute-integration", data: payload)
                 return .proceed
             }
             return .error(.missingRequiredField("queryText"))
         }
 
-        // Extract language code
-        let languageCode = nodeData["languageCode"] as? String ?? "en"
+        // Extract language code - unused locally but included in nodeData for server
+        _ = nodeData["languageCode"] as? String ?? "en"
 
-        // Extract session ID (optional - server may generate)
-        let sessionId = nodeData["sessionId"] as? String
-
-        // Extract contexts if provided
-        var contexts: [[String: Any]]?
-        if let contextData = nodeData["contexts"] as? [[String: Any]] {
-            contexts = contextData.map { resolveVariablesInDictionary($0, state: state) }
-        }
-
-        // Prepare socket payload
-        var payload: [String: Any] = [
+        // Prepare standardized socket payload
+        let payload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "dialogflow",
-            "queryText": query,
-            "languageCode": languageCode,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
-        if let sid = sessionId { payload["sessionId"] = sid }
-        if let ctx = contexts { payload["contexts"] = ctx }
-
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: payload)
 
         debugLog("Dialogflow event emitted for server processing")
         return .proceed
@@ -1155,8 +1175,20 @@ public final class OpenAIHandler: BaseIntegrationHandler {
         if let sys = systemMessage { payload["systemMessage"] = sys }
         if !messages.isEmpty { payload["messages"] = messages }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("OpenAI event emitted for server processing")
         return .proceed
@@ -1217,8 +1249,20 @@ public final class GeminiHandler: BaseIntegrationHandler {
 
         if let safety = safetySettings { payload["safetySettings"] = safety }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Gemini event emitted for server processing")
         return .proceed
@@ -1276,8 +1320,20 @@ public final class PerplexityHandler: BaseIntegrationHandler {
         if let sys = systemMessage { payload["systemMessage"] = sys }
         if let domains = searchDomainFilter { payload["searchDomainFilter"] = domains }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Perplexity event emitted for server processing")
         return .proceed
@@ -1342,8 +1398,20 @@ public final class ClaudeHandler: BaseIntegrationHandler {
         if let k = topK { payload["topK"] = k }
         if !messages.isEmpty { payload["messages"] = messages }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Claude event emitted for server processing")
         return .proceed
@@ -1406,8 +1474,20 @@ public final class GroqHandler: BaseIntegrationHandler {
         if let sys = systemMessage { payload["systemMessage"] = sys }
         if !messages.isEmpty { payload["messages"] = messages }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Groq event emitted for server processing")
         return .proceed
@@ -1488,8 +1568,20 @@ public final class CustomLLMHandler: BaseIntegrationHandler {
         if let template = requestBodyTemplate { payload["requestBodyTemplate"] = template }
         if let path = responsePath { payload["responsePath"] = path }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent("integration-node-trigger", data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Custom LLM event emitted for server processing")
         return .proceed
@@ -1574,8 +1666,20 @@ public final class GoogleMeetHandler: BaseIntegrationHandler {
                 payload["attendeeName"] = name
             }
 
+            // Build standardized execute-integration payload for server
+            let bookNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+            let bookIntegrationPayload: [String: Any] = [
+                "nodeType": Self.nodeType,
+                "nodeId": bookNodeId,
+                "nodeData": nodeData,
+                "chatSessionId": state.chatSessionId,
+                "chatbotId": state.botId,
+                "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            ]
+
             // Emit socket event for server to process and prepare calendar slots
-            state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+            state.emitSocketEvent("execute-integration", data: bookIntegrationPayload)
 
             // Return display UI for calendar/meeting selection
             let uiData: [String: Any] = [
@@ -1643,37 +1747,39 @@ public final class GoogleMeetHandler: BaseIntegrationHandler {
             if let start = startTime { payload["startTime"] = start }
             if let end = endTime { payload["endTime"] = end }
 
+            // Build standardized execute-integration payload
+            let createNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+            let createIntegrationPayload: [String: Any] = [
+                "nodeType": Self.nodeType,
+                "nodeId": createNodeId,
+                "nodeData": nodeData,
+                "chatSessionId": state.chatSessionId,
+                "chatbotId": state.botId,
+                "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            ]
+
             // Emit socket event for server to create meeting
-            state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+            state.emitSocketEvent("execute-integration", data: createIntegrationPayload)
 
             debugLog("Google Meet creation request sent to server")
             return .proceed
         }
 
         // Handle other operations (list, cancel, etc.)
-        var payload: [String: Any] = [
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "google_meet",
-            "operation": operation,
-            "variables": state.variables
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
         ]
 
-        // Include any additional node data with resolved variables
-        for (key, value) in nodeData {
-            if !["operation", "type", "id"].contains(key) {
-                if let stringValue = value as? String {
-                    payload[key] = state.resolveVariables(in: stringValue)
-                } else if let dictValue = value as? [String: Any] {
-                    payload[key] = resolveVariablesInDictionary(dictValue, state: state)
-                } else {
-                    payload[key] = value
-                }
-            }
-        }
-
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.googleMeetNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Google Meet \(operation) event emitted for server processing")
         return .proceed
@@ -1787,8 +1893,20 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             payload["attendeeName"] = name
         }
 
+        // Build standardized execute-integration payload for server
+        let bookNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let bookIntegrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": bookNodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server to process and prepare available calendar slots
-        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: bookIntegrationPayload)
 
         // Return display UI for calendar/slot selection
         // The UI will show a date/time picker for the user to select an appointment slot
@@ -1875,8 +1993,20 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
         if let calId = calendarId { payload["calendarId"] = calId }
         if let rem = reminders { payload["reminders"] = rem }
 
+        // Build standardized execute-integration payload
+        let createNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let createIntegrationPayload: [String: Any] = [
+            "nodeType": GoogleCalendarHandler.nodeType,
+            "nodeId": createNodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server to create the calendar event
-        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: createIntegrationPayload)
 
         debugLog("Google Calendar event creation request sent to server")
         return .proceed
@@ -1908,7 +2038,19 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
         if let min = minDate { payload["minDate"] = min }
         if let max = maxDate { payload["maxDate"] = max }
 
-        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+        // Build standardized execute-integration payload
+        let listNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let listIntegrationPayload: [String: Any] = [
+            "nodeType": GoogleCalendarHandler.nodeType,
+            "nodeId": listNodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
+        state.emitSocketEvent("execute-integration", data: listIntegrationPayload)
 
         debugLog("Google Calendar list slots request sent to server")
         return .proceed
@@ -1930,21 +2072,20 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             "variables": state.variables
         ]
 
-        // Include any additional node data with resolved variables
-        for (key, value) in nodeData {
-            if !["operation", "type", "id"].contains(key) {
-                if let stringValue = value as? String {
-                    payload[key] = state.resolveVariables(in: stringValue)
-                } else if let dictValue = value as? [String: Any] {
-                    payload[key] = resolveVariablesInDictionary(dictValue, state: state)
-                } else {
-                    payload[key] = value
-                }
-            }
-        }
+        // Build standardized execute-integration payload
+        let genericNodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let genericIntegrationPayload: [String: Any] = [
+            "nodeType": GoogleCalendarHandler.nodeType,
+            "nodeId": genericNodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
 
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.googleCalendarNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: genericIntegrationPayload)
 
         debugLog("Google Calendar \(operation) event emitted for server processing")
         return .proceed
@@ -2174,8 +2315,20 @@ public final class AirtableHandler: BaseIntegrationHandler {
         if let maxRecs = maxRecords { payload["maxRecords"] = maxRecs }
         if let sort = sortConfig { payload["sort"] = sort }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.airtableNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Airtable \(operation) event emitted for server processing")
         return .proceed
@@ -2306,8 +2459,20 @@ public final class ZohoCRMHandler: BaseIntegrationHandler {
             payload["layoutId"] = layoutId
         }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.zohoCrmNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Zoho CRM \(operation) event emitted for module: \(module)")
         return .proceed
@@ -2425,8 +2590,20 @@ public final class GoogleDocsHandler: BaseIntegrationHandler {
         // Add sharing configuration
         if let share = sharing { payload["sharing"] = share }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.googleDocsNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Google Docs \(operation) event emitted for server processing")
         return .proceed
@@ -2584,8 +2761,20 @@ public final class GoogleDriveHandler: BaseIntegrationHandler {
             payload["fieldMappings"] = fieldMappings
         }
 
+        // Build standardized execute-integration payload
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+        let integrationPayload: [String: Any] = [
+            "nodeType": Self.nodeType,
+            "nodeId": nodeId,
+            "nodeData": nodeData,
+            "chatSessionId": state.chatSessionId,
+            "chatbotId": state.botId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
+            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+        ]
+
         // Emit socket event for server processing
-        state.emitSocketEvent(SocketEvents.googleDriveNodeTrigger, data: payload)
+        state.emitSocketEvent("execute-integration", data: integrationPayload)
 
         debugLog("Google Drive \(operation) event emitted for server processing")
         return .proceed
