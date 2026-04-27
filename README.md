@@ -132,7 +132,25 @@ struct ContentView: View {
 }
 ```
 
-### Pattern 3 -- Headless (Custom UI)
+### Pattern 3 -- Floating Widget (FAB)
+
+Overlay a floating chat button on any SwiftUI view. Tapping opens chat in a sheet. Reads server customizations automatically (color, icon, CTA text, position).
+
+```swift
+import SwiftUI
+import Conferbot
+
+struct ContentView: View {
+    var body: some View {
+        NavigationView {
+            MyAppContent()
+        }
+        .conferBotWidget() // Adds floating FAB overlay
+    }
+}
+```
+
+### Pattern 4 -- Headless (Custom UI)
 
 Use the SDK as a messaging transport layer and render everything yourself:
 
