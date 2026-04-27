@@ -825,22 +825,17 @@ public final class GptNodeHandler: BaseNodeHandler {
         let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
         let botId = state.record["botId"] as? String ?? ""
 
-        // Build socket payload for server-side processing
+        // Build standardized execute-integration payload for server-side processing
+        let nodeData = node["data"] as? [String: Any] ?? data
         var payload: [String: Any] = [
-            "chatSessionId": sessionId,
-            "botId": botId,
+            "nodeType": "gpt-node",
             "nodeId": nodeId,
-            "nodeType": "gpt",
-            "provider": provider,
-            "model": model,
-            "temperature": temperature,
-            "maxTokens": maxTokens,
-            "variables": state.variables
+            "nodeData": nodeData,
+            "chatSessionId": sessionId,
+            "chatbotId": botId,
+            "workspaceId": state.getVariable(name: "_workspaceId") as? String ?? "",
+            "answerVariables": state.getVariable(name: "_answerVariables") ?? [],
         ]
-
-        if let context = systemContext {
-            payload["context"] = state.resolveVariables(text: context)
-        }
 
         // Include conversation transcript for context
         let transcript = state.getTranscript()
@@ -907,7 +902,7 @@ public final class GptNodeHandler: BaseNodeHandler {
             }
 
             // Emit the trigger event
-            socket.emit(SocketEvents.gptNodeTrigger, payload)
+            socket.emit("execute-integration", payload)
 
             #if DEBUG
             print("[Conferbot] GPT node event emitted for server processing (provider: \(provider))")
@@ -969,24 +964,20 @@ public final class GmailNodeHandler: BaseNodeHandler {
         let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
         let botId = state.record["botId"] as? String ?? ""
 
-        // Build socket payload
-        var payload: [String: Any] = [
-            "chatSessionId": sessionId,
-            "botId": botId,
+        // Build standardized execute-integration payload
+        let nodeData = node["data"] as? [String: Any] ?? data
+        let payload: [String: Any] = [
+            "nodeType": "gmail-node",
             "nodeId": nodeId,
-            "nodeType": "gmail",
-            "isHtml": isHtml,
-            "variables": state.variables
+            "nodeData": nodeData,
+            "chatSessionId": sessionId,
+            "chatbotId": botId,
+            "workspaceId": state.getVariable(name: "_workspaceId") as? String ?? "",
+            "answerVariables": state.getVariable(name: "_answerVariables") ?? [],
         ]
 
-        if let toEmail = to { payload["to"] = toEmail }
-        if let subjectText = subject { payload["subject"] = subjectText }
-        if let bodyText = body { payload["body"] = bodyText }
-        if let ccEmail = cc { payload["cc"] = ccEmail }
-        if let bccEmail = bcc { payload["bcc"] = bccEmail }
-
         // Emit socket event for server processing
-        socketClient?.emit(SocketEvents.gmailNodeTrigger, payload)
+        socketClient?.emit("execute-integration", payload)
 
         #if DEBUG
         print("[Conferbot] Gmail node event emitted for server processing")
