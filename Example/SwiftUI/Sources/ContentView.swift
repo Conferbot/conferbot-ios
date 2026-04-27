@@ -19,6 +19,7 @@ struct ContentView: View {
     enum Pattern: String, CaseIterable, Identifiable {
         case modal    = "Modal (Sheet)"
         case embedded = "Embedded"
+        case widget   = "Widget (FAB)"
         var id: String { rawValue }
     }
 
@@ -46,6 +47,8 @@ struct ContentView: View {
                     modalPatternView
                 case .embedded:
                     embeddedPatternView
+                case .widget:
+                    widgetPatternView
                 }
 
                 Spacer()
@@ -113,6 +116,24 @@ struct ContentView: View {
             .sheet(isPresented: $showChatSheet) {
                 ChatView()
             }
+        }
+    }
+
+    // MARK: - Widget Pattern
+
+    private var widgetPatternView: some View {
+        VStack(spacing: 16) {
+            Text("Floating chat button overlay.\nUse .conferBotWidget() modifier on your root view.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Text(".conferBotWidget()")
+                .font(.system(.caption, design: .monospaced))
+                .padding(12)
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+                .padding(.horizontal)
         }
     }
 
