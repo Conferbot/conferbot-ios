@@ -49,6 +49,7 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var isLiveChatMode: Bool = false
     @Published public private(set) var currentAgent: Agent? = nil
     @Published public private(set) var hasRestoredSession: Bool = false
+    @Published public private(set) var serverCustomizations: [String: Any]?
 
     // Node Flow Engine - Published properties
     @Published public private(set) var currentUIState: NodeUIState?
@@ -1060,6 +1061,13 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Session ended: \(session.chatSessionId)")
     }
 
+    /// Reset unread message count (e.g. when chat overlay opens)
+    public func resetUnreadCount() {
+        DispatchQueue.main.async {
+            self.unreadCount = 0
+        }
+    }
+
     /// Register push notification token
     public func registerPushToken(_ token: String) {
         self.pushToken = token
@@ -1196,8 +1204,11 @@ public class ConferBot: ObservableObject {
                 self.chatState.workspaceId = workspaceId
             }
 
-            // Store botName for handover handler
+            // Store full customizations for FAB widget
             let customizations = chatbotData["customizations"] as? [String: Any]
+            DispatchQueue.main.async {
+                self.serverCustomizations = customizations
+            }
             let botName = (customizations?["botName"] as? String)
                 ?? (customizations?["logoText"] as? String)
                 ?? ""
