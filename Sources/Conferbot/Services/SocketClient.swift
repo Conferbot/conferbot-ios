@@ -94,6 +94,12 @@ public class SocketClient {
         }
     }
 
+    /// Request the bot configuration. The embed-server answers with the
+    /// 'fetched-chatbot-data' event (workspaceId, customizations, elements).
+    public func requestChatbotData() {
+        emit(SocketEvents.getChatbotData, ["botId": botId])
+    }
+
     /// Join chat room as visitor (use this instead of deprecated mobileInit)
     /// This matches embed-server's 'join-chat-room-visitor' event
     public func joinChatRoomVisitor(

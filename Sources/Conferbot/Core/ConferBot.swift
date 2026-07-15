@@ -1144,6 +1144,10 @@ public class ConferBot: ObservableObject {
                 self.isConnected = true
                 self.delegate?.conferBot(self, didChangeConnectionStatus: true)
 
+                // Load bot config (workspaceId, server customizations) like the
+                // web widget does on every connect.
+                self.socketClient?.requestChatbotData()
+
                 // Notify offline manager that socket connected
                 self.offlineManager.handleSocketConnected()
             }
