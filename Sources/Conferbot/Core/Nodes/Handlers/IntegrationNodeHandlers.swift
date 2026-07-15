@@ -3552,10 +3552,10 @@ public class DefaultNodeState: NodeState {
     public func resolveVariables(in text: String) -> String {
         var resolved = text
 
-        // Match patterns like {{variableName}} or {variableName}
+        // Match patterns like {{variableName}}, ${variableName} or {variableName}
         let patterns = [
-            "\\{\\{([^}]+)\\}\\}",  // {{variable}}
-            "\\{([^}]+)\\}"         // {variable}
+            "\\{\\{([^}]+)\\}\\}",   // {{variable}}
+            "\\$?\\{([^}]+)\\}"      // ${variable} and {variable}
         ]
 
         for pattern in patterns {
