@@ -10,7 +10,7 @@
 import SwiftUI
 
 private let conferbotURL = "https://www.conferbot.com"
-private let conferbotLogoURL = "https://prd.media.cdn.conferbot.com/62829a1c49f355163dfdbfb2/conferbot-logo-1710782074234.png"
+private let conferbotLogoURL = "https://www.conferbot.com/img/logo/conferbot-logo.png"
 
 @available(iOS 14.0, *)
 public struct ChatBottomBar: View {

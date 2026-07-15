@@ -10,8 +10,8 @@ import Foundation
 /// Conferbot SDK constants
 public struct ConferBotConstants {
     // API Configuration
-    public static let defaultApiBaseURL = "https://embed.conferbot.com/api/v1/mobile"
-    public static let defaultSocketURL = "https://embed.conferbot.com"
+    public static let defaultApiBaseURL = "https://wdt.conferbot.com/api/v1/mobile"
+    public static let defaultSocketURL = "https://wdt.conferbot.com"
     public static let apiTimeout: TimeInterval = 30.0 // 30 seconds
     public static let socketTimeout: TimeInterval = 20.0 // 20 seconds
 
