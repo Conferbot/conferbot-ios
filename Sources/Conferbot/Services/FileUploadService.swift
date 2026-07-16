@@ -239,7 +239,15 @@ public final class FileUploadService: NSObject {
         body.append("--\(boundary)--\r\n".data(using: .utf8) ?? Data())
 
         // Create request
-        guard let url = URL(string: "\(baseURL)/upload") else {
+        // Contract: multipart POST to <origin>/api/v1/bot/<botId>/media?chatSessionId=<sessionId>
+        // where origin is the scheme + host of the base URL (path is replaced)
+        guard var components = URLComponents(string: baseURL) else {
+            throw FileUploadError.uploadFailed(reason: "Invalid upload URL")
+        }
+        components.path = "/api/v1/bot/\(botId)/media"
+        components.queryItems = sessionId.map { [URLQueryItem(name: "chatSessionId", value: $0)] }
+
+        guard let url = components.url else {
             throw FileUploadError.uploadFailed(reason: "Invalid upload URL")
         }
 
