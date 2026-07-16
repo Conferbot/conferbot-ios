@@ -14,12 +14,14 @@ import PhotosUI
 import AVFoundation
 import Combine
 
-// MARK: - NodeUIState
+// MARK: - NodeRenderState
 
-/// UI state representation for all node types
-/// Mirrors the Android SDK's NodeUIState sealed class
+/// UI state representation for all node types rendered by NodeRenderer.
+/// Mirrors the Android SDK's NodeUIState sealed class.
+/// Named NodeRenderState to avoid colliding with the Core NodeUIState
+/// enum published by ConferBot/NodeFlowEngine.
 @available(iOS 14.0, *)
-public enum NodeUIState {
+public enum NodeRenderState {
     case message(text: String, isTyping: Bool = false, nodeId: String)
     case image(url: String, caption: String?, nodeId: String)
     case video(url: String, caption: String?, nodeId: String)
@@ -710,15 +712,15 @@ public extension EnvironmentValues {
 
 // MARK: - Main Router View
 
-/// Main node renderer that routes to appropriate component based on NodeUIState
+/// Main node renderer that routes to appropriate component based on NodeRenderState
 @available(iOS 14.0, *)
 public struct NodeRenderer: View {
-    let uiState: NodeUIState
+    let uiState: NodeRenderState
     let onInput: (Any) -> Void
 
     @Environment(\.chatTheme) private var theme
 
-    public init(uiState: NodeUIState, onInput: @escaping (Any) -> Void) {
+    public init(uiState: NodeRenderState, onInput: @escaping (Any) -> Void) {
         self.uiState = uiState
         self.onInput = onInput
     }
