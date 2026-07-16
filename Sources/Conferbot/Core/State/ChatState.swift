@@ -509,6 +509,75 @@ public final class ChatState: ObservableObject {
         return serverRecord
     }
 
+    // MARK: - Integration Payload Helpers
+
+    /// Builds the answer variables list without acquiring the lock.
+    /// Callers must hold `lock` or otherwise guarantee exclusive access.
+    private func answerVariablesListLocked() -> [[String: Any]] {
+        var merged: [String: Any] = [:]
+        for (key, value) in userMetadata {
+            merged[key] = value
+        }
+        for (key, value) in variables where !key.hasPrefix("_") {
+            merged[key] = value
+        }
+        return merged.map { ["key": $0.key, "value": $0.value] }
+    }
+
+    /// Answer variables in the server's expected format: an array of
+    /// { key, value } dictionaries keyed by variable name. The server uses
+    /// this list to resolve ${var} placeholders in integration node data.
+    public func getAnswerVariablesList() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return answerVariablesListLocked()
+    }
+
+    /// Visitor data (name, email, phone) for integration payloads
+    public func getVisitorData() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var data: [String: Any] = [:]
+        if let name = userMetadata["name"] ?? variables["name"] {
+            data["name"] = name
+        }
+        if let email = userMetadata["email"] ?? variables["email"] {
+            data["email"] = email
+        }
+        if let phone = userMetadata["phone"] ?? variables["phone"] {
+            data["phone"] = phone
+        }
+        return data
+    }
+
+    /// Transcript in the email-node contract format: [{by, message}]
+    /// where "by" is one of "bot", "user", or "agent"
+    public func getEmailTranscript() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return transcript.compactMap { entry -> [String: Any]? in
+            let type = entry["type"] as? String ?? ""
+            var message = entry["message"] as? String ?? entry["text"] as? String ?? ""
+            if message.isEmpty, let value = entry["value"] {
+                message = String(describing: value)
+            }
+            guard !message.isEmpty else { return nil }
+
+            let by: String
+            if type.hasPrefix("agent") {
+                by = "agent"
+            } else if type == "bot" {
+                by = "bot"
+            } else {
+                by = "user"
+            }
+            return ["by": by, "message": message]
+        }
+    }
+
     /// Build the full response data dictionary for socket emit,
     /// including visitorId and workspaceId when available
     public func buildResponseData(chatSessionId: String, botId: String) -> [String: Any] {
@@ -519,7 +588,7 @@ public final class ChatState: ObservableObject {
             "chatSessionId": chatSessionId,
             "botId": botId,
             "record": serverRecord,
-            "answerVariables": [],
+            "answerVariables": answerVariablesListLocked(),
             "channel": "mobile"
         ]
 
