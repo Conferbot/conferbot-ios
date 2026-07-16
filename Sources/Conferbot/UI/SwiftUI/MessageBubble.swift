@@ -29,8 +29,20 @@ public struct MessageBubble: View {
             }
 
             VStack(alignment: isUserMessage ? .trailing : .leading, spacing: 4) {
-                // Check for file content
-                if let fileInfo = extractFileInfo() {
+                if let imageUrl = standaloneImageUrl {
+                    // Standalone bot image (welcome-node / image-node):
+                    // rounded, no bubble background - web widget parity
+                    StandaloneImageView(url: imageUrl)
+                } else if let frozen = frozenChoices {
+                    // Persisted choice pills: disabled, selected one highlighted
+                    ChoicePillsView(
+                        pills: frozen.labels.map { ChoicePillsView.Pill(id: $0, label: $0) },
+                        selectedLabel: frozen.selected,
+                        isFrozen: true,
+                        primaryColor: pillPrimaryColor,
+                        onTap: nil
+                    )
+                } else if let fileInfo = extractFileInfo() {
                     FileMessageBubble(
                         fileInfo: fileInfo,
                         isUserMessage: isUserMessage,
@@ -59,6 +71,30 @@ public struct MessageBubble: View {
 
     private var isUserMessage: Bool {
         return message.type == .userMessage || message.type == .userInputResponse
+    }
+
+    private var botNodeData: [String: AnyCodable]? {
+        return (message as? BotMessageRecord)?.nodeData
+    }
+
+    /// URL of a standalone bot image entry (welcome-node / image-node)
+    private var standaloneImageUrl: String? {
+        return botNodeData?["imageUrl"]?.value as? String
+    }
+
+    /// Frozen (already answered) choice pills persisted in the transcript
+    private var frozenChoices: (labels: [String], selected: String?)? {
+        guard let labels = botNodeData?["choices"]?.value as? [String], !labels.isEmpty else {
+            return nil
+        }
+        return (labels, botNodeData?["selectedChoice"]?.value as? String)
+    }
+
+    private var pillPrimaryColor: Color {
+        if let color = customization?.primaryColor {
+            return Color(color)
+        }
+        return .blue
     }
 
     private var messageText: String {
@@ -202,16 +238,118 @@ public struct MessageBubble: View {
                 AsyncImage(url: avatarURL) { image in
                     image.resizable()
                 } placeholder: {
-                    Image(systemName: "person.circle.fill")
-                        .foregroundColor(.gray)
+                    initialsAvatar
                 }
             } else {
-                Image(systemName: "person.circle.fill")
-                    .foregroundColor(.gray)
+                initialsAvatar
             }
         }
         .frame(width: 32, height: 32)
         .clipShape(Circle())
+    }
+
+    /// Colored-circle initials fallback (never transparent) - shows the
+    /// agent's initial during live chat, otherwise the bot/header initial
+    private var initialsAvatar: some View {
+        ZStack {
+            Circle().fill(pillPrimaryColor)
+            Text(avatarInitial)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+
+    private var avatarInitial: String {
+        let name: String
+        if let agentMessage = message as? AgentMessageRecord {
+            name = agentMessage.agentDetails.name
+        } else if let joinedMessage = message as? AgentJoinedMessageRecord {
+            name = joinedMessage.agentDetails.name
+        } else {
+            name = customization?.headerTitle ?? "Bot"
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "B" : String(trimmed.prefix(1)).uppercased()
+    }
+}
+
+// MARK: - Standalone Bot Image
+
+/// Rounded standalone image (welcome-node / image-node) rendered without a
+/// bubble background, left-aligned past the avatar column - web widget parity
+@available(iOS 14.0, *)
+struct StandaloneImageView: View {
+    let url: String
+
+    var body: some View {
+        AsyncImage(url: URL(string: url)) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            case .failure:
+                Image(systemName: "photo")
+                    .font(.largeTitle)
+                    .foregroundColor(.gray)
+                    .frame(width: 100, height: 100)
+            case .empty:
+                ProgressView()
+                    .frame(width: 100, height: 100)
+            @unknown default:
+                EmptyView()
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+        .cornerRadius(10)
+    }
+}
+
+// MARK: - Choice Pills
+
+/// Choice pills used both interactively (while a choice node awaits input)
+/// and frozen from the transcript after answering (disabled, selected pill
+/// highlighted in the primary color, others dimmed)
+@available(iOS 14.0, *)
+struct ChoicePillsView: View {
+    struct Pill: Identifiable {
+        let id: String
+        let label: String
+    }
+
+    let pills: [Pill]
+    /// Label of the selected pill (only meaningful when frozen)
+    let selectedLabel: String?
+    let isFrozen: Bool
+    let primaryColor: Color
+    let onTap: ((Pill) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(pills) { pill in
+                pillButton(for: pill)
+            }
+        }
+    }
+
+    private func pillButton(for pill: Pill) -> some View {
+        let isSelected = isFrozen && pill.label == selectedLabel
+
+        return Button(action: { onTap?(pill) }) {
+            Text(pill.label)
+                .font(.system(size: 15, weight: .medium))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(isSelected ? primaryColor : Color.clear)
+                .foregroundColor(isSelected ? .white : primaryColor)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(primaryColor, lineWidth: 1)
+                )
+                .opacity(isFrozen && !isSelected ? 0.45 : 1)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isFrozen)
     }
 }
 

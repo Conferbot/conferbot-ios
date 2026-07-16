@@ -37,6 +37,7 @@ public enum ChatViewTab: Int, CaseIterable {
 public struct ChatView: View {
     @ObservedObject private var conferBot = ConferBot.shared
     @State private var inputText = ""
+    @State private var inputError: String?
     @State private var isSessionStarted = false
     @State private var selectedTab: ChatViewTab = .chat
     @State private var showKnowledgeBaseSheet = false
@@ -67,11 +68,32 @@ public struct ChatView: View {
                 // Chat content
                 VStack(spacing: 0) {
                     messagesView
+
+                    if let error = inputError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+                    }
+
                     ChatBottomBar(
                         text: $inputText,
                         onSend: { message in
-                            Task {
-                                try? await conferBot.sendMessage(message)
+                            // Text questions (ask-name, ask-email, ...) are
+                            // answered through the single bottom bar - the
+                            // flow engine receives the answer, otherwise the
+                            // text is sent as a free-form chat message
+                            if let error = conferBot.submitText(message) {
+                                inputError = error
+                                // ChatBottomBar clears the field after onSend;
+                                // restore the rejected input so the user can fix it
+                                DispatchQueue.main.async {
+                                    inputText = message
+                                }
+                            } else {
+                                inputError = nil
                             }
                         },
                         onEditingChanged: { isEditing in
@@ -177,8 +199,15 @@ public struct ChatView: View {
                             .id(index)
                     }
 
-                    if conferBot.isAgentTyping {
-                        TypingIndicator()
+                    // Interactive choice pills for the node awaiting input
+                    if let uiState = conferBot.currentUIState {
+                        interactiveChoicesView(for: uiState)
+                    }
+
+                    // Single typing indicator: covers both agent typing and
+                    // bot node processing (never two loading bubbles at once)
+                    if conferBot.isAgentTyping || conferBot.isProcessingNode {
+                        TypingIndicator(avatarURL: conferBot.customization?.avatarURL)
                             .id("typing")
                     }
                 }
@@ -197,6 +226,48 @@ public struct ChatView: View {
                 }
             }
         }
+    }
+
+    /// Renders answered-in-place choice/button nodes as tappable pills.
+    /// Text-input nodes are answered via the bottom bar instead.
+    @ViewBuilder
+    private func interactiveChoicesView(for uiState: NodeUIState) -> some View {
+        switch uiState {
+        case .singleChoice(let options, let nodeId), .quickReplies(let options, let nodeId):
+            HStack(alignment: .top) {
+                Spacer().frame(width: 40)
+                ChoicePillsView(
+                    pills: options.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
+                    selectedLabel: nil,
+                    isFrozen: false,
+                    primaryColor: pillColor,
+                    onTap: { pill in
+                        conferBot.handleChoiceSelection(optionId: pill.id, forNodeId: nodeId)
+                    }
+                )
+                Spacer()
+            }
+        case .buttons(let buttons, let nodeId):
+            HStack(alignment: .top) {
+                Spacer().frame(width: 40)
+                ChoicePillsView(
+                    pills: buttons.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
+                    selectedLabel: nil,
+                    isFrozen: false,
+                    primaryColor: pillColor,
+                    onTap: { pill in
+                        conferBot.handleButtonClick(buttonId: pill.id, forNodeId: nodeId)
+                    }
+                )
+                Spacer()
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var pillColor: Color {
+        conferBot.customization?.primaryColor.map { Color($0) } ?? .blue
     }
 
     private var inputView: some View {
@@ -351,8 +422,15 @@ public struct ChatViewWithKBSheet: View {
                             .id(index)
                     }
 
-                    if conferBot.isAgentTyping {
-                        TypingIndicator()
+                    // Interactive choice pills for the node awaiting input
+                    if let uiState = conferBot.currentUIState {
+                        interactiveChoicesView(for: uiState)
+                    }
+
+                    // Single typing indicator: covers both agent typing and
+                    // bot node processing (never two loading bubbles at once)
+                    if conferBot.isAgentTyping || conferBot.isProcessingNode {
+                        TypingIndicator(avatarURL: conferBot.customization?.avatarURL)
                             .id("typing")
                     }
                 }
@@ -381,13 +459,55 @@ public struct ChatViewWithKBSheet: View {
             }
 
             ChatInput(text: $inputText) { message in
-                Task {
-                    try? await conferBot.sendMessage(message)
-                }
+                // Route through the flow engine when a text-input node is
+                // awaiting input, otherwise send as a free-form message
+                conferBot.submitText(message)
             } onEditingChanged: { isEditing in
                 conferBot.sendTypingIndicator(isTyping: isEditing)
             }
         }
+    }
+
+    /// Renders answered-in-place choice/button nodes as tappable pills.
+    /// Text-input nodes are answered via the bottom bar instead.
+    @ViewBuilder
+    private func interactiveChoicesView(for uiState: NodeUIState) -> some View {
+        switch uiState {
+        case .singleChoice(let options, let nodeId), .quickReplies(let options, let nodeId):
+            HStack(alignment: .top) {
+                Spacer().frame(width: 40)
+                ChoicePillsView(
+                    pills: options.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
+                    selectedLabel: nil,
+                    isFrozen: false,
+                    primaryColor: pillColor,
+                    onTap: { pill in
+                        conferBot.handleChoiceSelection(optionId: pill.id, forNodeId: nodeId)
+                    }
+                )
+                Spacer()
+            }
+        case .buttons(let buttons, let nodeId):
+            HStack(alignment: .top) {
+                Spacer().frame(width: 40)
+                ChoicePillsView(
+                    pills: buttons.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
+                    selectedLabel: nil,
+                    isFrozen: false,
+                    primaryColor: pillColor,
+                    onTap: { pill in
+                        conferBot.handleButtonClick(buttonId: pill.id, forNodeId: nodeId)
+                    }
+                )
+                Spacer()
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var pillColor: Color {
+        conferBot.customization?.primaryColor.map { Color($0) } ?? .blue
     }
 
     private var quickHelpSuggestion: some View {
