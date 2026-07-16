@@ -261,6 +261,13 @@ public class ConferBot: ObservableObject {
 
     /// Restore chat state from storage
     private func restoreChatState(sessionId: String) {
+        // Suspend the bot-entry mirror while replaying the stored transcript;
+        // restored messages are already loaded via loadMessages and mirroring
+        // them again would duplicate bubbles.
+        let savedBotEntryCallback = chatState.onBotEntryAppended
+        chatState.onBotEntryAppended = nil
+        defer { chatState.onBotEntryAppended = savedBotEntryCallback }
+
         // Restore answer variables
         let answerVariables = sessionStorage.loadAnswerVariables(sessionId: sessionId)
         for variable in answerVariables {
@@ -353,6 +360,40 @@ public class ConferBot: ObservableObject {
     private func setupFlowEngine() {
         flowEngine = NodeFlowEngine()
 
+        // Mirror flow-engine bot transcript entries (welcome/message text and
+        // standalone images) into the visible message list so ChatView renders
+        // them as persisted bubbles - matching the web widget transcript.
+        chatState.onBotEntryAppended = { [weak self] entry in
+            guard let self = self else { return }
+
+            let text = entry["message"] as? String
+            let imageUrl = entry["imageUrl"] as? String
+            guard text != nil || imageUrl != nil else { return }
+
+            var nodeData: [String: AnyCodable] = [:]
+            if let nodeId = entry["nodeId"] as? String {
+                nodeData["nodeId"] = AnyCodable(nodeId)
+            }
+            if let nodeType = entry["nodeType"] as? String {
+                nodeData["nodeType"] = AnyCodable(nodeType)
+            }
+            if let imageUrl = imageUrl {
+                nodeData["imageUrl"] = AnyCodable(imageUrl)
+            }
+
+            let record = BotMessageRecord(
+                id: "bot-\(UUID().uuidString)",
+                time: Date(),
+                text: text,
+                nodeData: nodeData
+            )
+
+            Task { @MainActor in
+                self.messages.append(record)
+                self.delegate?.conferBot(self, didReceiveMessage: record)
+            }
+        }
+
         // Subscribe to flow engine state changes
         flowEngine?.$currentUIState
             .receive(on: DispatchQueue.main)
@@ -426,6 +467,7 @@ public class ConferBot: ObservableObject {
         registry.socketClient = self.socketClient
 
         // Register Display Node Handlers
+        registry.register(WelcomeNodeHandler())
         registry.register(SendMessageHandler())
         registry.register(SendImageHandler())
         registry.register(SendVideoHandler())
@@ -802,17 +844,61 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Node input handled for node: \(nodeId)")
     }
 
+    /// Route a bottom-bar submission like the web widget: if a text-input
+    /// node (ask-name, ask-email, ...) is awaiting input, answer it through
+    /// the flow engine; otherwise send it as a free-form chat message.
+    /// - Parameter text: The trimmed text the user typed
+    /// - Returns: A validation error message when the awaiting node rejects
+    ///   the input, or nil when the text was accepted/sent
+    @discardableResult
+    public func submitText(_ text: String) -> String? {
+        if case .textInput(_, let validation, let nodeId)? = currentUIState {
+            if let validation = validation, !validation.validate(text) {
+                return validation.errorMessage
+            }
+            handleNodeInput(text, forNodeId: nodeId)
+            return nil
+        }
+
+        Task {
+            try? await sendMessage(text)
+        }
+        return nil
+    }
+
     /// Handle button click from node UI
     public func handleButtonClick(buttonId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+
+        // Freeze the button pills into the transcript so they persist across
+        // view rebuilds: disabled, selected one highlighted - web widget parity
+        var pillLabels: [String] = []
+        var selectedLabel = buttonId
+        if case .buttons(let buttons, let uiNodeId)? = currentUIState, uiNodeId == nodeId {
+            pillLabels = buttons.map { $0.label }
+            selectedLabel = buttons.first(where: { $0.id == buttonId })?.label ?? buttonId
+        }
+
+        let frozenPills: BotMessageRecord? = pillLabels.isEmpty ? nil : BotMessageRecord(
+            id: "buttons-\(UUID().uuidString)",
+            time: Date(),
+            text: nil,
+            nodeData: [
+                "choices": AnyCodable(pillLabels),
+                "selectedChoice": AnyCodable(selectedLabel)
+            ]
+        )
 
         // Add user message bubble (right-aligned) showing the button label
         let userMessage = UserMessageRecord(
             id: "user-button-\(UUID().uuidString)",
             time: Date(),
-            text: buttonId
+            text: selectedLabel
         )
         Task { @MainActor in
+            if let frozenPills = frozenPills {
+                self.messages.append(frozenPills)
+            }
             if !self.messages.contains(where: { $0.id == userMessage.id }) {
                 self.messages.append(userMessage)
             }
@@ -854,13 +940,38 @@ public class ConferBot: ObservableObject {
     public func handleChoiceSelection(optionId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
 
-        // Add user message bubble (right-aligned) showing the selected option
+        // Freeze the choice pills into the transcript so they persist across
+        // view rebuilds: disabled, selected one highlighted - web widget parity
+        var pillLabels: [String] = []
+        var selectedLabel = optionId
+        if case .singleChoice(let options, let uiNodeId)? = currentUIState, uiNodeId == nodeId {
+            pillLabels = options.map { $0.label }
+            selectedLabel = options.first(where: { $0.id == optionId })?.label ?? optionId
+        } else if case .quickReplies(let options, let uiNodeId)? = currentUIState, uiNodeId == nodeId {
+            pillLabels = options.map { $0.label }
+            selectedLabel = options.first(where: { $0.id == optionId })?.label ?? optionId
+        }
+
+        let frozenPills: BotMessageRecord? = pillLabels.isEmpty ? nil : BotMessageRecord(
+            id: "choices-\(UUID().uuidString)",
+            time: Date(),
+            text: nil,
+            nodeData: [
+                "choices": AnyCodable(pillLabels),
+                "selectedChoice": AnyCodable(selectedLabel)
+            ]
+        )
+
+        // Add user message bubble (right-aligned) showing the selected option label
         let userMessage = UserMessageRecord(
             id: "user-choice-\(UUID().uuidString)",
             time: Date(),
-            text: optionId
+            text: selectedLabel
         )
         Task { @MainActor in
+            if let frozenPills = frozenPills {
+                self.messages.append(frozenPills)
+            }
             if !self.messages.contains(where: { $0.id == userMessage.id }) {
                 self.messages.append(userMessage)
             }

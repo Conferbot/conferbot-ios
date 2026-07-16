@@ -60,6 +60,11 @@ public final class ChatState: ObservableObject {
     /// Current node being processed
     @Published public var currentNodeId: String?
 
+    /// Called whenever a bot entry (message or image) is appended to the
+    /// transcript. ConferBot uses this to mirror flow-engine bot output into
+    /// the visible message list. Invoked outside the internal lock.
+    public var onBotEntryAppended: (([String: Any]) -> Void)?
+
     // MARK: - Private Properties
 
     /// Lock for thread-safe access
@@ -372,19 +377,24 @@ public final class ChatState: ObservableObject {
     /// Adds an entry to the conversation transcript
     /// - Parameter entry: The transcript entry to add
     public func addToTranscript(entry: [String: Any]) {
-        lock.lock()
-        defer { lock.unlock() }
-
         var entryWithTimestamp = entry
         if entryWithTimestamp["timestamp"] == nil {
             entryWithTimestamp["timestamp"] = ISO8601DateFormatter().string(from: Date())
         }
 
+        lock.lock()
         transcript.append(entryWithTimestamp)
 
         // Enforce size limit to prevent unbounded memory growth
         if transcript.count > maxTranscriptEntries {
             transcript = Array(transcript.suffix(maxTranscriptEntries))
+        }
+        let callback = onBotEntryAppended
+        lock.unlock()
+
+        // Mirror bot entries to the visible message list (outside the lock)
+        if (entryWithTimestamp["type"] as? String) == "bot" {
+            callback?(entryWithTimestamp)
         }
     }
 
@@ -397,6 +407,27 @@ public final class ChatState: ObservableObject {
         var entry: [String: Any] = [
             "type": "bot",
             "message": message
+        ]
+        if let nodeId = nodeId {
+            entry["nodeId"] = nodeId
+        }
+        if let nodeType = nodeType {
+            entry["nodeType"] = nodeType
+        }
+        addToTranscript(entry: entry)
+    }
+
+    /// Adds a standalone bot image to the transcript (welcome-node / image-node).
+    /// The web widget persists these as separate rounded images below the text
+    /// bubble, so they get their own transcript entry rather than bubble text.
+    /// - Parameters:
+    ///   - imageUrl: The image/GIF URL
+    ///   - nodeId: Optional node ID
+    ///   - nodeType: Optional node type
+    public func addBotImage(_ imageUrl: String, nodeId: String? = nil, nodeType: String? = nil) {
+        var entry: [String: Any] = [
+            "type": "bot",
+            "imageUrl": imageUrl
         ]
         if let nodeId = nodeId {
             entry["nodeId"] = nodeId

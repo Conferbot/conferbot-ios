@@ -247,10 +247,9 @@ public final class NodeFlowEngine: ObservableObject {
             state.isTyping = false
             currentUIState = uiState
 
-            // Add to transcript for message types
-            if case .message(let text, _) = uiState {
-                state.addBotMessage(text, nodeId: nodeId, nodeType: node["type"] as? String)
-            }
+            // Note: handlers already add message text to the transcript via
+            // state.addBotMessage - adding it here again would duplicate the
+            // bubble in the visible message list.
 
             // Push bot message to server record (matching web widget format)
             let nodeType = node["type"] as? String ?? "unknown"
