@@ -108,6 +108,52 @@ public final class SendMessageHandler: BaseNodeHandler {
     }
 }
 
+// MARK: - Welcome Node Handler
+
+/// Handler for welcome-node - the flow entry node on the web widget.
+/// Renders the welcome text bubble first, then the welcome image/GIF as a
+/// STANDALONE persisted transcript entry below it (not inside the bubble),
+/// unless data.disableImage is set - matching web widget behavior.
+public final class WelcomeNodeHandler: BaseNodeHandler {
+
+    public override var nodeType: String { "welcome-node" }
+
+    public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
+        let data = getNodeData(node)
+        let nodeId = getNodeId(node)
+
+        // Welcome text bubble first
+        if let rawMessage = data.flatMap({
+            getString($0, "text") ?? getString($0, "message") ?? getString($0, "welcomeMessage")
+        }) {
+            let resolvedMessage = state.resolveVariables(text: rawMessage)
+            if !resolvedMessage.isEmpty {
+                state.addBotMessage(resolvedMessage, nodeId: nodeId, nodeType: nodeType)
+            }
+        }
+
+        // Then the welcome image/GIF as its own transcript entry
+        if let data = data,
+           let rawImage = getString(data, "image"), !rawImage.isEmpty,
+           getBool(data, "disableImage") != true {
+            let resolvedImage = state.resolveVariables(text: rawImage)
+            state.addBotImage(resolvedImage, nodeId: nodeId, nodeType: nodeType)
+        }
+
+        // Push to server record and proceed to the next node
+        if let nodeId = nodeId {
+            state.pushBotRecord(
+                nodeId: nodeId,
+                nodeType: nodeType,
+                nodeData: data,
+                text: nil
+            )
+        }
+
+        return .proceed(getNextNodeId(node), nil)
+    }
+}
+
 // MARK: - Send Image Handler
 
 /// Handler for send_image and IMAGE nodes
@@ -141,9 +187,14 @@ public final class SendImageHandler: BaseNodeHandler {
             caption = state.resolveVariables(text: rawCaption)
         }
 
-        // Add to transcript
+        // Persist in the transcript: caption as a text bubble (if any),
+        // then the image itself as a standalone rounded image entry -
+        // matching the web widget, which keeps images in the transcript
         let nodeId = getNodeId(node)
-        state.addBotMessage("[Image: \(caption ?? resolvedUrl)]", nodeId: nodeId, nodeType: nodeType)
+        if let caption = caption, !caption.isEmpty {
+            state.addBotMessage(caption, nodeId: nodeId, nodeType: nodeType)
+        }
+        state.addBotImage(resolvedUrl, nodeId: nodeId, nodeType: nodeType)
 
         return .displayUI(.image(url: resolvedUrl, caption: caption))
     }
@@ -1081,6 +1132,9 @@ public extension NodeHandlerRegistry {
 
     /// Registers all display node handlers
     func registerDisplayHandlers() {
+        // Flow entry node
+        register(WelcomeNodeHandler())
+
         // Send nodes (display then proceed)
         register(SendMessageHandler())
         register(SendImageHandler())
