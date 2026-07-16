@@ -44,10 +44,12 @@ public class SocketClient {
         let config: SocketIOClientConfiguration = [
             .log(false),
             .compress,
+            // The embed-server reads socket.handshake.query.botId, so the
+            // connect params must use plain keys (not X- header names)
             .connectParams([
-                ConferBotConstants.headerApiKey: apiKey,
-                ConferBotConstants.headerBotId: botId,
-                ConferBotConstants.headerPlatform: ConferBotConstants.platformIdentifier
+                "botId": botId,
+                "apiKey": apiKey,
+                "platform": ConferBotConstants.platformIdentifier
             ]),
             .extraHeaders([
                 ConferBotConstants.headerApiKey: apiKey,
