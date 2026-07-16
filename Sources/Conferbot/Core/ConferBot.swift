@@ -481,6 +481,7 @@ public class ConferBot: ObservableObject {
             SalesforceHandler(),
             ZendeskHandler(),
             SlackHandler(),
+            DiscordHandler(),
             ZapierHandler(),
             DialogflowHandler(),
             OpenAIHandler(),
@@ -490,11 +491,23 @@ public class ConferBot: ObservableObject {
             GroqHandler(),
             CustomLLMHandler(),
             HumanHandoverHandler(),
+            GoogleCalendarHandler(),
+            GoogleMeetHandler(),
+            GoogleDocsHandler(),
+            GoogleDriveHandler(),
+            NotionHandler(),
+            AirtableHandler(),
+            ZohoCRMHandler(),
+            StripeHandler(),
         ]
         for handler in integrationHandlers {
             handler.socketClient = self.socketClient
             registry.register(handler)
         }
+
+        // Legacy display, ask/choice, logic and gpt/gmail handlers
+        // (MissingNodeHandlers.swift)
+        registry.registerMissingHandlers()
 
         // Special Flow Handlers
         registry.register(GoalHandler())
@@ -946,7 +959,48 @@ public class ConferBot: ObservableObject {
             "date": formatter.string(from: date)
         ])
 
+        // Record calendar-node slot selections on the server
+        emitCalendarSlotSelectionRecord(selectedDate: date, nodeId: nodeId)
+
         handleNodeInput(formatter.string(from: date), forNodeId: nodeId)
+    }
+
+    /// Emit the calendar-slot-selection-record event after a calendar-node
+    /// slot selection so the server records the booking
+    private func emitCalendarSlotSelectionRecord(selectedDate: Date, nodeId: String) {
+        guard let socketClient = socketClient,
+              socketClient.isConnected,
+              let botId = botId else { return }
+
+        // Only record selections made on a calendar-node
+        let nodeInfo = flowEngine?.getNodeInfo(nodeId)
+        guard (nodeInfo?["type"] as? String) == NodeTypes.Display.calendar else { return }
+
+        let nodeData = nodeInfo?["data"] as? [String: Any] ?? [:]
+        let visitorTimeZone = TimeZone.current.identifier
+        let botTimeZone = nodeData["timeZone"] as? String
+            ?? nodeData["botTimeZone"] as? String
+            ?? visitorTimeZone
+
+        let isoFormatter = ISO8601DateFormatter()
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+        timeFormatter.timeZone = TimeZone(identifier: botTimeZone) ?? TimeZone.current
+
+        let payload: [String: Any] = [
+            "visitorId": chatState.visitorId ?? currentSession?.visitorId ?? "",
+            "chatbotId": botId,
+            "nodeId": nodeId,
+            "selectedDate": isoFormatter.string(from: selectedDate),
+            "botTimeZone": botTimeZone,
+            "visitorTimeZone": visitorTimeZone,
+            "timeSlotSelected": timeFormatter.string(from: selectedDate),
+            "visitorTime": isoFormatter.string(from: Date())
+        ]
+
+        socketClient.emit(event: SocketEvents.calendarSlotSelectionRecord, data: payload)
+        debugPrint("[ConferBot] Calendar slot selection recorded for node: \(nodeId)")
     }
 
     /// Handle file upload completion
@@ -1238,6 +1292,37 @@ public class ConferBot: ObservableObject {
             if !botName.isEmpty {
                 self.chatState.setVariable(name: "_botName", value: botName)
             }
+
+            // Store integration webhooks so the Zapier handler can look up
+            // the webhook registered for its node
+            if let integrationWebhooks = chatbotData["integrationWebhooks"] as? [[String: Any]] {
+                self.chatState.setVariable(name: "_integrationWebhooks", value: integrationWebhooks)
+            }
+        }
+
+        // Integration result - apply returned answer variables to chat state
+        // so ${var} references downstream resolve (sheets read, docs, drive,
+        // airtable, hubspot, notion, zohocrm, etc.)
+        socketClient?.on(SocketEvents.integrationResult) { [weak self] data, _ in
+            guard let self = self,
+                  let json = data.first as? [String: Any] else { return }
+
+            let success = json["success"] as? Bool ?? (json["error"] == nil)
+            guard success else {
+                self.debugPrint("[ConferBot] Integration result error: \(json["error"] ?? "unknown")")
+                return
+            }
+
+            if let answerVariable = json["answerVariable"] as? String, !answerVariable.isEmpty,
+               let answerValue = json["answerValue"] {
+                self.chatState.setVariable(name: answerVariable, value: answerValue)
+            }
+
+            if let columnMappedValues = json["columnMappedValues"] as? [String: Any] {
+                self.chatState.setVariables(columnMappedValues)
+            }
+
+            self.debugPrint("[ConferBot] Integration result applied for node: \(json["nodeId"] as? String ?? "unknown")")
         }
     }
 

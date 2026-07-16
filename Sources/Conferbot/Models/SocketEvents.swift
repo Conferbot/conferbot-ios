@@ -25,6 +25,10 @@ public struct SocketEvents {
     /// for all integration nodes (except legacy email-node-trigger & zapier-node-trigger).
     public static let executeIntegration = "execute-integration"
 
+    /// Server to client: result of an execute-integration request
+    /// (answerVariable/answerValue and columnMappedValues to apply to state)
+    public static let integrationResult = "integration-result"
+
     // Deprecated: individual trigger names that the server never listened for.
     // Kept only so existing references compile; all call-sites should use executeIntegration.
     @available(*, deprecated, message: "Use executeIntegration instead")
