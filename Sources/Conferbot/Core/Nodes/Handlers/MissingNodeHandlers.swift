@@ -9,6 +9,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // MARK: - Legacy Display Handlers (7 types)
 
@@ -786,26 +789,33 @@ public final class BusinessHoursNodeHandler: BaseNodeHandler {
     }
 }
 
+// MARK: - Special Display Handler: Calendar
+
+// MARK: CalendarNodeHandler
+
+/// Handler for calendar-node
+/// Displays a date/time picker for slot selection
+public final class CalendarNodeHandler: BaseNodeHandler {
+
+    public override var nodeType: String { NodeTypes.Display.calendar }
+
+    public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
+        let nodeId = getNodeId(node) ?? UUID().uuidString
+        return .displayUI(.calendar(mode: .dateTime, nodeId: nodeId))
+    }
+}
+
 // MARK: - Integration Handlers (2 types)
 
 // MARK: GptNodeHandler
 
 /// Handler for gpt-node
-/// AI/GPT integration - emits socket event for server-side AI processing
+/// The server does not process gpt-node, so this handler calls the OpenAI
+/// chat completions API directly (matching the web widget behavior) and
+/// displays the completion as a bot message
 public final class GptNodeHandler: BaseNodeHandler {
 
     public override var nodeType: String { NodeTypes.Integration.gpt }
-
-    /// Socket client for emitting events
-    private weak var socketClient: SocketClient?
-
-    public init(socketClient: SocketClient? = nil) {
-        self.socketClient = socketClient
-        super.init()
-    }
-
-    /// Timeout for waiting for GPT response (in seconds)
-    private let responseTimeout: TimeInterval = 30.0
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         guard let data = getNodeData(node) else {
@@ -813,119 +823,87 @@ public final class GptNodeHandler: BaseNodeHandler {
         }
 
         let nodeId = getNodeId(node) ?? UUID().uuidString
+        let nextNodeId = getNextNodeId(node)
 
         // Extract AI configuration
-        let provider = getString(data, "provider") ?? "openai"
-        let model = getString(data, "selectedModel") ?? getString(data, "model") ?? ""
-        let systemContext = getString(data, "context")
-        let temperature = getDouble(data, "temperature") ?? 0.7
-        let maxTokens = getInt(data, "maxTokens") ?? 1024
+        guard let apiKey = getString(data, "apiKey"), !apiKey.isEmpty else {
+            // No API key configured - record the error and proceed silently
+            state.setVariable(name: "_gptError", value: "gpt-node missing apiKey")
+            return .proceed(nextNodeId, nil)
+        }
 
-        // Get session info
-        let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
-        let botId = state.record["botId"] as? String ?? ""
+        let model = getString(data, "selectedModel") ?? "gpt-3.5-turbo"
+        let systemContext = getString(data, "context") ?? getString(data, "prompt")
 
-        // Build standardized execute-integration payload for server-side processing
-        let nodeData = node["data"] as? [String: Any] ?? data
-        var payload: [String: Any] = [
-            "nodeType": "gpt-node",
-            "nodeId": nodeId,
-            "nodeData": nodeData,
-            "chatSessionId": sessionId,
-            "chatbotId": botId,
-            "workspaceId": state.getVariable(name: "_workspaceId") as? String ?? "",
-            "answerVariables": state.getVariable(name: "_answerVariables") ?? [],
+        // Build chat messages from the transcript
+        // (bot entries -> assistant turns, everything else -> user turns),
+        // prepending the node's context/prompt as the system message
+        var messages: [[String: String]] = []
+        if let systemContext = systemContext, !systemContext.isEmpty {
+            messages.append([
+                "role": "system",
+                "content": state.resolveVariables(text: systemContext)
+            ])
+        }
+        for entry in state.getTranscript().suffix(20) {
+            let type = entry["type"] as? String ?? "user"
+            let text = entry["message"] as? String ?? entry["text"] as? String ?? ""
+            guard !text.isEmpty else { continue }
+            let role = type == "bot" ? "assistant" : "user"
+            messages.append(["role": role, "content": text])
+        }
+
+        let requestBody: [String: Any] = [
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7
         ]
 
-        // Include conversation transcript for context
-        let transcript = state.getTranscript()
-        let recentMessages = transcript.suffix(20).map { entry -> [String: String] in
-            let type = entry["type"] as? String ?? "user"
-            let text = entry["text"] as? String ?? entry["message"] as? String ?? ""
-            let role = type == "bot" ? "assistant" : "user"
-            return ["role": role, "content": text]
-        }
-        payload["messages"] = recentMessages
-
-        // Record in transcript
-        state.addToTranscript(entry: [
-            "type": "system",
-            "nodeType": "gpt",
-            "provider": provider,
-            "nodeId": nodeId
-        ])
-
-        // Use the registry's socket client (set during ConferBot init) or the handler's own
-        let socket = socketClient ?? NodeHandlerRegistry.shared.socketClient
-
-        guard let socket = socket else {
-            return .error("GPT node: no socket connection available")
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions"),
+              let bodyData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            state.setVariable(name: "_gptError", value: "gpt-node failed to build request")
+            return .proceed(nextNodeId, nil)
         }
 
-        // Thread-safe one-shot continuation guard
-        final class ContinuationGuard: @unchecked Sendable {
-            private var resumed = false
-            private let lock = NSLock()
-            func tryResume(_ continuation: CheckedContinuation<String, Never>, returning value: String) -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resumed else { return false }
-                resumed = true
-                continuation.resume(returning: value)
-                return true
-            }
-        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = ConferBotConstants.apiTimeout
+        request.httpBody = bodyData
 
-        let timeout = self.responseTimeout
+        do {
+            let (responseData, _) = try await URLSession.shared.data(for: request)
 
-        // Wait for the GPT response from the server with a timeout
-        let responseText: String = await withCheckedContinuation { continuation in
-            let guard_ = ContinuationGuard()
-
-            // Listen for the response
-            socket.on(SocketEvents.gptNodeResponse) { responseData, _ in
-                guard let json = responseData.first as? [String: Any] else { return }
-
-                // Match by nodeId to ensure we get the right response
-                let responseNodeId = json["nodeId"] as? String
-                if responseNodeId != nil && responseNodeId != nodeId { return }
-
-                let text = json["text"] as? String
-                    ?? json["message"] as? String
-                    ?? json["response"] as? String
-                    ?? json["content"] as? String
-                    ?? ""
-
-                if guard_.tryResume(continuation, returning: text) {
-                    socket.off(SocketEvents.gptNodeResponse)
-                }
+            guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                  let choices = json["choices"] as? [[String: Any]],
+                  let messageDict = choices.first?["message"] as? [String: Any],
+                  let content = messageDict["content"] as? String,
+                  !content.isEmpty else {
+                let apiError = ((try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any])
+                    .flatMap { $0["error"] as? [String: Any] }
+                    .flatMap { $0["message"] as? String }
+                state.setVariable(
+                    name: "_gptError",
+                    value: "gpt-node invalid response: \(apiError ?? "no completion")"
+                )
+                return .proceed(nextNodeId, nil)
             }
 
-            // Emit the trigger event
-            socket.emit("execute-integration", payload)
+            let completion = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            #if DEBUG
-            print("[Conferbot] GPT node event emitted for server processing (provider: \(provider))")
-            #endif
+            // Add the GPT response to transcript
+            state.addBotMessage(completion, nodeId: nodeId, nodeType: nodeType)
 
-            // Set up timeout
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                if guard_.tryResume(continuation, returning: "Sorry, the AI response timed out. Please try again.") {
-                    socket.off(SocketEvents.gptNodeResponse)
-                }
-            }
+            // Display the completion as a bot message
+            return .displayUI(.message(text: completion, typing: true))
+        } catch {
+            state.setVariable(
+                name: "_gptError",
+                value: "gpt-node request failed: \(error.localizedDescription)"
+            )
+            return .proceed(nextNodeId, nil)
         }
-
-        // Add the GPT response to transcript
-        state.addToTranscript(entry: [
-            "type": "bot",
-            "text": responseText,
-            "nodeType": "gpt",
-            "nodeId": nodeId
-        ])
-
-        // Display the bot message with the GPT response
-        return .displayUI(.message(text: responseText, typing: true))
     }
 }
 
@@ -973,11 +951,14 @@ public final class GmailNodeHandler: BaseNodeHandler {
             "chatSessionId": sessionId,
             "chatbotId": botId,
             "workspaceId": state.getVariable(name: "_workspaceId") as? String ?? "",
-            "answerVariables": state.getVariable(name: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
-        socketClient?.emit("execute-integration", payload)
+        // Use the registry's socket client (set during ConferBot init) as fallback
+        let socket = socketClient ?? NodeHandlerRegistry.shared.socketClient
+        socket?.emit(event: "execute-integration", data: payload)
 
         #if DEBUG
         print("[Conferbot] Gmail node event emitted for server processing")
@@ -1001,7 +982,7 @@ public final class GmailNodeHandler: BaseNodeHandler {
 
 public extension NodeHandlerRegistry {
 
-    /// Registers all 19 missing node handlers
+    /// Registers all missing node handlers
     func registerMissingHandlers() {
         register([
             // Legacy display (7)
@@ -1013,12 +994,13 @@ public extension NodeHandlerRegistry {
             UserRangeNodeHandler(),
             QuizNodeHandler(),
 
-            // Ask/Choice display (5)
+            // Ask/Choice display (6)
             AskMultipleQuestionsNodeHandler(),
             NSelectOptionNodeHandler(),
             NCheckOptionsNodeHandler(),
             ImageChoiceNodeHandler(),
             YesOrNoChoiceNodeHandler(),
+            CalendarNodeHandler(),
 
             // Special display (1)
             NavigateNodeHandler(),
