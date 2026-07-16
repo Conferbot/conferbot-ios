@@ -142,6 +142,49 @@ public protocol NodeState: AnyObject {
 
     /// Check if socket is connected
     var isSocketConnected: Bool { get }
+
+    /// Answer variables in the server's expected format: an array of
+    /// { key, value } dictionaries keyed by variable name
+    func getAnswerVariablesList() -> [[String: Any]]
+
+    /// Visitor data (name, email, phone) collected during the conversation
+    func getVisitorData() -> [String: Any]
+
+    /// Conversation transcript in [{by, message}] format
+    func getTranscriptList() -> [[String: Any]]
+}
+
+// MARK: - NodeState Default Implementations
+
+public extension NodeState {
+
+    /// Default: builds the answer variables list from state variables,
+    /// excluding internal "_"-prefixed keys
+    func getAnswerVariablesList() -> [[String: Any]] {
+        return variables
+            .filter { !$0.key.hasPrefix("_") }
+            .map { ["key": $0.key, "value": $0.value] }
+    }
+
+    /// Default: builds visitor data from the name/email/phone state values
+    func getVisitorData() -> [String: Any] {
+        var data: [String: Any] = [:]
+        if let name = getValue(forKey: "name") {
+            data["name"] = name
+        }
+        if let email = getValue(forKey: "email") {
+            data["email"] = email
+        }
+        if let phone = getValue(forKey: "phone") {
+            data["phone"] = phone
+        }
+        return data
+    }
+
+    /// Default: no transcript available
+    func getTranscriptList() -> [[String: Any]] {
+        return []
+    }
 }
 
 // MARK: - Node Handler Protocol
@@ -436,22 +479,29 @@ public final class GoogleSheetsHandler: BaseIntegrationHandler {
             }
         }
 
+        // The server only accepts the read/write variants of the sheets node
+        // type - "google-sheets-node" is rejected
+        let sheetsNodeType = action == "read"
+            ? "google-sheets-read-node"
+            : "google-sheets-write-node"
+
         // Prepare socket payload
         let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
         let payload: [String: Any] = [
-            "nodeType": Self.nodeType,
+            "nodeType": sheetsNodeType,
             "nodeId": nodeId,
             "nodeData": nodeData,
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
         state.emitSocketEvent("execute-integration", data: payload)
 
-        debugLog("Google Sheets event emitted for server processing")
+        debugLog("Google Sheets \(action) event emitted for server processing")
         return .proceed
     }
 }
@@ -470,52 +520,32 @@ public final class SendEmailHandler: BaseIntegrationHandler {
             return .error(.socketNotConnected)
         }
 
-        // Extract email fields
-        guard case .success(let to) = extractString("to", from: nodeData, state: state, required: true),
-              let toEmail = to else {
-            return .error(.missingRequiredField("to"))
-        }
+        let answerVariables = state.getAnswerVariablesList()
+        let visitorData = state.getVisitorData()
+        let botName = state.getValue(forKey: "_botName") as? String ?? ""
+        let workspaceId = state.getValue(forKey: "_workspaceId") as? String ?? ""
 
-        guard case .success(let subject) = extractString("subject", from: nodeData, state: state, required: true),
-              let emailSubject = subject else {
-            return .error(.missingRequiredField("subject"))
-        }
-
-        guard case .success(let body) = extractString("body", from: nodeData, state: state, required: true),
-              let emailBody = body else {
-            return .error(.missingRequiredField("body"))
-        }
-
-        // Optional fields
-        let fromEmail = (nodeData["from"] as? String).map { state.resolveVariables(in: $0) }
-        let replyTo = (nodeData["replyTo"] as? String).map { state.resolveVariables(in: $0) }
-        let cc = (nodeData["cc"] as? String).map { state.resolveVariables(in: $0) }
-        let bcc = (nodeData["bcc"] as? String).map { state.resolveVariables(in: $0) }
-        let isHtml = nodeData["isHtml"] as? Bool ?? false
-
-        // Extract attachments if any
-        var attachments: [[String: Any]] = []
-        if let attachmentList = nodeData["attachments"] as? [[String: Any]] {
-            attachments = attachmentList
-        }
-
-        // Prepare socket payload
+        // Build the email-node-trigger payload matching the server contract:
+        // raw nodeData, botName, transcript, visitor info, flattened answer
+        // variables, the answerVariables list, chatDate and workspaceId
         var payload: [String: Any] = [
-            "chatSessionId": state.chatSessionId,
-            "botId": state.botId,
-            "nodeType": "send_email",
-            "to": toEmail,
-            "subject": emailSubject,
-            "body": emailBody,
-            "isHtml": isHtml,
-            "attachments": attachments,
-            "variables": state.variables
+            "nodeData": nodeData,
+            "botName": botName,
+            "transcript": state.getTranscriptList(),
+            "visitorName": visitorData["name"] as? String ?? "",
+            "visitorEmail": visitorData["email"] as? String ?? "",
+            "answerVariables": answerVariables,
+            "chatDate": ISO8601DateFormatter().string(from: Date()),
+            "workspaceId": workspaceId
         ]
 
-        if let from = fromEmail { payload["from"] = from }
-        if let reply = replyTo { payload["replyTo"] = reply }
-        if let ccEmail = cc { payload["cc"] = ccEmail }
-        if let bccEmail = bcc { payload["bcc"] = bccEmail }
+        // Flatten each answer variable as a top-level key so the server can
+        // substitute template placeholders directly
+        for item in answerVariables {
+            if let key = item["key"] as? String, payload[key] == nil {
+                payload[key] = item["value"]
+            }
+        }
 
         // Emit socket event for server processing
         state.emitSocketEvent(SocketEvents.emailNodeTrigger, data: payload)
@@ -649,7 +679,8 @@ public final class HubspotHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -721,7 +752,8 @@ public final class SalesforceHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -804,7 +836,8 @@ public final class ZendeskHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -880,7 +913,8 @@ public final class SlackHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -959,7 +993,8 @@ public final class DiscordHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -973,85 +1008,61 @@ public final class DiscordHandler: BaseIntegrationHandler {
 // MARK: - 10. Zapier Handler
 
 /// Handles Zapier webhook integration nodes
-/// Makes HTTP POST request to Zapier webhook URL
+/// Server-side processing - looks up the registered webhook for this node in
+/// chatbotData.integrationWebhooks and emits zapier-node-trigger for the
+/// server to POST to Zapier
 public final class ZapierHandler: BaseIntegrationHandler {
     public override class var nodeType: String { NodeTypes.Integration.zapier }
 
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Zapier node")
 
-        // Extract webhook URL
-        guard case .success(let urlString) = extractString("webhookUrl", from: nodeData, state: state, required: true),
-              let webhookUrl = urlString else {
-            return .error(.missingRequiredField("webhookUrl"))
+        let nodeId = nodeData["id"] as? String ?? nodeData["nodeId"] as? String ?? ""
+
+        // Look up the active webhook registered for this node and bot
+        // (stored from the fetched-chatbot-data integrationWebhooks array)
+        let webhooks = state.getValue(forKey: "_integrationWebhooks") as? [[String: Any]] ?? []
+        let webhook = webhooks.first { entry in
+            (entry["nodeId"] as? String) == nodeId
+                && (entry["botId"] as? String) == state.botId
+                && (entry["active"] as? Bool ?? false)
         }
 
-        // Validate URL
-        guard let requestURL = URL(string: webhookUrl) else {
-            return .error(.invalidURL(webhookUrl))
+        guard let webhook = webhook,
+              let webhookURL = webhook["webhookURL"] as? String, !webhookURL.isEmpty else {
+            debugLog("No active Zapier webhook for node \(nodeId) - skipping")
+            return .proceed
         }
 
-        // Prepare payload data
-        var zapierData: [String: Any] = [:]
-
-        // Include all state variables
-        for (key, value) in state.variables {
-            zapierData[key] = value
+        guard state.isSocketConnected else {
+            return .error(.socketNotConnected)
         }
 
-        // Merge with custom data if provided
-        if let customData = nodeData["data"] as? [String: Any] {
-            let resolved = resolveVariablesInDictionary(customData, state: state)
-            zapierData.merge(resolved) { _, new in new }
-        }
-
-        // Add metadata
-        zapierData["_chatSessionId"] = state.chatSessionId
-        zapierData["_botId"] = state.botId
-        zapierData["_timestamp"] = ISO8601DateFormatter().string(from: Date())
-
-        // Create request
-        var request = URLRequest(url: requestURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = ConferBotConstants.apiTimeout
-
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: zapierData)
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .error(.invalidResponse)
+        // Flatten all answer variables into a {key: value} map
+        var flattenedVariables: [String: Any] = [:]
+        for item in state.getAnswerVariablesList() {
+            if let key = item["key"] as? String {
+                flattenedVariables[key] = item["value"]
             }
-
-            debugLog("Zapier response status: \(httpResponse.statusCode)")
-
-            // Store response if variable specified
-            if let responseVariable = nodeData["responseVariable"] as? String {
-                if let jsonObject = try? JSONSerialization.jsonObject(with: data) {
-                    state.setValue(jsonObject, forKey: responseVariable)
-                }
-            }
-
-            if (200...299).contains(httpResponse.statusCode) {
-                return .proceed
-            } else {
-                if let errorNodeId = nodeData["errorNodeId"] as? String {
-                    return .proceedTo(nodeId: errorNodeId)
-                }
-                return .proceed
-            }
-
-        } catch {
-            debugLog("Zapier error: \(error.localizedDescription)")
-
-            if let errorNodeId = nodeData["errorNodeId"] as? String {
-                return .proceedTo(nodeId: errorNodeId)
-            }
-
-            return .error(.networkError(error))
         }
+
+        // Enrich node data with the node ID and resolved webhook URL
+        var enrichedNodeData = nodeData
+        enrichedNodeData["nodeId"] = nodeId
+        enrichedNodeData["webhookURL"] = webhookURL
+
+        let payload: [String: Any] = [
+            "nodeData": enrichedNodeData,
+            "payload": flattenedVariables,
+            "chatSessionId": state.chatSessionId,
+            "workspaceId": state.getValue(forKey: "_workspaceId") as? String ?? ""
+        ]
+
+        // Emit socket event for server processing
+        state.emitSocketEvent(SocketEvents.zapierNodeTrigger, data: payload)
+
+        debugLog("Zapier event emitted for server processing")
+        return .proceed
     }
 }
 
@@ -1085,7 +1096,8 @@ public final class DialogflowHandler: BaseIntegrationHandler {
                     "chatSessionId": state.chatSessionId,
                     "chatbotId": state.botId,
                     "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-                    "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+                    "answerVariables": state.getAnswerVariablesList(),
+                    "visitorData": state.getVisitorData(),
                 ]
                 state.emitSocketEvent("execute-integration", data: payload)
                 return .proceed
@@ -1104,7 +1116,8 @@ public final class DialogflowHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1184,7 +1197,8 @@ public final class OpenAIHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1258,7 +1272,8 @@ public final class GeminiHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1329,7 +1344,8 @@ public final class PerplexityHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1407,7 +1423,8 @@ public final class ClaudeHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1483,7 +1500,8 @@ public final class GroqHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1577,7 +1595,8 @@ public final class CustomLLMHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1675,7 +1694,8 @@ public final class GoogleMeetHandler: BaseIntegrationHandler {
                 "chatSessionId": state.chatSessionId,
                 "chatbotId": state.botId,
                 "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+                "answerVariables": state.getAnswerVariablesList(),
+                "visitorData": state.getVisitorData(),
             ]
 
             // Emit socket event for server to process and prepare calendar slots
@@ -1756,7 +1776,8 @@ public final class GoogleMeetHandler: BaseIntegrationHandler {
                 "chatSessionId": state.chatSessionId,
                 "chatbotId": state.botId,
                 "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+                "answerVariables": state.getAnswerVariablesList(),
+                "visitorData": state.getVisitorData(),
             ]
 
             // Emit socket event for server to create meeting
@@ -1775,7 +1796,8 @@ public final class GoogleMeetHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -1902,7 +1924,8 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server to process and prepare available calendar slots
@@ -2002,7 +2025,8 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server to create the calendar event
@@ -2047,7 +2071,8 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         state.emitSocketEvent("execute-integration", data: listIntegrationPayload)
@@ -2081,7 +2106,8 @@ public final class GoogleCalendarHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -2193,7 +2219,7 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
                 "chatSessionId": state.chatSessionId,
                 "botId": state.botId,
                 "record": (state.getValue(forKey: "_record") as? [[String: Any]]) ?? [],
-                "answerVariables": (state.getValue(forKey: "_answerVariables") as? [[String: Any]]) ?? [],
+                "answerVariables": state.getAnswerVariablesList(),
                 "channel": "mobile",
             ])
 
@@ -2324,7 +2350,8 @@ public final class AirtableHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -2468,7 +2495,8 @@ public final class ZohoCRMHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -2599,7 +2627,8 @@ public final class GoogleDocsHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -2770,7 +2799,8 @@ public final class GoogleDriveHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -2907,7 +2937,8 @@ public final class NotionHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
 
         // Emit socket event for server processing
@@ -3130,7 +3161,8 @@ public final class StripeHandler: BaseIntegrationHandler {
                 "chatSessionId": state.chatSessionId,
                 "chatbotId": state.botId,
                 "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-                "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+                "answerVariables": state.getAnswerVariablesList(),
+                "visitorData": state.getVisitorData(),
             ]
             return await handlePaymentOperation(
                 payload: paymentIntegrationPayload,
@@ -3152,7 +3184,8 @@ public final class StripeHandler: BaseIntegrationHandler {
             "chatSessionId": state.chatSessionId,
             "chatbotId": state.botId,
             "workspaceId": state.getValue(forKey: "_workspaceId") ?? "",
-            "answerVariables": state.getValue(forKey: "_answerVariables") ?? [],
+            "answerVariables": state.getAnswerVariablesList(),
+            "visitorData": state.getVisitorData(),
         ]
         state.emitSocketEvent("execute-integration", data: integrationPayload)
         debugLog("Stripe \(operation) event emitted for server processing")
@@ -3476,6 +3509,18 @@ public class ChatStateNodeStateAdapter: NodeState {
 
     public var isSocketConnected: Bool {
         return socketClient?.isConnected ?? false
+    }
+
+    public func getAnswerVariablesList() -> [[String: Any]] {
+        return chatState.getAnswerVariablesList()
+    }
+
+    public func getVisitorData() -> [String: Any] {
+        return chatState.getVisitorData()
+    }
+
+    public func getTranscriptList() -> [[String: Any]] {
+        return chatState.getEmailTranscript()
     }
 }
 
