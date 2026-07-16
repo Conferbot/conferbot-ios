@@ -177,8 +177,8 @@ public class ConferBot: ObservableObject {
         guard !botId.isEmpty else {
             fatalError("ConferBot: Bot ID must not be empty")
         }
-        guard apiKey.hasPrefix("conf_") else {
-            fatalError("ConferBot: Invalid API key format. API key must start with 'conf_'")
+        if !apiKey.hasPrefix("conf_") && apiKey.range(of: "^[a-fA-F0-9]{32}$", options: .regularExpression) == nil {
+            print("[ConferBot] Warning: API key looks unusual. Any non-empty key is accepted - the bot ID is the operative credential.")
         }
 
         self.apiKey = apiKey

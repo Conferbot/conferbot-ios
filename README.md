@@ -87,7 +87,7 @@ You need two credentials to use the SDK:
 1. **Log in** to [Conferbot Dashboard](https://app.conferbot.com)
 2. **Create or select a bot** from the dashboard
 3. **Find your Bot ID**: Go to **Bot Settings** > **General** - the Bot ID is displayed at the top
-4. **Find your API Key**: Go to **Workspace Settings** > **API Keys** - copy the key starting with `conf_`
+4. **API Key**: any placeholder works (e.g. `conf_test_key`); the bot ID is the credential
 
 Just exploring? The public demo bot `691c970890527a0468f9b2c9` works without an account.
 
@@ -102,7 +102,7 @@ import Conferbot
 
 // In AppDelegate.didFinishLaunching or your @main App init
 ConferBot.shared.initialize(
-    apiKey: "conf_YOUR_API_KEY",   // must start with "conf_"
+    apiKey: "conf_YOUR_API_KEY",   // any non-empty key works - the bot ID is the credential
     botId: "YOUR_BOT_ID"
 )
 ```
@@ -584,7 +584,7 @@ A recorded demo requires building the example app on macOS (Xcode + iOS Simulato
 **Bot not appearing / no responses**
 
 - Make sure the bot is **published** in the dashboard - draft bots do not serve traffic.
-- Double-check the `botId` (Bot Settings > General) and that the API key starts with `conf_`.
+- Double-check the `botId` (Bot Settings > General) - it is the operative credential; any non-empty API key is accepted.
 - Verify `https://wdt.conferbot.com` is reachable from the device (corporate networks and VPNs sometimes block websockets).
 - Try the public demo bot ID `691c970890527a0468f9b2c9`, which works without an account. If the demo bot works, the issue is with your bot's configuration or credentials.
 
@@ -597,7 +597,7 @@ pod deintegrate && pod install
 
 **Socket not connecting**
 
-- Verify your API key and bot ID are correct (`initialize` traps on an empty or malformed key).
+- Verify your bot ID is correct - it is the operative credential (`initialize` traps only on an empty key or bot ID; any non-empty API key is accepted).
 - Check the device network connection and observe `ConferBot.shared.isOnline`.
 - Hook `ConferBotLogger.logHandler` to capture SDK logs.
 

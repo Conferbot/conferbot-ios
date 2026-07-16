@@ -34,7 +34,7 @@ All code in this guide compiles against SDK version 1.0.0.
 Grab your credentials from [app.conferbot.com](https://app.conferbot.com):
 
 - **Bot ID**: Bot Settings > General
-- **API Key**: Workspace Settings > API Keys (starts with `conf_`)
+- **API Key**: any placeholder works (e.g. `conf_test_key`); the bot ID is the credential
 
 ## 2. Install the SDK
 
@@ -75,7 +75,7 @@ Both routes pull in `socket.io-client-swift` 16.x automatically.
 
 ## 3. Initialize the SDK
 
-Everything hangs off the singleton `ConferBot.shared` (module `Conferbot`, class `ConferBot`). Call `initialize` once, as early as possible. It validates the key (must start with `conf_`), connects the Socket.IO client, requests your bot's dashboard customizations, and restores any still-valid persisted session.
+Everything hangs off the singleton `ConferBot.shared` (module `Conferbot`, class `ConferBot`). Call `initialize` once, as early as possible. It accepts any non-empty API key (the bot ID is the credential), connects the Socket.IO client, requests your bot's dashboard customizations, and restores any still-valid persisted session.
 
 ### SwiftUI app
 
@@ -143,7 +143,7 @@ ConferBot.shared.initialize(
 )
 ```
 
-Note: `initialize` traps (fatalError) on an empty API key, an empty bot ID, or a key that does not start with `conf_`. Fail fast in development rather than silently shipping a broken integration.
+Note: `initialize` traps (fatalError) on an empty API key or an empty bot ID. Any non-empty API key is accepted (an unusual-looking key only logs a warning) - the bot ID is the operative credential.
 
 ## 4. Identify Your User
 
@@ -616,7 +616,7 @@ Work through these in order when the bot does not appear or respond:
 
 1. **Is the bot published?** Draft bots do not serve traffic. Publish from the dashboard.
 2. **Is the botId correct?** Copy it from Bot Settings > General. A wrong ID connects but never receives flow data.
-3. **Does the API key start with `conf_`?** `initialize` traps on malformed keys.
+3. **Is the API key non-empty?** Any non-empty key is accepted (e.g. `conf_test_key`) - the bot ID is the credential.
 4. **Is `https://wdt.conferbot.com` reachable** from the device? Test in Safari on the same device; VPNs and corporate proxies sometimes block websockets.
 5. **Rule out your setup with the demo bot**: bot ID `691c970890527a0468f9b2c9` works without an account. If the demo works and your bot does not, the problem is your bot's configuration or credentials, not the app.
 6. **Watch connection state**: `ConferBot.shared.isConnected` and the `didChangeConnectionStatus` callback. Attach `ConferBotLogger.logHandler` for detailed logs.
