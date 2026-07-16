@@ -3,8 +3,9 @@
 //  ConferbotExample
 //
 //  Minimal SwiftUI example app for the Conferbot iOS SDK.
-//  Replace YOUR_API_KEY and YOUR_BOT_ID with real values from
-//  your Conferbot dashboard before running.
+//  Pre-configured with the public Conferbot demo bot so it works
+//  out of the box - swap in your own API key and bot ID from the
+//  Conferbot dashboard when you are ready.
 //
 
 import SwiftUI
@@ -32,8 +33,8 @@ struct ExampleApp: App {
         )
 
         ConferBot.shared.initialize(
-            apiKey: "YOUR_API_KEY",       // Replace with your Conferbot API key (conf_...)
-            botId: "YOUR_BOT_ID",         // Replace with your bot ID
+            apiKey: "conf_test_key_12345",          // Public demo key - replace with your Conferbot API key (conf_...)
+            botId: "691c970890527a0468f9b2c9",      // Public demo bot - replace with your bot ID
             config: config,
             customization: customization
         )

@@ -2,9 +2,11 @@
 //  ContentView.swift
 //  ConferbotExample
 //
-//  Demonstrates two common integration patterns:
-//    1. Modal (sheet) -- tap a button to open ChatView in a sheet.
-//    2. Embedded      -- ChatView rendered inline within a NavigationView.
+//  Demonstrates three common integration patterns:
+//    1. Widget (FAB)  -- floating chat bubble overlaid on your app content,
+//                        exactly like the web widget embed (default).
+//    2. Modal (sheet) -- tap a button to open ChatView in a sheet.
+//    3. Embedded      -- ChatView rendered inline within a NavigationView.
 //
 
 import SwiftUI
@@ -14,16 +16,26 @@ struct ContentView: View {
     @ObservedObject private var bot = ConferBot.shared
 
     @State private var showChatSheet = false
-    @State private var selectedPattern: Pattern = .modal
+    @State private var selectedPattern: Pattern = .widget
 
     enum Pattern: String, CaseIterable, Identifiable {
+        case widget   = "Widget (FAB)"
         case modal    = "Modal (Sheet)"
         case embedded = "Embedded"
-        case widget   = "Widget (FAB)"
         var id: String { rawValue }
     }
 
     var body: some View {
+        // The floating widget overlays the whole screen for the primary
+        // (widget) pattern - matching the web widget embed
+        if selectedPattern == .widget {
+            mainContent.conferBotWidget()
+        } else {
+            mainContent
+        }
+    }
+
+    private var mainContent: some View {
         NavigationView {
             VStack(spacing: 32) {
 
@@ -123,10 +135,23 @@ struct ContentView: View {
 
     private var widgetPatternView: some View {
         VStack(spacing: 16) {
-            Text("Floating chat button overlay.\nUse .conferBotWidget() modifier on your root view.")
+            // Demo host-app content the widget floats over
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your App Content")
+                    .font(.headline)
+                Text("This screen stands in for your app. The floating chat bubble in the corner is the live Conferbot widget - styled by your dashboard settings, complete with the CTA tooltip. Tap it to chat.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+            .padding(.horizontal)
+
+            Text("Enabled with one modifier on your root view:")
                 .font(.footnote)
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
 
             Text(".conferBotWidget()")
                 .font(.system(.caption, design: .monospaced))
