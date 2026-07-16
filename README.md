@@ -23,7 +23,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Floating widget (FAB)** - `.conferBotWidget()` overlay that mirrors the web widget bubble, driven by your dashboard customizations
 - **Headless mode** - `ConferBot.shared` is an `ObservableObject` with a full delegate protocol, so you can build a completely custom UI
 - **Real-time messaging** - Socket.IO powered, same events as the Conferbot web widget
-- **Node flow engine** - Renders the full flow-builder node set (choices, buttons, ratings, dates, file uploads, and more) natively
+- **Node flow engine** - Renders the full flow-builder node set (choices, buttons, ratings, dates, file uploads, and more) natively. Text questions (ask-name, ask-email, ...) are answered by typing in the single bottom input bar, and answered choice pills stay in the transcript - exactly like the web widget
 - **Live agent handover** - `initiateHandover(message:)` with agent join/leave/typing callbacks
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
@@ -557,12 +557,12 @@ cd conferbot-ios
 # 2. Open the example package in Xcode (it resolves the SDK dependency automatically)
 open Example/SwiftUI/Package.swift
 
-# 3. Configure your bot credentials
-#    Open Example/SwiftUI/Sources/ExampleApp.swift and replace:
-#      apiKey: "YOUR_API_KEY"
-#      botId: "YOUR_BOT_ID"
-#    with your own credentials, or use the public demo bot ID
-#    691c970890527a0468f9b2c9 to try it without an account.
+# 3. (Optional) Configure your bot credentials
+#    The example is pre-configured with the public demo bot
+#    (apiKey "conf_test_key_12345", botId "691c970890527a0468f9b2c9"),
+#    so it works out of the box. To use your own bot, open
+#    Example/SwiftUI/Sources/ExampleApp.swift and swap in your
+#    credentials from the Conferbot dashboard.
 
 # 4. Select a simulator or device and press Cmd+R to run
 ```
@@ -571,9 +571,13 @@ open Example/SwiftUI/Package.swift
 
 | View | Pattern | Description |
 |------|---------|-------------|
+| **Widget (FAB)** | Overlay (default) | `.conferBotWidget()` floating bubble over demo app content, like the web widget embed |
 | **Modal** | Sheet presentation | Full chat opens as a sheet - one line of code |
 | **Embedded** | Inline SwiftUI | `ChatView` embedded directly in your view hierarchy |
-| **Widget (FAB)** | Overlay | `.conferBotWidget()` floating bubble over app content |
+
+### Demo video
+
+A recorded demo requires building the example app on macOS (Xcode + iOS Simulator); unlike the other Conferbot SDK repos, an emulator recording cannot be produced on a Linux host. Build and run the example on a Mac to capture one.
 
 ## Troubleshooting
 

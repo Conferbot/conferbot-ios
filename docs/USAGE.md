@@ -263,6 +263,16 @@ NavigationView {
 }
 ```
 
+### How the chat surface answers flow nodes
+
+`ChatView` matches the web widget's interaction model:
+
+- **Text questions** (ask-name, ask-email, ask-phone, ...) are answered by typing in the single bottom input bar - there is no separate inline input card. The question bubble persists, and your answer echoes as a right-aligned user bubble. Invalid input (for example a malformed email) shows a validation message above the bar and keeps your text for correction.
+- **Choice and button nodes** render as tappable pills below the last message. After you pick one, the pills remain in the transcript disabled, with the selected pill highlighted in the primary color and the others dimmed.
+- **Welcome and image nodes** persist their image as a standalone rounded image in the transcript, below the text bubble.
+
+If you build a custom UI, `ConferBot.shared.submitText(_:)` gives you the same routing: it answers an awaiting text-input node (returning a validation error message when rejected) or falls back to `sendMessage`.
+
 ## 7. Theming
 
 Two layers style the experience. Understand which layer controls what:
