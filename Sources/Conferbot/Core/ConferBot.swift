@@ -53,6 +53,34 @@ public class ConferBot: ObservableObject {
     /// The bot's settings as the web widget applies them (Core/Customization); defaults until it loads.
     @Published public private(set) var customizations = ResolvedCustomizations()
 
+    /// The settings exactly as sent, before the widget theme's palette (applyLook).
+    private var rawCustomizations: [String: Any]?
+    /// The phone's dark mode: a theme set to "auto" follows it.
+    private var prefersDark = false
+
+    /// The phone switched between light and dark: a bot whose theme follows
+    /// the phone ("auto") repaints. The chat screens call this; apps need not.
+    public func setSystemDarkMode(_ dark: Bool) {
+        guard dark != prefersDark else { return }
+        prefersDark = dark
+        applyLook()
+    }
+
+    /// The widget theme over the bot's settings, as the web widget does
+    /// (WidgetTheme): the theme palette in place of the owner's colours when
+    /// chosen, then the resolved look. Main thread.
+    private func applyLook() {
+        guard let raw = rawCustomizations else {
+            serverCustomizations = nil
+            customizations = Customizations.resolve(nil)
+            return
+        }
+        let themed = WidgetTheme.withThemePalette(raw, prefersDark: prefersDark)
+        let widgetTheme = WidgetTheme.resolve(themed, prefersDark: prefersDark)
+        serverCustomizations = themed
+        customizations = Customizations.resolve(themed, theme: widgetTheme)
+    }
+
     // Node Flow Engine - Published properties
     @Published public private(set) var currentUIState: NodeUIState?
     @Published public private(set) var isProcessingNode: Bool = false
@@ -1543,10 +1571,9 @@ public class ConferBot: ObservableObject {
 
             // Store full customizations for FAB widget
             let customizations = chatbotData["customizations"] as? [String: Any]
-            let resolved = Customizations.resolve(customizations)
             DispatchQueue.main.async {
-                self.serverCustomizations = customizations
-                self.customizations = resolved
+                self.rawCustomizations = customizations
+                self.applyLook()
             }
             let botName = (customizations?["botName"] as? String)
                 ?? (customizations?["logoText"] as? String)
