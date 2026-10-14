@@ -1030,7 +1030,7 @@ final class BaseNodeHandlerHelperTests: XCTestCase {
 
         let value = handler.testGetDouble(dict, "price")
 
-        XCTAssertEqual(value, 19.99, accuracy: 0.01)
+        XCTAssertEqual(value ?? 0, 19.99, accuracy: 0.01)
     }
 
     func testGetDoubleConvertsIntToDouble() {

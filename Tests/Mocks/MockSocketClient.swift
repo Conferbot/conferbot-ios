@@ -15,7 +15,7 @@ class MockSocketClient {
 
     var isConnected: Bool = false
     var emittedEvents: [(event: String, data: Any)] = []
-    var registeredHandlers: [String: Any] = []
+    var registeredHandlers: [String: Any] = [:]
     var connectCallCount = 0
     var disconnectCallCount = 0
 
