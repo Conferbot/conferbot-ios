@@ -50,6 +50,8 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var currentAgent: Agent? = nil
     @Published public private(set) var hasRestoredSession: Bool = false
     @Published public private(set) var serverCustomizations: [String: Any]?
+    /// The bot's settings as the web widget applies them (Core/Customization); defaults until it loads.
+    @Published public private(set) var customizations = ResolvedCustomizations()
 
     // Node Flow Engine - Published properties
     @Published public private(set) var currentUIState: NodeUIState?
@@ -1541,8 +1543,10 @@ public class ConferBot: ObservableObject {
 
             // Store full customizations for FAB widget
             let customizations = chatbotData["customizations"] as? [String: Any]
+            let resolved = Customizations.resolve(customizations)
             DispatchQueue.main.async {
                 self.serverCustomizations = customizations
+                self.customizations = resolved
             }
             let botName = (customizations?["botName"] as? String)
                 ?? (customizations?["logoText"] as? String)
