@@ -12,6 +12,7 @@ public enum MessageType: String, Codable {
     case userMessage = "user-message"
     case userInputResponse = "user-input-response" // User input from chatbot flow
     case userLiveMessage = "user-live-message"      // User message during live chat
+    case userLiveMessageFile = "user-live-message-file" // The visitor's file in a live chat
     case botMessage = "bot-message"
     case agentMessage = "agent-message"
     case agentMessageFile = "agent-message-file"
@@ -171,6 +172,8 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
     /// The agent edited / unsent it (agent-message-edited / -deleted).
     public let edited: Bool
     public let deleted: Bool
+    /// Sent in the visitor's language: the agent's own words kept (See original).
+    public let translation: AgentTranslation?
 
     public init(
         id: String,
@@ -180,7 +183,8 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         extras: AIReplyExtras? = nil,
         feedback: AnswerFeedback? = nil,
         edited: Bool = false,
-        deleted: Bool = false
+        deleted: Bool = false,
+        translation: AgentTranslation? = nil
     ) {
         self.id = id
         self.type = .agentMessage
@@ -191,6 +195,7 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         self.feedback = feedback
         self.edited = edited
         self.deleted = deleted
+        self.translation = translation
     }
 
     enum CodingKeys: String, CodingKey {
@@ -203,6 +208,7 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         case feedback
         case edited
         case deleted
+        case translation
     }
 
     public init(from decoder: Decoder) throws {
@@ -216,12 +222,14 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         feedback = try? c.decodeIfPresent(AnswerFeedback.self, forKey: .feedback)
         edited = (try? c.decodeIfPresent(Bool.self, forKey: .edited)) ?? false
         deleted = (try? c.decodeIfPresent(Bool.self, forKey: .deleted)) ?? false
+        translation = try? c.decodeIfPresent(AgentTranslation.self, forKey: .translation)
     }
 
     /// The same message with a change applied (vote, edit, unsend).
     public func with(text: String? = nil, feedback: AnswerFeedback? = nil, edited: Bool? = nil, deleted: Bool? = nil) -> AgentMessageRecord {
         AgentMessageRecord(id: id, time: time, text: text ?? self.text, agentDetails: agentDetails, extras: extras,
-                           feedback: feedback ?? self.feedback, edited: edited ?? self.edited, deleted: deleted ?? self.deleted)
+                           feedback: feedback ?? self.feedback, edited: edited ?? self.edited, deleted: deleted ?? self.deleted,
+                           translation: translation)
     }
 
     public static func == (lhs: AgentMessageRecord, rhs: AgentMessageRecord) -> Bool {
@@ -306,6 +314,34 @@ public struct AgentMessageFileRecord: RecordItem, Identifiable, Equatable {
 
     public static func == (lhs: AgentMessageFileRecord, rhs: AgentMessageFileRecord) -> Bool {
         return lhs.id == rhs.id && lhs.file == rhs.file && lhs.time == rhs.time
+    }
+}
+
+/// The visitor's file in a live chat (user-live-message-file).
+public struct UserLiveMessageFileRecord: RecordItem, Identifiable, Equatable {
+    public let id: String
+    public let type: MessageType
+    public let time: Date
+    public let url: String
+    public let fileName: String?
+    public let mimeType: String?
+
+    public init(id: String, time: Date, url: String, fileName: String? = nil, mimeType: String? = nil) {
+        self.id = id
+        self.type = .userLiveMessageFile
+        self.time = time
+        self.url = url
+        self.fileName = fileName
+        self.mimeType = mimeType
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case type
+        case time
+        case url
+        case fileName
+        case mimeType
     }
 }
 
@@ -457,6 +493,8 @@ public struct AnyRecordItem: Codable {
             value = try AgentMessageRecord(from: decoder)
         case .agentMessageFile:
             value = try AgentMessageFileRecord(from: decoder)
+        case .userLiveMessageFile:
+            value = try UserLiveMessageFileRecord(from: decoder)
         case .agentMessageAudio:
             value = try AgentMessageAudioRecord(from: decoder)
         case .agentMessageRich:
@@ -481,6 +519,8 @@ public struct AnyRecordItem: Codable {
             try agentMessage.encode(to: encoder)
         } else if let fileMessage = value as? AgentMessageFileRecord {
             try fileMessage.encode(to: encoder)
+        } else if let visitorFile = value as? UserLiveMessageFileRecord {
+            try visitorFile.encode(to: encoder)
         } else if let audioMessage = value as? AgentMessageAudioRecord {
             try audioMessage.encode(to: encoder)
         } else if let richMessage = value as? AgentRichMessageRecord {
