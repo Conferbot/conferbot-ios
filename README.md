@@ -36,7 +36,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 
 | Dependency | Version |
 |------------|---------|
-| iOS        | 14.0+ (SwiftUI/UIKit components; the SPM manifest declares iOS 13 for the core target) |
+| iOS        | 15.0+ for the SwiftUI components (13.0+ for the core and UIKit; the SPM manifest declares iOS 13) |
 | Xcode      | 14.0+   |
 | Swift      | 5.7 - 5.9 |
 | Socket.IO  | socket.io-client-swift 16.x (pulled in automatically) |
