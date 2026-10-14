@@ -152,11 +152,25 @@ public protocol NodeState: AnyObject {
 
     /// Conversation transcript in [{by, message}] format
     func getTranscriptList() -> [[String: Any]]
+
+    /// The conversation as the server records it (response-record's record)
+    func getServerRecordList() -> [[String: Any]]
+
+    /// The visitor's persistent id, when known
+    var visitorIdentifier: String? { get }
 }
 
 // MARK: - NodeState Default Implementations
 
 public extension NodeState {
+
+    /// Default: whatever record was stored as the _record variable.
+    func getServerRecordList() -> [[String: Any]] {
+        (getValue(forKey: "_record") as? [[String: Any]]) ?? []
+    }
+
+    /// Default: unknown.
+    var visitorIdentifier: String? { nil }
 
     /// Default: builds the answer variables list from state variables,
     /// excluding internal "_"-prefixed keys
@@ -2128,9 +2142,12 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
     public override func handle(nodeData: [String: Any], state: NodeState) async -> NodeHandlerResult {
         debugLog("Processing Human Handover node")
 
-        // Extract handover message
-        let handoverMessage = (nodeData["message"] as? String).map { state.resolveVariables(in: $0) }
-            ?? "You are being transferred to a live agent. Please wait..."
+        // The owner's handover message (the builder writes it as rich text)
+        let rawHandover = (nodeData["handoverMessage"] as? String) ?? (nodeData["message"] as? String)
+        let handoverMessage = rawHandover
+            .map { LiveChat.plainText(state.resolveVariables(in: $0)) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? "Please wait while we connect you with an agent..."
 
         // Extract department/queue
         let department = nodeData["department"] as? String
@@ -2167,7 +2184,8 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
         if state.isSocketConnected {
             let workspaceId = state.getValue(forKey: "_workspaceId") as? String ?? ""
             let botName = state.getValue(forKey: "_botName") as? String ?? ""
-            let maxWaitTime = (nodeData["maxWaitTime"] as? Int) ?? 2
+            // Minutes as the builder wrote them ("0.5" is half a minute).
+            let maxWaitTime = LiveChat.waitMinutes(nodeData["maxWaitTime"])
 
             let dateFormatter = ISO8601DateFormatter()
             dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2183,14 +2201,14 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
                 "chatDate": now,
                 "deviceInfo": "iOS/\(ProcessInfo.processInfo.operatingSystemVersionString)",
                 "location": TimeZone.current.identifier,
-                "record": conversationSummary,
+                "record": state.getServerRecordList(),
                 "answerVariables": state.variables.filter { !$0.key.hasPrefix("_") },
                 "transcript": [] as [[String: String]]
             ]
 
             // Build visitor metaData
             let metaData: [String: Any] = [
-                "visitorId": state.chatSessionId,
+                "visitorId": state.visitorIdentifier ?? state.chatSessionId,
                 "chatDate": now,
                 "deviceInfo": "iOS/\(ProcessInfo.processInfo.operatingSystemVersionString)",
                 "location": TimeZone.current.identifier
@@ -2218,7 +2236,7 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
             state.emitSocketEvent("response-record", data: [
                 "chatSessionId": state.chatSessionId,
                 "botId": state.botId,
-                "record": (state.getValue(forKey: "_record") as? [[String: Any]]) ?? [],
+                "record": state.getServerRecordList(),
                 "answerVariables": state.getAnswerVariablesList(),
                 "channel": "mobile",
             ])
@@ -2232,6 +2250,7 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
 
         // Prepare UI data for displaying handover interface
         let uiData: [String: Any] = [
+            "message": handoverMessage,
             "handoverMessage": handoverMessage,
             "waitingMessage": waitingMessage,
             "offlineMessage": offlineMessage,
@@ -3521,6 +3540,14 @@ public class ChatStateNodeStateAdapter: NodeState {
 
     public func getTranscriptList() -> [[String: Any]] {
         return chatState.getEmailTranscript()
+    }
+
+    public func getServerRecordList() -> [[String: Any]] {
+        return chatState.getServerRecord()
+    }
+
+    public var visitorIdentifier: String? {
+        return chatState.visitorId
     }
 }
 
