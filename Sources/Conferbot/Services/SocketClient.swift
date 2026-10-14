@@ -234,6 +234,24 @@ public class SocketClient {
         socket?.emit(event, data)
     }
 
+    /// Emit and wait for the server's acknowledgement (ai-action-decision,
+    /// ai-answer-feedback). `completion` gets the first ack item, or nil when
+    /// offline or after `timeout` seconds.
+    public func emitWithAck(event: String, data: [String: Any], timeout: Double = 30, completion: @escaping (Any?) -> Void = { _ in }) {
+        guard isConnected, let socket = socket else {
+            completion(nil)
+            return
+        }
+        socket.emitWithAck(event, data).timingOut(after: timeout) { items in
+            // socket.io reports a timeout as the single item "NO ACK".
+            if let first = items.first as? String, first == "NO ACK" {
+                completion(nil)
+            } else {
+                completion(items.first)
+            }
+        }
+    }
+
     /// Listen to event
     public func on(_ event: String, callback: @escaping NormalCallback) {
         socket?.on(event, callback: callback)

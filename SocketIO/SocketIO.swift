@@ -57,7 +57,14 @@ public enum SocketIOClientOption {
 
 public typealias SocketIOClientConfiguration = [SocketIOClientOption]
 
+public typealias AckCallback = ([Any]) -> ()
+
+public class OnAckCallback {
+    public func timingOut(after seconds: Double, callback: @escaping AckCallback) {}
+}
+
 public class SocketIOClient {
+    public func emitWithAck(_ event: String, _ items: SocketData...) -> OnAckCallback { OnAckCallback() }
     public var status: SocketIOStatus = .notConnected
     public var sid: String = ""
 
