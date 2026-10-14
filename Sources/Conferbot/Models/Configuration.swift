@@ -8,7 +8,7 @@
 import Foundation
 #if canImport(UIKit)
 import UIKit
-public typealias PlatformColor = PlatformColor
+public typealias PlatformColor = UIColor
 #else
 /// Stub color type for non-Apple platforms (Linux CI)
 public class PlatformColor {
