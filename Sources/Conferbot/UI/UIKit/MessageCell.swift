@@ -148,6 +148,10 @@ public class MessageCell: UITableViewCell {
             bubbleView.backgroundColor = UIColor(cbHex: isUserMessage ? look.userBubbleColor : look.botBubbleColor)
             messageLabel.textColor = UIColor(cbHex: isUserMessage ? look.userTextColor : look.botTextColor)
             bubbleView.layer.cornerRadius = CGFloat((isUserMessage ? look.userBubble : look.botBubble).topLeft)
+            // The widget theme's outline round bubbles (cartoon, neo-brutal, sketch...).
+            bubbleView.layer.borderWidth = CGFloat(look.bubbleBorder?.width ?? 0)
+            bubbleView.layer.borderColor = look.bubbleBorder.map { UIColor(cbHex: $0.color).cgColor }
+            if let t = look.theme.tokens { timeLabel.textColor = UIColor(cbHex: t.muted) }
             if !isUserMessage {
                 avatarImageView.isHidden = look.hideAvatar || !(customization?.showAvatar ?? true)
                 if customization?.avatarURL == nil, let url = URL(string: look.avatar) {
