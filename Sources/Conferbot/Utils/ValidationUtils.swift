@@ -10,7 +10,7 @@ import Foundation
 // MARK: - Input Validation Types
 
 /// Input validation type enum matching web widget validation logic
-public enum InputValidation {
+public enum ValidationKind {
     case email
     case phone
     case url
@@ -352,7 +352,7 @@ public struct ValidationUtils {
     ///   - value: The string value to validate
     ///   - type: The type of validation to perform
     /// - Returns: ValidationResult with isValid and optional errorMessage
-    public static func validate(_ value: String, type: InputValidation) -> ValidationResult {
+    public static func validate(_ value: String, type: ValidationKind) -> ValidationResult {
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Empty check for all types except .none
@@ -452,10 +452,10 @@ public struct ValidationUtils {
     }
 }
 
-// MARK: - InputValidation Equatable Conformance
+// MARK: - ValidationKind Equatable Conformance
 
-extension InputValidation: Equatable {
-    public static func == (lhs: InputValidation, rhs: InputValidation) -> Bool {
+extension ValidationKind: Equatable {
+    public static func == (lhs: ValidationKind, rhs: ValidationKind) -> Bool {
         switch (lhs, rhs) {
         case (.email, .email):
             return true
