@@ -654,6 +654,22 @@ public final class ChatState: ObservableObject {
         serverRecord.append(entry)
     }
 
+    /// Appends a live chat entry as the web widget records it (a visitor's
+    /// file {url}, a message left by email {via, data}), replacing one with
+    /// the same id.
+    public func pushServerEntry(_ entry: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
+        var e = entry
+        if e["time"] == nil { e["time"] = ISO8601DateFormatter().string(from: Date()) }
+        let id = e["id"] as? String
+        if let id = id, let idx = serverRecord.firstIndex(where: { ($0["id"] as? String) == id }) {
+            serverRecord[idx] = e
+        } else {
+            serverRecord.append(e)
+        }
+    }
+
     /// Initializes a new session record
     /// - Parameters:
     ///   - sessionId: Unique session identifier
