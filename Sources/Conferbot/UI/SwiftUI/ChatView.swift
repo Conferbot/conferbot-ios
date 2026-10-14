@@ -37,6 +37,7 @@ public enum ChatViewTab: Int, CaseIterable {
 @available(iOS 15.0, *)
 public struct ChatView: View {
     @ObservedObject private var conferBot = ConferBot.shared
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var live = ConferBot.shared.liveChat
     @State private var showFileImporter = false
     @State private var uploadError: String?
@@ -116,17 +117,23 @@ public struct ChatView: View {
                             ?? conferBot.customization?.hideBrand
                             ?? false,
                         customBrand: conferBot.hasServerLook ? conferBot.customizations.customBrand : nil,
-                        // The send button in the header colour, as on the web.
-                        primaryColor: conferBot.hasServerLook ? Color(hex: conferBot.customizations.headerBg)
+                        // The send button in the header colour (or the theme palette's accent), as on the web.
+                        primaryColor: conferBot.hasServerLook ? Color(hex: conferBot.customizations.accent)
                             : (conferBot.customization?.primaryColor.map { Color($0) } ?? .blue),
                         enabled: !repliesOff,
                         placeholder: repliesOff ? "Replies are turned off for now" : "Type a message...",
-                        onAttach: canAttach ? { showFileImporter = true } : nil
+                        onAttach: canAttach ? { showFileImporter = true } : nil,
+                        tokens: conferBot.hasServerLook ? conferBot.customizations.theme.tokens : nil,
+                        fieldRadius: conferBot.hasServerLook ? conferBot.customizations.fieldRadius : 25,
+                        sendInk: conferBot.customizations.accentInk.map { Color(hex: $0) } ?? .white
                     )
                 }
             }
         }
-        .background(Color(UIColor.systemBackground))
+        .background(conferBot.customizations.surface.map { Color(hex: $0) } ?? Color(UIColor.systemBackground))
+        // A theme set to "auto" follows the phone's light / dark setting.
+        .onAppear { conferBot.setSystemDarkMode(colorScheme == .dark) }
+        .onChange(of: colorScheme) { conferBot.setSystemDarkMode($0 == .dark) }
         .task {
             if !isSessionStarted {
                 isSessionStarted = true
@@ -288,7 +295,7 @@ public struct ChatView: View {
         messagesList
             // The bot's chat background (Core/Customization/ChatBackground), as on the web.
             .background(Group {
-                if conferBot.hasServerLook { ChatBackgroundView(background: ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
+                if conferBot.hasServerLook { ChatBackgroundView(background: conferBot.customizations.surface.map { .solid(color: $0) } ?? ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
             })
     }
 
@@ -580,7 +587,7 @@ public struct ChatViewWithKBSheet: View {
         messagesList
             // The bot's chat background (Core/Customization/ChatBackground), as on the web.
             .background(Group {
-                if conferBot.hasServerLook { ChatBackgroundView(background: ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
+                if conferBot.hasServerLook { ChatBackgroundView(background: conferBot.customizations.surface.map { .solid(color: $0) } ?? ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
             })
     }
 
