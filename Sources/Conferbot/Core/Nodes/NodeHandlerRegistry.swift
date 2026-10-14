@@ -411,9 +411,11 @@ public class CalendarNodeHandler: BaseNodeHandler {
 
         let nodeId = getNodeId(node) ?? UUID().uuidString
 
-        var mode: CalendarMode = .date
+        // A day, then a time slot, as the web widget's calendar node - unless
+        // the node asks for another picker.
+        var mode: CalendarMode = .dateTime
         if let modeString = getString(data, "mode") ?? getString(data, "pickerMode") {
-            mode = CalendarMode(rawValue: modeString.lowercased()) ?? .date
+            mode = CalendarMode(rawValue: modeString.lowercased()) ?? .dateTime
         }
 
         return .displayUI(.calendar(mode: mode, nodeId: nodeId))
