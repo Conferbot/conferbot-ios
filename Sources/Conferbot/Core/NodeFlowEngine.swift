@@ -517,12 +517,20 @@ public final class NodeFlowEngine: ObservableObject {
                     }
                 }
             } else {
-                // No port specified - return first matching edge
-                // Prefer edges without sourceHandle (default path)
-                let sourceHandle = edge["sourceHandle"] as? String
-                if sourceHandle == nil || sourceHandle?.isEmpty == true {
+                // No port specified - the default path. The builder names a
+                // single output "source-1" on most nodes (as often as "source").
+                let sourceHandle = edge["sourceHandle"] as? String ?? ""
+                if ["", "default", "out", "source", "source-1"].contains(sourceHandle) {
                     return edge["target"] as? String
                 }
+            }
+        }
+
+        // No port: one way out, whatever its handle is called.
+        if port == nil {
+            let outgoing = getOutgoingEdges(from: currentNodeId)
+            if outgoing.count == 1 {
+                return outgoing[0]["target"] as? String
             }
         }
 
