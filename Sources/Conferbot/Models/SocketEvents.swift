@@ -101,6 +101,18 @@ public struct SocketEvents {
     public static let fetchedChatbotData = "fetched-chatbot-data"
     public static let botResponse = "bot-response"
     public static let agentMessage = "agent-message"
+
+    // AI agent replies and live chat changes (server to client)
+    public static let agentMessageStream = "agent-message-stream"
+    public static let agentMessageRich = "agent-message-rich"
+    public static let agentMessageEdited = "agent-message-edited"
+    public static let agentMessageDeleted = "agent-message-deleted"
+    public static let aiAgentInactiveClose = "ai-agent-inactive-close"
+    public static let aiAgentResumed = "ai-agent-resumed"
+
+    // AI agent answers (client to server, with acknowledgement)
+    public static let aiAnswerFeedback = "ai-answer-feedback"
+    public static let aiActionDecision = "ai-action-decision"
     public static let agentAccepted = "agent-accepted"
     public static let agentLeft = "agent-left"
     public static let agentTypingStatus = "agent-typing-status"
