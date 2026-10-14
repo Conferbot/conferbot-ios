@@ -141,7 +141,8 @@ public struct ArticleDetailView: View {
             Image(systemName: "chevron.right")
                 .font(.system(size: 8))
 
-            if let categoryName = article.categoryName ?? article.category {
+            let categoryName = article.categoryName ?? article.category
+            if !categoryName.isEmpty {
                 Text(categoryName)
                     .font(.caption)
                     .lineLimit(1)
