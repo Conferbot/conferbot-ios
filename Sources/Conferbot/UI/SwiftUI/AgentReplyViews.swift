@@ -1,0 +1,390 @@
+//
+//  AgentReplyViews.swift
+//  Conferbot
+//
+//  What an AI agent's reply draws, as on the web widget: its text formatted
+//  (lists, bold, links), the sources it was grounded in, the pages it points
+//  to, a facts or result card, an action to confirm, and "Helpful?". Also
+//  the agent's rich messages and the one-tap question chips.
+//
+
+import SwiftUI
+
+/// An agent message's text: the markdown subset of Utils/ChatMarkdown.swift.
+@available(iOS 15.0, *)
+struct ChatMarkdownText: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        let blocks = ChatMarkdown.parse(text)
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .paragraph(let inlines):
+                    Text(Self.attributed(inlines))
+                case .bullet(let inlines):
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\u{2022}")
+                        Text(Self.attributed(inlines))
+                    }
+                case .numbered(let n, let inlines):
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(n).")
+                        Text(Self.attributed(inlines))
+                    }
+                }
+            }
+        }
+        .foregroundColor(color)
+        .tint(color)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    static func attributed(_ inlines: [ChatMarkdown.Inline]) -> AttributedString {
+        var out = AttributedString()
+        for inline in inlines {
+            var run = AttributedString(inline.text)
+            switch inline {
+            case .bold: run.inlinePresentationIntent = .stronglyEmphasized
+            case .italic: run.inlinePresentationIntent = .emphasized
+            case .code: run.inlinePresentationIntent = .code
+            case .link(_, let url):
+                run.link = URL(string: url)
+                run.underlineStyle = .single
+            case .plain: break
+            }
+            out += run
+        }
+        return out
+    }
+}
+
+/// Wraps its chips onto as many lines as they need.
+@available(iOS 15.0, *)
+struct ChipWrap<Item: Hashable, Content: View>: View {
+    let items: [Item]
+    let alignment: HorizontalAlignment
+    let content: (Item) -> Content
+
+    var body: some View {
+        // A vertical stack of full-width chips: simple, readable, and never
+        // clipped on narrow screens (a free-form flow layout needs iOS 16).
+        VStack(alignment: alignment, spacing: 6) {
+            ForEach(items, id: \.self) { content($0) }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)
+    }
+}
+
+@available(iOS 15.0, *)
+struct AgentPill: View {
+    let label: String
+    var accent: Color = .accentColor
+    var filled = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(filled ? .white : accent)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(filled ? accent : Color(UIColor.systemBackground)))
+                .overlay(Capsule().stroke(accent, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+@available(iOS 15.0, *)
+private struct CardSurface<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6, content: content)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(UIColor.secondarySystemBackground)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(UIColor.separator), lineWidth: 0.5))
+    }
+}
+
+@available(iOS 15.0, *)
+private struct CardRows: View {
+    let rows: [CardRow]
+
+    var body: some View {
+        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+            if index > 0 { Divider() }
+            HStack {
+                Text(row.label).font(.footnote).foregroundColor(.secondary)
+                Spacer(minLength: 12)
+                Text(row.value).font(.footnote.weight(.medium)).multilineTextAlignment(.trailing)
+            }
+        }
+    }
+}
+
+/// Under an AI reply: sources, buttons, cards, an action to confirm, "Helpful?".
+@available(iOS 15.0, *)
+struct AgentReplyExtrasView: View {
+    let message: AgentMessageRecord
+    let accent: Color
+    @ObservedObject private var conferBot = ConferBot.shared
+    @Environment(\.openURL) private var openURL
+
+    private var showHelpful: Bool {
+        message.agentDetails.isAIAgent && message.extras?.isFallback != true && !message.deleted &&
+            AgentBotParser.canRate(message.id) && AgentBotParser.answerFeedbackOn(conferBot.serverCustomizations)
+    }
+
+    var body: some View {
+        let extras = message.extras
+        if (extras == nil || extras!.isEmpty) && !showHelpful {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array((extras?.sources ?? []).enumerated()), id: \.offset) { _, source in
+                    Button {
+                        if let url = source.url.flatMap(URL.init(string:)) { openURL(url) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(source.title).font(.footnote.weight(.medium)).lineLimit(1).foregroundColor(.primary)
+                            if let url = source.url {
+                                Text("\(AgentBotParser.sourceHost(url)) \u{2197}").font(.caption2).foregroundColor(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(UIColor.systemBackground)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(UIColor.separator), lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(source.url == nil)
+                }
+
+                if let card = extras?.card {
+                    CardSurface {
+                        if let title = card.title { Text(title).font(.subheadline.weight(.semibold)) }
+                        CardRows(rows: card.rows)
+                        if let note = card.note { Text(note).font(.caption2).foregroundColor(.secondary) }
+                        if let url = card.url.flatMap(URL.init(string:)) {
+                            Button("Learn more \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                        }
+                    }
+                }
+
+                if let result = extras?.resultCard {
+                    CardSurface {
+                        HStack {
+                            Text(result.title).font(.subheadline.weight(.semibold))
+                            Spacer()
+                            if let status = result.status {
+                                Text(status).font(.caption2.weight(.semibold)).foregroundColor(toneColor(result.tone))
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .overlay(Capsule().stroke(toneColor(result.tone), lineWidth: 1))
+                            }
+                        }
+                        CardRows(rows: result.rows)
+                        if let url = result.linkURL.flatMap(URL.init(string:)) {
+                            Button("\(result.linkLabel ?? "Open") \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                        }
+                    }
+                }
+
+                if let request = extras?.actionRequest {
+                    ActionCardView(request: request, accent: accent)
+                }
+
+                if let actions = extras?.actions, !actions.isEmpty {
+                    ChipWrap(items: actions.map { $0.label }, alignment: .leading) { label in
+                        AgentPill(label: "\(label) \u{2197}", accent: accent) {
+                            guard let action = actions.first(where: { $0.label == label }), let url = URL(string: action.url) else { return }
+                            conferBot.trackConversion(goalId: "answer-action:\(action.label)", conversionEvent: AgentBotParser.conversionEvent(label: action.label, url: action.url))
+                            openURL(url)
+                        }
+                    }
+                }
+
+                if showHelpful { HelpfulView(message: message) }
+            }
+        }
+    }
+
+    private func toneColor(_ tone: String) -> Color {
+        switch tone {
+        case "done": return .green
+        case "moving": return .blue
+        case "problem": return .red
+        default: return .secondary
+        }
+    }
+}
+
+@available(iOS 15.0, *)
+private struct ActionCardView: View {
+    let request: ActionRequest
+    let accent: Color
+    @State private var state = "ask"
+
+    var body: some View {
+        CardSurface {
+            Text(request.name).font(.subheadline.weight(.semibold))
+            CardRows(rows: request.summary)
+            if state == "ask" || state == "busy" {
+                HStack(spacing: 8) {
+                    Button { answer(true) } label: {
+                        ZStack {
+                            if state == "busy" { ProgressView().tint(.white) } else { Text("Confirm").font(.footnote.weight(.semibold)) }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .foregroundColor(.white)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(accent))
+                    }
+                    Button { answer(false) } label: {
+                        Text("Not now").font(.footnote)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor.separator), lineWidth: 1))
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                .disabled(state != "ask")
+                .padding(.top, 4)
+            } else {
+                Text(state == "done" ? "Confirmed" : state == "declined" ? "Not now" : "That did not go through. Please ask again.")
+                    .font(.footnote).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func answer(_ accept: Bool) {
+        guard state == "ask" else { return }
+        state = "busy"
+        ConferBot.shared.decideAction(token: request.token, accept: accept) { ok, code in
+            state = ok ? (accept ? "done" : "declined") : (code == "declined" ? "declined" : "failed")
+        }
+    }
+}
+
+@available(iOS 15.0, *)
+private struct HelpfulView: View {
+    let message: AgentMessageRecord
+    @State private var askWhy = false
+
+    var body: some View {
+        if let given = message.feedback {
+            Text(given.helpful ? "Thanks, glad it helped" : "Thanks for telling us").font(.caption2).foregroundColor(.secondary)
+        } else if askWhy {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("What was wrong?").font(.caption2).foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    ForEach(Array(AgentBotParser.feedbackReasons.enumerated()), id: \.offset) { _, reason in
+                        smallPill(reason.label) {
+                            let id = message.id
+                            Task { @MainActor in ConferBot.shared.sendAnswerFeedback(agentMessageId: id, helpful: false, reason: reason.key) }
+                        }
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 6) {
+                Text("Helpful?").font(.caption2).foregroundColor(.secondary)
+                smallPill("Yes") {
+                    let id = message.id
+                    Task { @MainActor in ConferBot.shared.sendAnswerFeedback(agentMessageId: id, helpful: true) }
+                }
+                smallPill("No") { askWhy = true }
+            }
+        }
+    }
+
+    private func smallPill(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.caption).foregroundColor(.primary)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().stroke(Color(UIColor.separator), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// An agent's article, quick replies or card.
+@available(iOS 15.0, *)
+struct RichAgentMessageView: View {
+    let record: AgentRichMessageRecord
+    let accent: Color
+    let bubbleColor: Color
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        switch record.rich {
+        case .quickReplies(let text, let options)?:
+            VStack(alignment: .leading, spacing: 6) {
+                let prompt = text.isEmpty ? record.text : text
+                if !prompt.isEmpty {
+                    Text(prompt).padding(12).background(bubbleColor).foregroundColor(.white).cornerRadius(16)
+                }
+                ChipWrap(items: options, alignment: .leading) { option in
+                    AgentPill(label: option, accent: accent, filled: record.answered == option) {
+                        guard record.answered == nil else { return }
+                        let id = record.id
+                        Task { @MainActor in ConferBot.shared.answerRichMessage(messageId: id, label: option) }
+                    }
+                    .opacity(record.answered != nil && record.answered != option ? 0.45 : 1)
+                }
+            }
+        case .article(_, let title, let snippet, let url)?:
+            CardSurface {
+                Text("Help article").font(.caption2).foregroundColor(.secondary)
+                Text(title).font(.subheadline.weight(.semibold))
+                if !snippet.isEmpty { Text(snippet).font(.footnote).foregroundColor(.secondary).lineLimit(3) }
+                if let link = url.flatMap(URL.init(string:)) {
+                    Button("Read article \u{2197}") { openURL(link) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                }
+            }
+        case .card(let title, let description, let imageURL, let buttonLabel, let buttonURL)?:
+            CardSurface {
+                if let image = imageURL.flatMap(URL.init(string:)) {
+                    AsyncImage(url: image) { phase in
+                        if let img = phase.image { img.resizable().scaledToFill() } else { Color(UIColor.tertiarySystemFill) }
+                    }
+                    .frame(height: 140)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                Text(title).font(.subheadline.weight(.semibold))
+                if !description.isEmpty { Text(description).font(.footnote).foregroundColor(.secondary) }
+                if let label = buttonLabel, let link = buttonURL.flatMap(URL.init(string:)) {
+                    Button { openURL(link) } label: {
+                        Text(label).font(.footnote.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .foregroundColor(.white).background(RoundedRectangle(cornerRadius: 10).fill(accent))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        case nil:
+            EmptyView()
+        }
+    }
+}
+
+/// One-tap questions: the agent's starters, then each answer's follow-ups.
+@available(iOS 15.0, *)
+struct SuggestionChipsView: View {
+    let items: [String]
+    let accent: Color
+    let onPick: (String) -> Void
+
+    var body: some View {
+        if !items.isEmpty {
+            ChipWrap(items: items, alignment: .trailing) { question in
+                AgentPill(label: question, accent: accent) { onPick(question) }
+            }
+        }
+    }
+}
