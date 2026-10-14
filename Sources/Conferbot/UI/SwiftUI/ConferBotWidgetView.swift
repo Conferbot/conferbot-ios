@@ -85,7 +85,7 @@ struct WidgetCustomizations {
 // MARK: - SVG Icon Shape
 
 /// All 15 web widget icons + default.
-/// Uses Path(svgPath:) on iOS 17+, fallback rounded-rect on older.
+/// Drawn from the web widget's SVG paths (Utils/SVGPathParser.swift).
 private struct BubbleIconView: View {
     let iconName: String?
     let color: Color
@@ -188,7 +188,7 @@ private struct BubbleIconView: View {
 
         return Canvas { context, canvasSize in
             for svgStr in pathStrings {
-                var p = Path(svgPath: svgStr)
+                var p = Path.fromSVG(svgStr)
                 let transform = CGAffineTransform(translationX: tx, y: ty)
                     .scaledBy(x: scale, y: scale)
                 p = p.applying(transform)
@@ -423,5 +423,23 @@ extension View {
     /// Overlay a floating Conferbot FAB widget on top of this view.
     public func conferBotWidget(config: ConferBotFABConfig = ConferBotFABConfig()) -> some View {
         ConferBotWidgetOverlay(config: config) { self }
+    }
+}
+
+// MARK: - SVG path
+
+extension Path {
+    /// A path from an SVG "d" attribute.
+    static func fromSVG(_ d: String) -> Path {
+        var path = Path()
+        for segment in SVGPathParser.parse(d) {
+            switch segment {
+            case .move(let p): path.move(to: p)
+            case .line(let p): path.addLine(to: p)
+            case .cubic(let c1, let c2, let end): path.addCurve(to: end, control1: c1, control2: c2)
+            case .close: path.closeSubpath()
+            }
+        }
+        return path
     }
 }
