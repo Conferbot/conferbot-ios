@@ -404,6 +404,35 @@ public final class NodeFlowEngine: ObservableObject {
         }
     }
 
+    // MARK: - Human Handover
+
+    /// Whether the flow is waiting on its handover step.
+    public var isAtHandover: Bool {
+        guard let id = currentNodeId, let node = findNodeById(id) else { return false }
+        return (node["type"] as? String) == NodeTypes.Special.humanHandover
+    }
+
+    /// A person (or the AI) took the chat: the handover step's waiting card
+    /// goes; the conversation is live from here.
+    @MainActor
+    public func handoverAccepted() {
+        if case .humanHandover = currentUIState { currentUIState = nil }
+    }
+
+    /// The handover is over (nobody was available, the visitor left a
+    /// message or skipped it, or the chat ended): the flow carries on from
+    /// the handover step, as the web widget does.
+    @MainActor
+    public func continueAfterHandover() async {
+        guard isAtHandover, let id = currentNodeId, let node = findNodeById(id) else { return }
+        currentUIState = nil
+        if let next = getNextNodeId(from: id) {
+            await processNode(next)
+        } else {
+            await handleFlowCompletion(node: node)
+        }
+    }
+
     /// Handles button click input
     /// - Parameters:
     ///   - buttonId: The ID of the clicked button
