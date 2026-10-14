@@ -321,6 +321,28 @@ final class NodeFlowEngineTests: XCTestCase {
         XCTAssertEqual(nextId, "message-1")
     }
 
+    func testGetNextNodeIdFollowsBuilderHandles() {
+        // Given the builder's handle names on single-output nodes
+        engine.loadFlow([
+            "nodes": [
+                ["id": "w", "type": "welcome-node", "data": ["text": "Hi"]],
+                ["id": "m1", "type": "message-node", "data": ["text": "One"]],
+                ["id": "m2", "type": "message-node", "data": ["text": "Two"]],
+                ["id": "m3", "type": "message-node", "data": ["text": "Three"]]
+            ],
+            "edges": [
+                ["source": "w", "sourceHandle": "source-1", "target": "m1"],
+                ["source": "m1", "sourceHandle": "source", "target": "m2"],
+                ["source": "m2", "sourceHandle": "out-a", "target": "m3"]
+            ]
+        ])
+
+        // Then each default step is followed
+        XCTAssertEqual(engine.getNextNodeId(from: "w"), "m1")
+        XCTAssertEqual(engine.getNextNodeId(from: "m1"), "m2")
+        XCTAssertEqual(engine.getNextNodeId(from: "m2"), "m3")
+    }
+
     func testGetNextNodeIdWithPort() {
         // Given a flow with conditional edges
         engine.loadFlow(createConditionalFlow())
