@@ -789,21 +789,8 @@ public final class BusinessHoursNodeHandler: BaseNodeHandler {
     }
 }
 
-// MARK: - Special Display Handler: Calendar
-
-// MARK: CalendarNodeHandler
-
-/// Handler for calendar-node
-/// Displays a date/time picker for slot selection
-public final class CalendarNodeHandler: BaseNodeHandler {
-
-    public override var nodeType: String { NodeTypes.Display.calendar }
-
-    public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
-        let nodeId = getNodeId(node) ?? UUID().uuidString
-        return .displayUI(.calendar(mode: .dateTime, nodeId: nodeId))
-    }
-}
+// Calendar nodes: CalendarNodeHandler in NodeHandlerRegistry.swift (one
+// declaration - a second copy here stopped the module compiling).
 
 // MARK: - Integration Handlers (2 types)
 
