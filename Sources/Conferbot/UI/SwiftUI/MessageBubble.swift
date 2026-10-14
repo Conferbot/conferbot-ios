@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Message bubble view for SwiftUI
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MessageBubble: View {
     let message: any RecordItem
     let customization: ConferBotCustomization?
@@ -42,6 +42,25 @@ public struct MessageBubble: View {
                         primaryColor: pillPrimaryColor,
                         onTap: nil
                     )
+                } else if let rich = message as? AgentRichMessageRecord {
+                    // An agent's article, quick replies or card (AgentReplyViews.swift)
+                    RichAgentMessageView(record: rich, accent: pillPrimaryColor, bubbleColor: backgroundColor)
+                } else if let agentMessage = message as? AgentMessageRecord {
+                    // Lists, bold and tappable links; an unsent message says so.
+                    Group {
+                        if agentMessage.deleted {
+                            Text("This message was deleted").italic().opacity(0.7)
+                        } else {
+                            ChatMarkdownText(text: agentMessage.text, color: textColor)
+                        }
+                    }
+                    .padding(12)
+                    .background(backgroundColor)
+                    .foregroundColor(textColor)
+                    .cornerRadius(customization?.bubbleCornerRadius ?? 16)
+
+                    // An AI reply's sources, buttons, cards and "Helpful?"
+                    AgentReplyExtrasView(message: agentMessage, accent: pillPrimaryColor)
                 } else if let fileInfo = extractFileInfo() {
                     FileMessageBubble(
                         fileInfo: fileInfo,
@@ -57,7 +76,7 @@ public struct MessageBubble: View {
                         .cornerRadius(customization?.bubbleCornerRadius ?? 16)
                 }
 
-                Text(timeString)
+                Text((message as? AgentMessageRecord)?.edited == true ? "Edited \u{00B7} \(timeString)" : timeString)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -277,7 +296,7 @@ public struct MessageBubble: View {
 
 /// Rounded standalone image (welcome-node / image-node) rendered without a
 /// bubble background, left-aligned past the avatar column - web widget parity
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct StandaloneImageView: View {
     let url: String
 
@@ -310,7 +329,7 @@ struct StandaloneImageView: View {
 /// Choice pills used both interactively (while a choice node awaits input)
 /// and frozen from the transcript after answering (disabled, selected pill
 /// highlighted in the primary color, others dimmed)
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ChoicePillsView: View {
     struct Pill: Identifiable {
         let id: String
@@ -356,7 +375,7 @@ struct ChoicePillsView: View {
 // MARK: - File Message Info
 
 /// Information about a file in a message
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FileMessageInfo {
     public let url: String
     public let filename: String
@@ -402,7 +421,7 @@ public struct FileMessageInfo {
 // MARK: - File Message Bubble
 
 /// A bubble view that displays file content with preview
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FileMessageBubble: View {
     let fileInfo: FileMessageInfo
     let isUserMessage: Bool
@@ -570,7 +589,7 @@ public struct FileMessageBubble: View {
 }
 
 /// Typing indicator view with bot avatar — matches web widget
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct TypingIndicator: View {
     @State private var animating = false
     var avatarURL: URL? = nil
