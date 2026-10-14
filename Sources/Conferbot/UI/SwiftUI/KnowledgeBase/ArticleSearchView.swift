@@ -405,8 +405,7 @@ struct SearchResultRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Highlighted title
                 highlightedText(article.title, query: searchQuery)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.subheadline.weight(.medium))
                     .lineLimit(2)
 
                 // Meta info
