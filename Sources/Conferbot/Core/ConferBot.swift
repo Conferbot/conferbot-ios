@@ -154,7 +154,13 @@ public class ConferBot: ObservableObject {
     }
 
     private func updateQueuePoll(state: NodeUIState?, live: Bool) {
-        if case .humanHandover = state, !live { liveChat.startQueuePoll() } else { liveChat.stopQueuePoll() }
+        if case .humanHandover = state, !live {
+            liveChat.startQueuePoll()
+            liveChat.startWaitTimer(nodeData: flowEngine?.handoverNodeData, workspaceId: chatState.getVariable(name: "_workspaceId") as? String)
+        } else {
+            liveChat.stopQueuePoll()
+            liveChat.stopWaitTimer()
+        }
     }
 
     /// Ask for the queue while a handover waits for a person; report the
