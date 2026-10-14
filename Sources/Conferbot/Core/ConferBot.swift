@@ -512,13 +512,16 @@ public class ConferBot: ObservableObject {
             }
             .store(in: &flowEngineCancellables)
 
+        // sink, not assign(to: &$...): that is iOS 14+, and the package supports iOS 13.
         flowEngine?.$isProcessing
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isProcessingNode)
+            .sink { [weak self] value in self?.isProcessingNode = value }
+            .store(in: &flowEngineCancellables)
 
         flowEngine?.$errorMessage
             .receive(on: DispatchQueue.main)
-            .assign(to: &$nodeErrorMessage)
+            .sink { [weak self] value in self?.nodeErrorMessage = value }
+            .store(in: &flowEngineCancellables)
 
         flowEngine?.$isFlowComplete
             .receive(on: DispatchQueue.main)
