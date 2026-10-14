@@ -140,6 +140,21 @@ public class MessageCell: UITableViewCell {
         if let radius = customization?.bubbleCornerRadius {
             bubbleView.layer.cornerRadius = radius
         }
+
+        // The bot's own colours and radius (Core/Customization), as on the web.
+        if ConferBot.shared.hasServerLook,
+           !(message is AgentJoinedMessageRecord), !(message is SystemMessageRecord) {
+            let look = ConferBot.shared.customizations
+            bubbleView.backgroundColor = UIColor(cbHex: isUserMessage ? look.userBubbleColor : look.botBubbleColor)
+            messageLabel.textColor = UIColor(cbHex: isUserMessage ? look.userTextColor : look.botTextColor)
+            bubbleView.layer.cornerRadius = CGFloat((isUserMessage ? look.userBubble : look.botBubble).topLeft)
+            if !isUserMessage {
+                avatarImageView.isHidden = look.hideAvatar || !(customization?.showAvatar ?? true)
+                if customization?.avatarURL == nil, let url = URL(string: look.avatar) {
+                    loadAvatar(from: url)
+                }
+            }
+        }
     }
 
     private func loadAvatar(from url: URL) {
@@ -223,5 +238,21 @@ public class TypingIndicatorCell: UITableViewCell {
                 }
             )
         }
+    }
+}
+
+extension UIColor {
+    /// A "#rrggbb" (or "#rgb") colour from the bot's settings; the brand blue when unreadable. iOS 13+.
+    convenience init(cbHex hex: String) {
+        let h = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var v: UInt64 = 0
+        Scanner(string: h).scanHexInt64(&v)
+        let r, g, b: UInt64
+        switch h.count {
+        case 3: (r, g, b) = ((v >> 8) * 17, (v >> 4 & 0xF) * 17, (v & 0xF) * 17)
+        case 6: (r, g, b) = (v >> 16, v >> 8 & 0xFF, v & 0xFF)
+        default: (r, g, b) = (11, 78, 184)
+        }
+        self.init(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
     }
 }
