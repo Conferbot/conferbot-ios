@@ -16,6 +16,7 @@ public enum MessageType: String, Codable {
     case agentMessage = "agent-message"
     case agentMessageFile = "agent-message-file"
     case agentMessageAudio = "agent-message-audio"
+    case agentMessageRich = "agent-message-rich"
     case agentJoinedMessage = "agent-joined-message"
     case agentLeftChat = "agent-left-chat"
     case visitorDisconnectedMessage = "visitor-disconnected-message"
@@ -163,18 +164,33 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
     public let time: Date
     public let text: String
     public let agentDetails: AgentDetails
+    /// An AI reply's sources, buttons and cards (Core/Agent/AgentBot.swift).
+    public let extras: AIReplyExtras?
+    /// The visitor's "Helpful?" vote on an AI reply.
+    public let feedback: AnswerFeedback?
+    /// The agent edited / unsent it (agent-message-edited / -deleted).
+    public let edited: Bool
+    public let deleted: Bool
 
     public init(
         id: String,
         time: Date,
         text: String,
-        agentDetails: AgentDetails
+        agentDetails: AgentDetails,
+        extras: AIReplyExtras? = nil,
+        feedback: AnswerFeedback? = nil,
+        edited: Bool = false,
+        deleted: Bool = false
     ) {
         self.id = id
         self.type = .agentMessage
         self.time = time
         self.text = text
         self.agentDetails = agentDetails
+        self.extras = extras
+        self.feedback = feedback
+        self.edited = edited
+        self.deleted = deleted
     }
 
     enum CodingKeys: String, CodingKey {
@@ -183,10 +199,79 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         case time
         case text
         case agentDetails
+        case extras
+        case feedback
+        case edited
+        case deleted
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        type = .agentMessage
+        time = try c.decode(Date.self, forKey: .time)
+        text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        agentDetails = (try? c.decode(AgentDetails.self, forKey: .agentDetails)) ?? AgentDetails(id: "", name: "Agent", email: "")
+        extras = try? c.decodeIfPresent(AIReplyExtras.self, forKey: .extras)
+        feedback = try? c.decodeIfPresent(AnswerFeedback.self, forKey: .feedback)
+        edited = (try? c.decodeIfPresent(Bool.self, forKey: .edited)) ?? false
+        deleted = (try? c.decodeIfPresent(Bool.self, forKey: .deleted)) ?? false
+    }
+
+    /// The same message with a change applied (vote, edit, unsend).
+    public func with(text: String? = nil, feedback: AnswerFeedback? = nil, edited: Bool? = nil, deleted: Bool? = nil) -> AgentMessageRecord {
+        AgentMessageRecord(id: id, time: time, text: text ?? self.text, agentDetails: agentDetails, extras: extras,
+                           feedback: feedback ?? self.feedback, edited: edited ?? self.edited, deleted: deleted ?? self.deleted)
     }
 
     public static func == (lhs: AgentMessageRecord, rhs: AgentMessageRecord) -> Bool {
-        return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time
+        return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time &&
+            lhs.feedback == rhs.feedback && lhs.edited == rhs.edited && lhs.deleted == rhs.deleted
+    }
+}
+
+/// An agent's article, quick replies or card (agent-message-rich).
+public struct AgentRichMessageRecord: RecordItem, Identifiable, Equatable {
+    public let id: String
+    public let type: MessageType
+    public let time: Date
+    public let text: String
+    public let agentDetails: AgentDetails?
+    /// The rich entry in its server shape, as JSON (see `rich`).
+    public let richJSON: String
+    /// The quick reply the visitor chose.
+    public let answered: String?
+
+    public init(id: String, time: Date, rich: RichEntry, text: String = "", agentDetails: AgentDetails? = nil, answered: String? = nil) {
+        self.id = id
+        self.type = .agentMessageRich
+        self.time = time
+        self.text = text
+        self.agentDetails = agentDetails
+        let data = (try? JSONSerialization.data(withJSONObject: AgentBotParser.richDictionary(rich))) ?? Data()
+        self.richJSON = String(data: data, encoding: .utf8) ?? "{}"
+        self.answered = answered
+    }
+
+    /// The entry to draw, cleaned again on the way out.
+    public var rich: RichEntry? {
+        guard let data = richJSON.data(using: .utf8), let raw = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return AgentBotParser.safeRich(raw)
+    }
+
+    public func answering(_ label: String) -> AgentRichMessageRecord {
+        guard let rich = rich else { return self }
+        return AgentRichMessageRecord(id: id, time: time, rich: rich, text: text, agentDetails: agentDetails, answered: label)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case type
+        case time
+        case text
+        case agentDetails
+        case richJSON
+        case answered
     }
 }
 
@@ -374,6 +459,8 @@ public struct AnyRecordItem: Codable {
             value = try AgentMessageFileRecord(from: decoder)
         case .agentMessageAudio:
             value = try AgentMessageAudioRecord(from: decoder)
+        case .agentMessageRich:
+            value = try AgentRichMessageRecord(from: decoder)
         case .agentJoinedMessage:
             value = try AgentJoinedMessageRecord(from: decoder)
         case .agentLeftChat:
@@ -396,6 +483,8 @@ public struct AnyRecordItem: Codable {
             try fileMessage.encode(to: encoder)
         } else if let audioMessage = value as? AgentMessageAudioRecord {
             try audioMessage.encode(to: encoder)
+        } else if let richMessage = value as? AgentRichMessageRecord {
+            try richMessage.encode(to: encoder)
         } else if let joinedMessage = value as? AgentJoinedMessageRecord {
             try joinedMessage.encode(to: encoder)
         } else if let leftMessage = value as? AgentLeftMessageRecord {
