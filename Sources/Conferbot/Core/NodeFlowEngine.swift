@@ -412,6 +412,12 @@ public final class NodeFlowEngine: ObservableObject {
         return (node["type"] as? String) == NodeTypes.Special.humanHandover
     }
 
+    /// The handover step's data while the flow waits on it (its max wait, assignment).
+    public var handoverNodeData: [String: Any]? {
+        guard isAtHandover, let id = currentNodeId, let node = findNodeById(id) else { return nil }
+        return node["data"] as? [String: Any]
+    }
+
     /// A person (or the AI) took the chat: the handover step's waiting card
     /// goes; the conversation is live from here.
     @MainActor
