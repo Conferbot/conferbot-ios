@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// View displaying a list of articles within a category
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ArticleListView: View {
     let category: KnowledgeBaseCategory
     let onArticleSelected: (KnowledgeBaseArticle) -> Void
@@ -142,7 +142,7 @@ public struct ArticleListView: View {
 
 // MARK: - Article Card View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleCardView: View {
     let article: KnowledgeBaseArticle
 
@@ -279,7 +279,7 @@ struct ArticleCardView: View {
 
 // MARK: - Category Icon View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoryIconView: View {
     let categoryName: String
     let icon: String?
@@ -336,7 +336,7 @@ struct CategoryIconView: View {
 
 // MARK: - Preview
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleListView_Previews: PreviewProvider {
     static var previews: some View {
         let sampleCategory = KnowledgeBaseCategory(

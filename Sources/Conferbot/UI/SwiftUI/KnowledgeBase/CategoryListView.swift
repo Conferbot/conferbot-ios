@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// View displaying a list of knowledge base categories
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct CategoryListView: View {
     let categories: [KnowledgeBaseCategory]
     let onCategorySelected: (KnowledgeBaseCategory) -> Void
@@ -117,7 +117,7 @@ public struct CategoryListView: View {
 
 // MARK: - Category Row View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoryRowView: View {
     let category: KnowledgeBaseCategory
 
@@ -174,7 +174,7 @@ struct CategoryRowView: View {
 
 // MARK: - Featured Categories Section
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct FeaturedCategoriesSection: View {
     let categories: [KnowledgeBaseCategory]
     let onCategorySelected: (KnowledgeBaseCategory) -> Void
@@ -202,7 +202,7 @@ struct FeaturedCategoriesSection: View {
 
 // MARK: - Featured Category Card
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct FeaturedCategoryCard: View {
     let category: KnowledgeBaseCategory
 
@@ -232,7 +232,7 @@ struct FeaturedCategoryCard: View {
 
 // MARK: - Categories Grid View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoriesGridView: View {
     let categories: [KnowledgeBaseCategory]
     let onCategorySelected: (KnowledgeBaseCategory) -> Void
@@ -256,7 +256,7 @@ struct CategoriesGridView: View {
 
 // MARK: - Category Grid Item
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoryGridItem: View {
     let category: KnowledgeBaseCategory
 
@@ -294,7 +294,7 @@ struct CategoryGridItem: View {
 
 // MARK: - All Categories Header
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct AllCategoriesHeader: View {
     let totalArticles: Int
     let totalCategories: Int
@@ -318,7 +318,7 @@ struct AllCategoriesHeader: View {
 
 // MARK: - Preview
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoryListView_Previews: PreviewProvider {
     static var previews: some View {
         CategoryListView(

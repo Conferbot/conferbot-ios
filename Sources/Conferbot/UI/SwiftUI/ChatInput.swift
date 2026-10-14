@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Chat input view for SwiftUI
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ChatInput: View {
     @Binding var text: String
     let onSend: (String) -> Void
@@ -79,7 +79,7 @@ public struct ChatInput: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ChatInput_Previews: PreviewProvider {
     static var previews: some View {
         ChatInput(text: .constant("")) { _ in }

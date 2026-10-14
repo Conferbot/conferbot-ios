@@ -20,7 +20,7 @@ import Combine
 /// Mirrors the Android SDK's NodeUIState sealed class.
 /// Named NodeRenderState to avoid colliding with the Core NodeUIState
 /// enum published by ConferBot/NodeFlowEngine.
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public enum NodeRenderState {
     case message(text: String, isTyping: Bool = false, nodeId: String)
     case image(url: String, caption: String?, nodeId: String)
@@ -55,7 +55,7 @@ public enum NodeRenderState {
 
 // MARK: - State Types
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct TextInputState {
     public let questionText: String
     public let inputType: InputType
@@ -98,7 +98,7 @@ public struct TextInputState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct SingleChoiceState {
     public let questionText: String?
     public let choices: [Choice]
@@ -127,7 +127,7 @@ public struct SingleChoiceState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MultipleChoiceState {
     public let questionText: String?
     public let options: [Option]
@@ -163,7 +163,7 @@ public struct MultipleChoiceState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ButtonsState {
     public let questionText: String?
     public let buttons: [ButtonItem]
@@ -200,7 +200,7 @@ public struct ButtonsState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct QuickRepliesState {
     public let questionText: String?
     public let replies: [Reply]
@@ -225,7 +225,7 @@ public struct QuickRepliesState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct CardsCarouselState {
     public let cards: [Card]
     public let nodeId: String
@@ -269,7 +269,7 @@ public struct CardsCarouselState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct RatingState {
     public let questionText: String?
     public let ratingType: RatingType
@@ -299,7 +299,7 @@ public struct RatingState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct OpinionScaleState {
     public let questionText: String?
     public let minValue: Int
@@ -328,7 +328,7 @@ public struct OpinionScaleState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct CalendarState {
     public let questionText: String?
     public let mode: CalendarMode
@@ -381,7 +381,7 @@ public struct CalendarState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FileUploadState {
     public let questionText: String
     public let maxSizeMb: Int
@@ -404,7 +404,7 @@ public struct FileUploadState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct LiveChatState {
     public let status: LiveChatStatus
     public let agentName: String?
@@ -438,7 +438,7 @@ public struct LiveChatState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct LinkState {
     public let url: String
     public let title: String?
@@ -455,7 +455,7 @@ public struct LinkState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct EmbedState {
     public let embedUrl: String
     public let height: CGFloat
@@ -468,7 +468,7 @@ public struct EmbedState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct DropdownState {
     public let questionText: String?
     public let options: [Option]
@@ -493,7 +493,7 @@ public struct DropdownState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct RangeState {
     public let questionText: String?
     public let minValue: Int
@@ -522,7 +522,7 @@ public struct RangeState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct QuizState {
     public let questionText: String
     public let options: [String]
@@ -539,7 +539,7 @@ public struct QuizState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MultipleQuestionsState {
     public let questions: [Question]
     public let currentIndex: Int
@@ -564,7 +564,7 @@ public struct MultipleQuestionsState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct HumanHandoverState {
     public let state: HandoverStatus
     public let preChatQuestions: [PreChatQuestion]?
@@ -615,7 +615,7 @@ public struct HumanHandoverState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct PaymentState {
     public let paymentUrl: String
     public let amount: Double?
@@ -632,7 +632,7 @@ public struct PaymentState {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ImageChoiceState {
     public let questionText: String?
     public let images: [ImageOption]
@@ -663,7 +663,7 @@ public struct ImageChoiceState {
 
 // MARK: - Theme Environment
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ChatTheme {
     public let primaryColor: Color
     public let secondaryColor: Color
@@ -697,12 +697,12 @@ public struct ChatTheme {
     public static let `default` = ChatTheme()
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct ChatThemeKey: EnvironmentKey {
     static let defaultValue = ChatTheme.default
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public extension EnvironmentValues {
     var chatTheme: ChatTheme {
         get { self[ChatThemeKey.self] }
@@ -713,7 +713,7 @@ public extension EnvironmentValues {
 // MARK: - Main Router View
 
 /// Main node renderer that routes to appropriate component based on NodeRenderState
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct NodeRenderer: View {
     let uiState: NodeRenderState
     let onInput: (Any) -> Void
@@ -821,7 +821,7 @@ public struct NodeRenderer: View {
 
 // MARK: - 1. MessageBubble
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MessageBubbleNode: View {
     let text: String
     let isTyping: Bool
@@ -851,7 +851,7 @@ public struct MessageBubbleNode: View {
 
 // MARK: - 2. ImageMessage
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ImageMessage: View {
     let url: String
     let caption: String?
@@ -907,7 +907,7 @@ public struct ImageMessage: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct ImageFullScreenView: View {
     let url: String
     @Binding var isPresented: Bool
@@ -942,7 +942,7 @@ private struct ImageFullScreenView: View {
 
 // MARK: - 3. VideoMessage
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct VideoMessage: View {
     let url: String
     let caption: String?
@@ -996,7 +996,7 @@ public struct VideoMessage: View {
 
 // MARK: - 4. AudioMessage
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct AudioMessage: View {
     let url: String
     let caption: String?
@@ -1087,7 +1087,7 @@ public struct AudioMessage: View {
 
 // MARK: - 5. FileMessage
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FileMessage: View {
     let url: String
     let fileName: String
@@ -1153,7 +1153,7 @@ public struct FileMessage: View {
 
 // MARK: - 6. GifMessage
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct GifMessage: View {
     let url: String
     let caption: String?
@@ -1201,7 +1201,7 @@ public struct GifMessage: View {
 
 // MARK: - 7. TextInputView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct TextInputView: View {
     let state: TextInputState
     let onSubmit: (Any) -> Void
@@ -1323,7 +1323,7 @@ public struct TextInputView: View {
 
 // MARK: - 8. SingleChoiceView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct SingleChoiceView: View {
     let state: SingleChoiceState
     let onSelect: (Any) -> Void
@@ -1390,7 +1390,7 @@ public struct SingleChoiceView: View {
 
 // MARK: - 9. MultiChoiceView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MultiChoiceView: View {
     let state: MultipleChoiceState
     let onSubmit: (Any) -> Void
@@ -1474,7 +1474,7 @@ public struct MultiChoiceView: View {
 
 // MARK: - 10. ButtonsView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ButtonsView: View {
     let state: ButtonsState
     let onTap: (Any) -> Void
@@ -1559,7 +1559,7 @@ public struct ButtonsView: View {
 
 // MARK: - 11. QuickRepliesView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct QuickRepliesView: View {
     let state: QuickRepliesState
     let onTap: (Any) -> Void
@@ -1620,7 +1620,7 @@ public struct QuickRepliesView: View {
 
 // MARK: - 12. CardsCarousel
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct CardsCarousel: View {
     let state: CardsCarouselState
     let onAction: (Any) -> Void
@@ -1644,7 +1644,7 @@ public struct CardsCarousel: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct CardView: View {
     let card: CardsCarouselState.Card
     let onAction: (Any) -> Void
@@ -1723,7 +1723,7 @@ private struct CardView: View {
 
 // MARK: - 13. RatingView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct RatingView: View {
     let state: RatingState
     let onRate: (Any) -> Void
@@ -1833,7 +1833,7 @@ public struct RatingView: View {
 
 // MARK: - 14. OpinionScaleView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct OpinionScaleView: View {
     let state: OpinionScaleState
     let onSelect: (Any) -> Void
@@ -1898,7 +1898,7 @@ public struct OpinionScaleView: View {
 
 // MARK: - 15. CalendarPicker
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct CalendarPicker: View {
     let state: CalendarState
     let onSelect: (Any) -> Void
@@ -2037,7 +2037,7 @@ public struct CalendarPicker: View {
 
 /// Enhanced file upload view with document picker, photo library, camera support,
 /// file upload service integration, and progress tracking
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FileUploadView: View {
     let state: FileUploadState
     let onUpload: (Any) -> Void
@@ -2510,7 +2510,7 @@ public struct FileUploadView: View {
 
 // MARK: - File Upload UI State
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private enum FileUploadUIState {
     case idle
     case fileSelected
@@ -2521,7 +2521,7 @@ private enum FileUploadUIState {
 
 // MARK: - 17. LiveChatView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct LiveChatView: View {
     let state: LiveChatState
 
@@ -2609,7 +2609,7 @@ public struct LiveChatView: View {
 
 // MARK: - 18. LinkView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct LinkView: View {
     let state: LinkState
 
@@ -2685,7 +2685,7 @@ public struct LinkView: View {
 
 // MARK: - 19. EmbedView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct EmbedView: View {
     let state: EmbedState
 
@@ -2700,7 +2700,7 @@ public struct EmbedView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct WebViewWrapper: UIViewRepresentable {
     let urlString: String
 
@@ -2719,7 +2719,7 @@ private struct WebViewWrapper: UIViewRepresentable {
 
 // MARK: - 20. LoadingView (Typing Indicator)
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct LoadingView: View {
     public init() {}
 
@@ -2731,7 +2731,7 @@ public struct LoadingView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct TypingIndicatorView: View {
     @State private var animating = false
 
@@ -2763,7 +2763,7 @@ public struct TypingIndicatorView: View {
 
 // MARK: - Additional Components
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct DropdownView: View {
     let state: DropdownState
     let onSelect: (Any) -> Void
@@ -2807,7 +2807,7 @@ public struct DropdownView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct RangeView: View {
     let state: RangeState
     let onSubmit: (Any) -> Void
@@ -2870,7 +2870,7 @@ public struct RangeView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct QuizView: View {
     let state: QuizState
     let onAnswer: (Any) -> Void
@@ -2939,7 +2939,7 @@ public struct QuizView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct MultipleQuestionsView: View {
     let state: MultipleQuestionsState
     let onSubmit: (Any) -> Void
@@ -2979,7 +2979,7 @@ public struct MultipleQuestionsView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct HumanHandoverView: View {
     let state: HumanHandoverState
     let onResponse: (Any) -> Void
@@ -3070,7 +3070,7 @@ public struct HumanHandoverView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct HtmlView: View {
     let htmlContent: String
 
@@ -3085,7 +3085,7 @@ public struct HtmlView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct HTMLWebView: UIViewRepresentable {
     let htmlContent: String
 
@@ -3124,7 +3124,7 @@ private struct HTMLWebView: UIViewRepresentable {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct PaymentView: View {
     let state: PaymentState
 
@@ -3178,7 +3178,7 @@ public struct PaymentView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct RedirectView: View {
     let url: String
 
@@ -3203,7 +3203,7 @@ public struct RedirectView: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ImageChoiceView: View {
     let state: ImageChoiceState
     let onSelect: (Any) -> Void
@@ -3285,7 +3285,7 @@ public struct ImageChoiceView: View {
 
 // MARK: - Color Extension
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -3314,7 +3314,7 @@ private extension Color {
 
 // MARK: - Preview Provider
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct NodeComponents_Previews: PreviewProvider {
     static var previews: some View {
         ScrollView {

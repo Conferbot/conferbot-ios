@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Main container view for Knowledge Base
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct KnowledgeBaseView: View {
     @ObservedObject private var conferBot = ConferBot.shared
     @StateObject private var viewModel: KnowledgeBaseViewModel
@@ -154,7 +154,7 @@ public struct KnowledgeBaseView: View {
 
 // MARK: - Navigation Destination
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 enum KnowledgeBaseNavigationDestination: Hashable {
     case category(KnowledgeBaseCategory)
     case article(KnowledgeBaseArticle)
@@ -163,7 +163,7 @@ enum KnowledgeBaseNavigationDestination: Hashable {
 
 // MARK: - View Model
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 @MainActor
 class KnowledgeBaseViewModel: ObservableObject {
     @Published var categories: [KnowledgeBaseCategory] = []
@@ -222,7 +222,7 @@ class KnowledgeBaseViewModel: ObservableObject {
 
 // MARK: - Search Bar Component
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleSearchBar: View {
     @Binding var text: String
     var onSearch: (String) -> Void
@@ -279,7 +279,7 @@ struct ArticleSearchBar: View {
 
 // MARK: - Search Results View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleSearchResultsView: View {
     let searchText: String
     let results: [KnowledgeBaseArticle]
@@ -338,7 +338,7 @@ struct ArticleSearchResultsView: View {
 
 // MARK: - Search Result Row
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleSearchResultRow: View {
     let article: KnowledgeBaseArticle
 
@@ -386,7 +386,7 @@ struct ArticleSearchResultRow: View {
 
 // MARK: - Preview
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct KnowledgeBaseView_Previews: PreviewProvider {
     static var previews: some View {
         KnowledgeBaseView()

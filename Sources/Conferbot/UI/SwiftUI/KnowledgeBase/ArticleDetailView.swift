@@ -9,7 +9,7 @@ import SwiftUI
 import WebKit
 
 /// View displaying the full content of a knowledge base article
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ArticleDetailView: View {
     let article: KnowledgeBaseArticle
     let onBack: () -> Void
@@ -454,7 +454,7 @@ public struct ArticleDetailView: View {
 
 // MARK: - Related Article Row
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct RelatedArticleRow: View {
     let article: KnowledgeBaseArticle
 
@@ -502,7 +502,7 @@ struct RelatedArticleRow: View {
 
 // MARK: - HTML Content View
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct HTMLContentView: View {
     let htmlContent: String
 
@@ -628,7 +628,7 @@ struct HTMLContentView: View {
 
 // MARK: - HTML WebView
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct HTMLWebView: UIViewRepresentable {
     let htmlContent: String
     @Binding var dynamicHeight: CGFloat
@@ -684,7 +684,7 @@ struct HTMLWebView: UIViewRepresentable {
 
 // MARK: - Preview
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleDetailView_Previews: PreviewProvider {
     static var previews: some View {
         let sampleArticle = KnowledgeBaseArticle(

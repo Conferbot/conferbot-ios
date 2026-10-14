@@ -12,7 +12,7 @@ import SwiftUI
 private let conferbotURL = "https://www.conferbot.com"
 private let conferbotLogoURL = "https://www.conferbot.com/img/logo/conferbot-logo.png"
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ChatBottomBar: View {
     @Binding var text: String
     let onSend: (String) -> Void
@@ -159,7 +159,7 @@ public struct ChatBottomBar: View {
 }
 
 // MARK: - Color hex extension (if not already available)
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

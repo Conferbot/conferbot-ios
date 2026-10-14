@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Dedicated search view for knowledge base articles
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ArticleSearchView: View {
     @Binding var searchText: String
     @Binding var isPresented: Bool
@@ -359,7 +359,7 @@ public struct ArticleSearchView: View {
 
 // MARK: - Category Chip
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CategoryChip: View {
     let category: KnowledgeBaseCategory
 
@@ -382,7 +382,7 @@ struct CategoryChip: View {
 
 // MARK: - Search Result Row
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct SearchResultRow: View {
     let article: KnowledgeBaseArticle
     let searchQuery: String
@@ -466,7 +466,7 @@ struct SearchResultRow: View {
 
 // MARK: - Preview
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ArticleSearchView_Previews: PreviewProvider {
     static var previews: some View {
         ArticleSearchView(

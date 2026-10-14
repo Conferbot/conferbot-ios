@@ -20,7 +20,7 @@ import Combine
 // MARK: - File Picker Configuration
 
 /// Configuration for the file picker
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FilePickerConfiguration {
     /// Allowed MIME types or extensions
     public let allowedTypes: [String]?
@@ -160,7 +160,7 @@ public struct FilePickerConfiguration {
 // MARK: - Selected File
 
 /// Represents a selected file
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct SelectedFile: Identifiable {
     public let id = UUID()
     public let data: Data
@@ -201,7 +201,7 @@ public struct SelectedFile: Identifiable {
 // MARK: - File Picker View
 
 /// Main file picker view with multiple source options
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FilePickerView: View {
     let configuration: FilePickerConfiguration
     let onFileSelected: (SelectedFile) -> Void
@@ -358,7 +358,7 @@ public struct FilePickerView: View {
 
 // MARK: - Source Option Button
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct SourceOptionButton: View {
     let icon: String
     let title: String
@@ -398,7 +398,7 @@ private struct SourceOptionButton: View {
 
 // MARK: - Document Picker Representable
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct DocumentPickerRepresentable: UIViewControllerRepresentable {
     let contentTypes: [UTType]
     let maxSize: Int
@@ -487,7 +487,7 @@ struct DocumentPickerRepresentable: UIViewControllerRepresentable {
 
 // MARK: - Photo Picker Representable
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct PhotoPickerRepresentable: UIViewControllerRepresentable {
     let filter: PHPickerFilter?
     let selectionLimit: Int
@@ -634,7 +634,7 @@ struct PhotoPickerRepresentable: UIViewControllerRepresentable {
 
 // MARK: - Camera Picker Representable
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct CameraPickerRepresentable: UIViewControllerRepresentable {
     let maxSize: Int
     let completion: (Result<SelectedFile, Error>) -> Void
@@ -743,7 +743,7 @@ struct CameraPickerRepresentable: UIViewControllerRepresentable {
 // MARK: - Upload Progress View
 
 /// View showing upload progress
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct UploadProgressView: View {
     let progress: UploadProgress?
     let filename: String
@@ -827,7 +827,7 @@ public struct UploadProgressView: View {
 // MARK: - File Preview
 
 /// Small preview for a selected file
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct FilePreviewView: View {
     let file: SelectedFile
     let onRemove: (() -> Void)?

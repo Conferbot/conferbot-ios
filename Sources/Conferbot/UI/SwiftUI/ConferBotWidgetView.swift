@@ -224,7 +224,7 @@ private struct CloseIconShape: Shape {
 
 // MARK: - FAB Button
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct ConferBotFABButton: View {
     let customizations: WidgetCustomizations
     let isOpen: Bool
@@ -290,7 +290,7 @@ private struct ConferBotFABButton: View {
 
 // MARK: - CTA Tooltip
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 private struct ConferBotCTATooltip: View {
     let text: String
     let backgroundColor: Color
@@ -329,7 +329,7 @@ public struct ConferBotFABConfig {
 
 // MARK: - Main Overlay
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ConferBotWidgetOverlay<Content: View>: View {
     @ObservedObject private var bot = ConferBot.shared
     @State private var isChatOpen = false
@@ -418,7 +418,7 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
 
 // MARK: - View Modifier
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 extension View {
     /// Overlay a floating Conferbot FAB widget on top of this view.
     public func conferBotWidget(config: ConferBotFABConfig = ConferBotFABConfig()) -> some View {
