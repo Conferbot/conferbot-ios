@@ -97,6 +97,22 @@ public class ChatViewController: UIViewController {
         updateConnectionStatus()
     }
 
+    private func applyLook(_ look: ResolvedCustomizations) {
+        guard ConferBot.shared.hasServerLook else { return }
+        title = ConferBot.shared.currentAgent?.name ?? look.title
+        let bg = UIColor(cbHex: look.headerBg)
+        let ink = UIColor(cbHex: look.headerText)
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = bg
+        appearance.titleTextAttributes = [.foregroundColor: ink]
+        navigationController?.navigationBar.standardAppearance = appearance
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        navigationController?.navigationBar.compactAppearance = appearance
+        navigationController?.navigationBar.tintColor = ink
+        tableView.reloadData()
+    }
+
     private func setupObservers() {
         NotificationCenter.default.addObserver(
             self,
@@ -136,6 +152,14 @@ public class ChatViewController: UIViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newMessages in
                 self?.handleNewMessages(newMessages)
+            }
+            .store(in: &cancellables)
+
+        // The bot's look (Core/Customization): the bar's colours and title, as on the web.
+        ConferBot.shared.$customizations
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] look in
+                self?.applyLook(look)
             }
             .store(in: &cancellables)
 
