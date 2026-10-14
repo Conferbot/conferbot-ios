@@ -61,6 +61,17 @@ public class ConferBot: ObservableObject {
     @Published public private(set) var isOnline: Bool = true
     @Published public private(set) var queuedMessageCount: Int = 0
 
+    // AI agent bots (Agent Studio) - a bot with no flow, answered by an AI
+    // agent from the first message (Core/Agent/AgentBot.swift). nil for
+    // every flow bot.
+    @Published public private(set) var agentBot: AgentBot?
+    /// The AI reply as it is being written (one live bubble), or nil.
+    @Published public private(set) var agentStream: AgentStream?
+    /// One-tap questions: the greeting's starters, then each answer's follow-ups.
+    @Published public private(set) var suggestions: [String] = []
+    /// Waiting for the AI's reply (the typing dots), at most 45 seconds.
+    @Published public private(set) var awaitingReply: Bool = false
+
     // Knowledge Base - Published properties
     @Published public private(set) var knowledgeBaseCategories: [KnowledgeBaseCategory] = []
     @Published public private(set) var isLoadingKnowledgeBase: Bool = false
@@ -106,6 +117,19 @@ public class ConferBot: ObservableObject {
 
     // Push token
     private var pushToken: String?
+
+    // The bot's flow from fetched-chatbot-data, started once a session exists.
+    private var cachedNodes: [[String: Any]]?
+    private var cachedEdges: [[String: Any]] = []
+    private var flowStarted = false
+
+    // An agent bot's silent handover waits for the visitor to engage (every
+    // record sent becomes a Response - a chat on the customer's plan); live
+    // sends wait for its acceptance.
+    private var agentPendingHandover: (id: String, data: [String: Any])?
+    private var agentHandoverPending = false
+    private var agentStartedFor: String?
+    private var awaitReplyTask: Task<Void, Never>?
 
     // Chat State
     public var chatState: ChatState {
@@ -575,7 +599,14 @@ public class ConferBot: ObservableObject {
         // If not forcing new and we have a restored session, just return
         if !forceNew && hasRestoredSession && currentSession != nil {
             debugPrint("[ConferBot] Using restored session: \(currentSession?.chatSessionId ?? "unknown")")
+            await MainActor.run { self.tryStartFlow() }
             return
+        }
+
+        // A new session: its flow starts afresh.
+        await MainActor.run {
+            self.flowStarted = false
+            self.resetAgentBotChat()
         }
 
         // Clear any existing stored session if forcing new
@@ -615,6 +646,9 @@ public class ConferBot: ObservableObject {
         saveSessionState()
 
         debugPrint("[ConferBot] Session started: \(session.chatSessionId)")
+
+        // Start the bot's flow (or an agent bot's chat) if its data is here.
+        await MainActor.run { self.tryStartFlow() }
     }
 
     /// Send a message (with offline support)
@@ -643,6 +677,9 @@ public class ConferBot: ObservableObject {
             }
         }
 
+        // An agent bot's conversation starts with the visitor's first word.
+        await MainActor.run { self.engageAgent() }
+
         // Push user response to server record (matching web widget format)
         // ChatState.pushUserRecord uses "user-live-message" shape when isLiveChatMode is true
         chatState.pushUserRecord(nodeId: messageId, nodeType: nil, text: text)
@@ -650,6 +687,17 @@ public class ConferBot: ObservableObject {
         // Stop visitor typing indicator when message is sent
         if chatState.isLiveChatMode {
             socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: false)
+        }
+
+        // Held while an agent bot's handover is being accepted; the
+        // acceptance sends the record with this message in it.
+        let holdForAgent = await MainActor.run { () -> Bool in
+            self.noteVisitorMessage()
+            return self.agentHandoverPending
+        }
+        if holdForAgent {
+            saveSessionState()
+            return
         }
 
         // Check if we can send immediately or need to queue
@@ -737,6 +785,10 @@ public class ConferBot: ObservableObject {
     /// Send typing indicator
     /// During live chat mode, this also emits `visitor-typing` so the agent sees it
     public func sendTypingIndicator(isTyping: Bool) {
+        // Typing in the composer: a person is here.
+        if isTyping {
+            Task { @MainActor in self.engageAgent() }
+        }
         guard let session = currentSession else { return }
         socketClient?.sendTypingStatus(chatSessionId: session.chatSessionId, isTyping: isTyping)
 
@@ -1133,7 +1185,7 @@ public class ConferBot: ObservableObject {
 
     /// Check if a specific node type requires user interaction
     public func nodeRequiresInteraction(_ nodeType: String) -> Bool {
-        return NodeTypes.requiresUserInteraction(nodeType)
+        return requiresUserInteraction(nodeType)
     }
 
     /// Track goal completion
@@ -1234,6 +1286,8 @@ public class ConferBot: ObservableObject {
         messages = []
         unreadCount = 0
         hasRestoredSession = false
+        flowStarted = false
+        Task { @MainActor in self.resetAgentBotChat() }
 
         debugPrint("[ConferBot] Session ended: \(session.chatSessionId)")
     }
@@ -1409,7 +1463,25 @@ public class ConferBot: ObservableObject {
             if let integrationWebhooks = chatbotData["integrationWebhooks"] as? [[String: Any]] {
                 self.chatState.setVariable(name: "_integrationWebhooks", value: integrationWebhooks)
             }
+
+            // The bot's flow, and whether it is a no-flow AI agent bot. The
+            // flow was never loaded from here: a flow bot ran nothing unless
+            // the app loaded the flow itself.
+            let agentBot = AgentBotParser.parseAgentBot(chatbotData)
+            let elements = (chatbotData["elements"] as? [[String: Any]])?.first
+            let nodes = elements?["nodes"] as? [[String: Any]] ?? []
+            let edges = elements?["edges"] as? [[String: Any]] ?? []
+            DispatchQueue.main.async {
+                self.agentBot = agentBot
+                if !nodes.isEmpty || agentBot != nil {
+                    self.cachedNodes = nodes
+                    self.cachedEdges = edges
+                }
+                self.tryStartFlow()
+            }
         }
+
+        setupAgentBotListeners()
 
         // Integration result - apply returned answer variables to chat state
         // so ${var} references downstream resolve (sheets read, docs, drive,
@@ -1520,36 +1592,45 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleAgentMessage(data: [Any]) {
-        // Server sends: { message, agentDetails, isFileInput, isAudioInput, agentMessageId }
+        // Server sends: { message, agentDetails, isFileInput, isAudioInput, agentMessageId, ... }
         // NOT a full record. We construct the message from these fields.
         guard let json = data.first as? [String: Any] else { return }
+        if let sid = json["chatSessionId"] as? String, let own = currentSession?.chatSessionId, sid != own { return }
 
         let agentData = json["agentDetails"] as? [String: Any]
-        // Strip HTML tags from agent messages (admin sends via rich text editor with <p> tags)
         let rawMessageText = json["message"] as? String
-        let messageText = rawMessageText?
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         let isFileInput = json["isFileInput"] as? Bool ?? false
         let isAudioInput = json["isAudioInput"] as? Bool ?? false
+        // A file or voice note's message is its URL; text is the inbox
+        // editor's HTML or the AI's markdown, as one markdown subset.
+        let messageText: String? = (isFileInput || isAudioInput)
+            ? rawMessageText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : rawMessageText.map { ChatMarkdown.htmlToMarkdown($0) }
         let agentMessageId = json["agentMessageId"] as? String ?? UUID().uuidString
+        // An AI reply's sources, buttons and cards; its follow-ups shown.
+        let extras = AgentBotParser.aiReplyExtras(json)
+        let isAIReply = AgentBotParser.isAIAgent(agentData)
+        let followUps = isAIReply && json["isFallback"] as? Bool != true ? AgentBotParser.followUps(json["followUps"]) : []
 
         // Parse agent details
-        var agentDetails: AgentDetails?
-        if let agentData = agentData {
+        let agentDetails: AgentDetails? = agentData.flatMap { agentData in
             do {
                 let jsonData = try JSONSerialization.data(withJSONObject: agentData)
-                agentDetails = try JSONDecoder().decode(AgentDetails.self, from: jsonData)
+                return try JSONDecoder().decode(AgentDetails.self, from: jsonData)
             } catch {
                 ConferBotLogger.error("Failed to decode agent details: \(error.localizedDescription)")
+                return nil
             }
         }
 
         let now = Date()
 
         Task { @MainActor in
+            // The wait and the live bubble end; the follow-ups show.
+            self.setAwaitingReply(false)
+            self.agentStream = nil
+            self.suggestions = followUps
+
             // Deduplicate by message ID
             guard !self.messages.contains(where: { $0.id == agentMessageId }) else { return }
 
@@ -1594,7 +1675,8 @@ public class ConferBot: ObservableObject {
                     id: agentMessageId,
                     time: now,
                     text: messageText ?? "",
-                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: "")
+                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: ""),
+                    extras: (extras?.isEmpty == false || extras?.isFallback == true) ? extras : nil
                 )
                 self.chatState.pushLiveChatRecord(
                     entryId: agentMessageId,
@@ -1614,6 +1696,263 @@ public class ConferBot: ObservableObject {
         }
     }
 
+    // MARK: - AI Agent Bots (Agent Studio)
+
+    /// Start the loaded bot's flow, or an agent bot's chat, once both the
+    /// bot's data and a session are here. Once per session.
+    @MainActor
+    private func tryStartFlow() {
+        guard !flowStarted, let nodes = cachedNodes, let session = currentSession else { return }
+        flowStarted = true
+        if let bot = agentBot {
+            startAgentBotChat(sessionId: session.chatSessionId, bot: bot, nodes: nodes)
+            return
+        }
+        // A restored conversation is not replayed from the first node.
+        if hasRestoredSession && !messages.isEmpty { return }
+        loadFlow(["nodes": nodes, "edges": cachedEdges])
+        startFlow()
+    }
+
+    @MainActor
+    private func setAwaitingReply(_ on: Bool) {
+        awaitReplyTask?.cancel()
+        awaitingReply = on
+        guard on else { return }
+        awaitReplyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 45_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.awaitingReply = false
+        }
+    }
+
+    /// Open the agent chat for this session on screen: the greeting and the
+    /// starters. Nothing is sent yet - only a person starts a conversation
+    /// (see engageAgent). A restored session already has its conversation:
+    /// back in the room only, nothing greeted or handed over again.
+    @MainActor
+    private func startAgentBotChat(sessionId: String, bot: AgentBot, nodes: [[String: Any]]) {
+        guard agentStartedFor != sessionId else { return }
+        agentStartedFor = sessionId
+        let details = AgentDetails(id: bot.agentDetailsId, name: bot.displayName, email: "", avatar: bot.avatar, isAIAgent: true)
+        currentAgent = Agent(id: details.id, name: details.name, email: "", avatar: bot.avatar)
+        // Visitor messages go the live way from the start.
+        isLiveChatMode = true
+        chatState.isLiveChatMode = true
+
+        let resumed = messages.contains { item in
+            (item as? AgentMessageRecord)?.id.hasPrefix("agent-greeting-") == true || item.type == .userLiveMessage
+        }
+        if resumed {
+            agentPendingHandover = nil
+            agentHandoverPending = false
+            return
+        }
+
+        agentHandoverPending = true
+        let greeting = bot.greeting.isEmpty ? AgentBotParser.defaultGreeting : bot.greeting
+        let shell = AgentBotParser.agentShellNodes(nodes, agentId: bot.agentId)
+        let welcomeId = shell.welcome?["id"] as? String ?? "agent-welcome"
+        var welcomeData = shell.welcome?["data"] as? [String: Any] ?? [:]
+        welcomeData["text"] = greeting
+        welcomeData["disableImage"] = true
+        welcomeData["agentDetails"] = AgentBotParser.agentDetails(of: bot)
+        chatState.pushBotRecord(nodeId: welcomeId, nodeType: "welcome-node", nodeData: welcomeData, text: greeting)
+
+        let greetingRecord = AgentMessageRecord(id: "agent-greeting-\(sessionId)", time: Date(), text: greeting, agentDetails: details)
+        messages.append(greetingRecord)
+        delegate?.conferBot(self, didReceiveMessage: greetingRecord)
+        suggestions = bot.starters
+
+        let handoverId = shell.handover?["id"] as? String ?? "agent-handover"
+        agentPendingHandover = (handoverId, AgentBotParser.agentHandoverData(shell.handover?["data"] as? [String: Any], agentId: bot.agentId))
+        saveSessionState()
+    }
+
+    /// The visitor is engaging (typing, a suggestion tapped, a message sent):
+    /// create the Response from the record, then the silent handover. Once.
+    @MainActor
+    public func engageAgent() {
+        guard let step = agentPendingHandover, let socketClient = socketClient, socketClient.isConnected,
+              let session = currentSession, let botId = botId else { return }
+        agentPendingHandover = nil
+        socketClient.emit(event: SocketEvents.responseRecord, data: chatState.buildResponseData(chatSessionId: session.chatSessionId, botId: botId))
+        chatState.pushBotRecord(nodeId: step.id, nodeType: "human-handover-node", nodeData: step.data, text: nil)
+        let payload = AgentHandover.payload(state: chatState, chatSessionId: session.chatSessionId, botId: botId,
+                                            nodeData: step.data, extra: ["silentStart": true])
+        socketClient.emit(event: SocketEvents.initiateHandover, data: payload)
+    }
+
+    /// agent-accepted for this bot's own AI agent: nothing drawn, held messages sent.
+    @MainActor
+    private func onAgentBotAccepted(agent: Agent, details: AgentDetails) {
+        let wasPending = agentHandoverPending
+        agentHandoverPending = false
+        currentAgent = agent
+        isLiveChatMode = true
+        chatState.isLiveChatMode = true
+        chatState.currentAgent = details
+        let hasVisitorWords = chatState.getServerRecord().contains { $0["shape"] as? String == "user-live-message" }
+        if wasPending, hasVisitorWords, let session = currentSession, let botId = botId {
+            socketClient?.emit(event: SocketEvents.responseRecord, data: chatState.buildResponseData(chatSessionId: session.chatSessionId, botId: botId))
+            setAwaitingReply(true)
+        }
+    }
+
+    /// The visitor said something: the chips go, the dots wait for the AI.
+    @MainActor
+    private func noteVisitorMessage() {
+        suggestions = []
+        let types = chatState.getServerRecord().map { $0["type"] as? String }
+        if agentBot != nil && AgentBotParser.isAgentAIActive(types) { setAwaitingReply(true) }
+    }
+
+    @MainActor
+    private func resetAgentBotChat() {
+        agentStartedFor = nil
+        agentPendingHandover = nil
+        agentHandoverPending = false
+        agentStream = nil
+        suggestions = []
+        setAwaitingReply(false)
+    }
+
+    private func isOwnSession(_ json: [String: Any]?) -> Bool {
+        guard let sid = json?["chatSessionId"] as? String, let own = currentSession?.chatSessionId else { return true }
+        return sid == own
+    }
+
+    private func agentDetails(from raw: Any?) -> AgentDetails? {
+        guard let dict = raw as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
+        return try? JSONDecoder().decode(AgentDetails.self, from: data)
+    }
+
+    private func setupAgentBotListeners() {
+        // The reply as it is written: one live bubble, replaced by the finished agent-message.
+        socketClient?.on(SocketEvents.agentMessageStream) { [weak self] data, _ in
+            guard let self = self, let json = data.first as? [String: Any], self.isOwnSession(json),
+                  let text = json["text"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let streamId = json["streamId"] as? String else { return }
+            let details = self.agentDetails(from: json["agentDetails"]) ?? AgentDetails(id: "", name: "Agent", email: "")
+            let markdown = ChatMarkdown.htmlToMarkdown(text)
+            Task { @MainActor in
+                self.setAwaitingReply(false)
+                self.isAgentTyping = false
+                self.agentStream = AgentStream(id: streamId, text: markdown, agentDetails: details)
+            }
+        }
+
+        // An article, quick replies or a card from the agent.
+        socketClient?.on(SocketEvents.agentMessageRich) { [weak self] data, _ in
+            guard let self = self, let json = data.first as? [String: Any], self.isOwnSession(json),
+                  let entry = json["entry"] as? [String: Any], let id = entry["id"] as? String,
+                  let rich = AgentBotParser.safeRich(entry["rich"]) else { return }
+            let text = entry["text"] as? String ?? ""
+            let details = self.agentDetails(from: entry["agentDetails"])
+            let rawAgent = entry["agentDetails"] as? [String: Any]
+            Task { @MainActor in
+                self.setAwaitingReply(false)
+                self.agentStream = nil
+                guard !self.messages.contains(where: { $0.id == id }) else { return }
+                let record = AgentRichMessageRecord(id: id, time: Date(), rich: rich, text: text, agentDetails: details)
+                self.messages.append(record)
+                self.chatState.pushLiveChatRecord(entryId: id, type: MessageType.agentMessageRich.rawValue, text: text, agentDetails: rawAgent)
+                self.delegate?.conferBot(self, didReceiveMessage: record)
+                self.saveSessionState()
+            }
+        }
+
+        // An agent edited or unsent a message: the bubble changes in place.
+        for (event, deleted) in [(SocketEvents.agentMessageEdited, false), (SocketEvents.agentMessageDeleted, true)] {
+            socketClient?.on(event) { [weak self] data, _ in
+                guard let self = self, let json = data.first as? [String: Any], self.isOwnSession(json),
+                      let messageId = json["agentMessageId"] as? String else { return }
+                let newText = (json["text"] as? String) ?? (json["message"] as? String)
+                Task { @MainActor in
+                    guard let index = self.messages.firstIndex(where: { $0.id == messageId }),
+                          let message = self.messages[index] as? AgentMessageRecord else { return }
+                    self.messages[index] = deleted
+                        ? message.with(text: "", deleted: true)
+                        : message.with(text: newText.map { ChatMarkdown.htmlToMarkdown($0) }, edited: true)
+                    self.saveSessionState()
+                }
+            }
+        }
+
+        // Closed for inactivity; the visitor's next message reopens it.
+        socketClient?.on(SocketEvents.aiAgentInactiveClose) { [weak self] data, _ in
+            guard let self = self, self.isOwnSession(data.first as? [String: Any]) else { return }
+            Task { @MainActor in
+                self.setAwaitingReply(false)
+                self.suggestions = []
+                self.chatState.pushLiveChatRecord(entryId: "ai-close-\(UUID().uuidString)", type: "ai-agent-inactive-close")
+            }
+        }
+        socketClient?.on(SocketEvents.aiAgentResumed) { [weak self] data, _ in
+            guard let self = self, self.isOwnSession(data.first as? [String: Any]) else { return }
+            Task { @MainActor in
+                self.chatState.pushLiveChatRecord(entryId: "ai-resumed-\(UUID().uuidString)", type: "ai-agent-resumed")
+                self.isLiveChatMode = true
+                self.chatState.isLiveChatMode = true
+            }
+        }
+    }
+
+    /// "Helpful?" on an AI answer: kept on the message, sent to the server.
+    @MainActor
+    public func sendAnswerFeedback(agentMessageId: String, helpful: Bool, reason: String? = nil) {
+        let feedback = AnswerFeedback(helpful: helpful, reason: helpful ? nil : reason)
+        if let index = messages.firstIndex(where: { $0.id == agentMessageId }),
+           let message = messages[index] as? AgentMessageRecord {
+            messages[index] = message.with(feedback: feedback)
+            saveSessionState()
+        }
+        var payload: [String: Any] = [
+            "chatSessionId": currentSession?.chatSessionId ?? "",
+            "agentMessageId": agentMessageId,
+            "helpful": helpful
+        ]
+        if let reason = feedback.reason { payload["reason"] = reason }
+        socketClient?.emitWithAck(event: SocketEvents.aiAnswerFeedback, data: payload, timeout: 10)
+    }
+
+    /// The visitor's Confirm / Not now on an action the AI is about to take.
+    /// `completion` gets (ok, code) on the main queue.
+    public func decideAction(token: String, accept: Bool, completion: @escaping (Bool, String?) -> Void) {
+        let payload: [String: Any] = ["chatSessionId": currentSession?.chatSessionId ?? "", "token": token, "accept": accept]
+        guard let socketClient = socketClient else {
+            completion(false, nil)
+            return
+        }
+        socketClient.emitWithAck(event: SocketEvents.aiActionDecision, data: payload) { [weak self] response in
+            let result = response as? [String: Any]
+            let ok = result?["ok"] as? Bool ?? false
+            DispatchQueue.main.async {
+                if ok && accept { self?.setAwaitingReply(true) }
+                completion(ok, result?["code"] as? String)
+            }
+        }
+    }
+
+    /// A tapped answer button or quick action, as a goal.
+    public func trackConversion(goalId: String, conversionEvent: String) {
+        socketClient?.emit(event: SocketEvents.trackGoalCompletion, data: [
+            "chatSessionId": currentSession?.chatSessionId ?? "",
+            "goalId": goalId,
+            "conversionEvent": conversionEvent
+        ])
+    }
+
+    /// A quick reply chosen on a rich message: the chips freeze, the label is sent.
+    @MainActor
+    public func answerRichMessage(messageId: String, label: String) {
+        if let index = messages.firstIndex(where: { $0.id == messageId }),
+           let message = messages[index] as? AgentRichMessageRecord {
+            messages[index] = message.answering(label)
+        }
+        Task { try? await self.sendMessage(label) }
+    }
+
     private func handleAgentJoined(data: [Any]) {
         // embed-server sends 'agentDetails' not 'agent'
         guard let json = data.first as? [String: Any],
@@ -1629,10 +1968,18 @@ public class ConferBot: ObservableObject {
             let agent = Agent(
                 id: agentDetails.id,
                 name: agentDetails.name,
-                email: agentDetails.email
+                email: agentDetails.email,
+                avatar: agentDetails.avatar
             )
 
             Task { @MainActor in
+                // An agent bot's own AI agent taking the chat it already
+                // greeted: nothing to announce, the held messages go out.
+                if self.agentBot != nil && agentDetails.isAIAgent {
+                    self.onAgentBotAccepted(agent: agent, details: agentDetails)
+                    return
+                }
+
                 // Set live chat mode
                 self.isLiveChatMode = true
                 self.currentAgent = agent
