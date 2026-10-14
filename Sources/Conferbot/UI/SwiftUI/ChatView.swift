@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Tab selection for chat view with knowledge base
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public enum ChatViewTab: Int, CaseIterable {
     case chat = 0
     case knowledgeBase = 1
@@ -33,7 +33,7 @@ public enum ChatViewTab: Int, CaseIterable {
 }
 
 /// Main chat view for SwiftUI with Knowledge Base support
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ChatView: View {
     @ObservedObject private var conferBot = ConferBot.shared
     @State private var inputText = ""
@@ -204,14 +204,37 @@ public struct ChatView: View {
                         interactiveChoicesView(for: uiState)
                     }
 
-                    // Single typing indicator: covers both agent typing and
-                    // bot node processing (never two loading bubbles at once)
-                    if conferBot.isAgentTyping || conferBot.isProcessingNode {
+                    // The AI reply as it is written (agent bots)
+                    if let stream = conferBot.agentStream {
+                        MessageBubble(
+                            message: AgentMessageRecord(id: "stream-\(stream.id)", time: Date(), text: stream.text, agentDetails: stream.agentDetails),
+                            customization: conferBot.customization
+                        )
+                        .id("stream")
+                    }
+
+                    // Single typing indicator: covers agent typing, bot node
+                    // processing and waiting on an AI reply (never two at once)
+                    if (conferBot.isAgentTyping || conferBot.isProcessingNode || conferBot.awaitingReply) && conferBot.agentStream == nil {
                         TypingIndicator(avatarURL: conferBot.customization?.avatarURL)
                             .id("typing")
                     }
+
+                    // Starters under the greeting, follow-ups under the latest answer
+                    if conferBot.agentStream == nil && !conferBot.awaitingReply {
+                        SuggestionChipsView(items: conferBot.suggestions, accent: chipAccent) { question in
+                            Task { try? await conferBot.sendMessage(question) }
+                        }
+                        .id("suggestions")
+                    }
                 }
                 .padding()
+            }
+            .onChange(of: conferBot.agentStream?.text.count ?? 0) { _ in
+                proxy.scrollTo("stream", anchor: .bottom)
+            }
+            .onChange(of: conferBot.suggestions) { items in
+                if !items.isEmpty { withAnimation { proxy.scrollTo("suggestions", anchor: .bottom) } }
             }
             .onChange(of: conferBot.messages.count) { _ in
                 withAnimation {
@@ -283,7 +306,7 @@ public struct ChatView: View {
 
 // MARK: - Tab Button
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct TabButton: View {
     let tab: ChatViewTab
     let isSelected: Bool
@@ -316,7 +339,7 @@ struct TabButton: View {
 // MARK: - Chat View with KB Sheet
 
 /// Chat view that shows Knowledge Base as a sheet instead of a tab
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 public struct ChatViewWithKBSheet: View {
     @ObservedObject private var conferBot = ConferBot.shared
     @State private var inputText = ""
@@ -427,14 +450,37 @@ public struct ChatViewWithKBSheet: View {
                         interactiveChoicesView(for: uiState)
                     }
 
-                    // Single typing indicator: covers both agent typing and
-                    // bot node processing (never two loading bubbles at once)
-                    if conferBot.isAgentTyping || conferBot.isProcessingNode {
+                    // The AI reply as it is written (agent bots)
+                    if let stream = conferBot.agentStream {
+                        MessageBubble(
+                            message: AgentMessageRecord(id: "stream-\(stream.id)", time: Date(), text: stream.text, agentDetails: stream.agentDetails),
+                            customization: conferBot.customization
+                        )
+                        .id("stream")
+                    }
+
+                    // Single typing indicator: covers agent typing, bot node
+                    // processing and waiting on an AI reply (never two at once)
+                    if (conferBot.isAgentTyping || conferBot.isProcessingNode || conferBot.awaitingReply) && conferBot.agentStream == nil {
                         TypingIndicator(avatarURL: conferBot.customization?.avatarURL)
                             .id("typing")
                     }
+
+                    // Starters under the greeting, follow-ups under the latest answer
+                    if conferBot.agentStream == nil && !conferBot.awaitingReply {
+                        SuggestionChipsView(items: conferBot.suggestions, accent: chipAccent) { question in
+                            Task { try? await conferBot.sendMessage(question) }
+                        }
+                        .id("suggestions")
+                    }
                 }
                 .padding()
+            }
+            .onChange(of: conferBot.agentStream?.text.count ?? 0) { _ in
+                proxy.scrollTo("stream", anchor: .bottom)
+            }
+            .onChange(of: conferBot.suggestions) { items in
+                if !items.isEmpty { withAnimation { proxy.scrollTo("suggestions", anchor: .bottom) } }
             }
             .onChange(of: conferBot.messages.count) { _ in
                 withAnimation {
@@ -533,9 +579,16 @@ public struct ChatViewWithKBSheet: View {
     }
 }
 
-@available(iOS 14.0, *)
+@available(iOS 15.0, *)
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {
         ChatView()
     }
+}
+
+/// The chips' colour: the bot's primary colour, else the system accent.
+@available(iOS 15.0, *)
+private var chipAccent: Color {
+    if let color = ConferBot.shared.customization?.primaryColor { return Color(color) }
+    return .accentColor
 }
