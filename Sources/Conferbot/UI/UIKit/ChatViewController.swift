@@ -6,11 +6,24 @@
 //
 
 import UIKit
+import SwiftUI
+import UniformTypeIdentifiers
 
 /// Main chat view controller for UIKit
 public class ChatViewController: UIViewController {
     private let tableView = UITableView()
     private let chatInputView = ChatInputView()
+    /// Live chat: the queue, the cards (leave a message, a file asked for, the
+    /// lead card, the rating), locked / connection lines and quick actions,
+    /// drawn with the SwiftUI pieces (LiveChatCards.swift).
+    private lazy var liveStrip: UIViewController = {
+        if #available(iOS 15.0, *) {
+            let host = UIHostingController(rootView: LiveChatStrip(onUpload: { [weak self] in self?.pickFile() }))
+            host.view.backgroundColor = .clear
+            return host
+        }
+        return UIViewController()
+    }()
     private var messages: [any RecordItem] = []
     private var isAgentTyping = false
 
@@ -36,17 +49,25 @@ public class ChatViewController: UIViewController {
         tableView.register(TypingIndicatorCell.self, forCellReuseIdentifier: "TypingCell")
 
         view.addSubview(tableView)
+        addChild(liveStrip)
+        view.addSubview(liveStrip.view)
+        liveStrip.didMove(toParent: self)
         view.addSubview(chatInputView)
 
         // Layout
         tableView.translatesAutoresizingMaskIntoConstraints = false
+        liveStrip.view.translatesAutoresizingMaskIntoConstraints = false
         chatInputView.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: chatInputView.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: liveStrip.view.topAnchor),
+
+            liveStrip.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            liveStrip.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            liveStrip.view.bottomAnchor.constraint(equalTo: chatInputView.topAnchor),
 
             chatInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             chatInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
@@ -126,6 +147,15 @@ public class ChatViewController: UIViewController {
             }
             .store(in: &cancellables)
 
+        // Replies off while the agent locked the conversation or turned them off
+        ConferBot.shared.liveChat.$lockedBy
+            .combineLatest(ConferBot.shared.liveChat.$visitorInputEnabled)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] locked, inputOn in
+                self?.chatInputView.setRepliesEnabled(locked == nil && inputOn)
+            }
+            .store(in: &cancellables)
+
         // Subscribe to connection status
         ConferBot.shared.$isConnected
             .receive(on: DispatchQueue.main)
@@ -186,6 +216,28 @@ public class ChatViewController: UIViewController {
         DispatchQueue.main.async {
             self.tableView.scrollToRow(at: indexPath, at: .bottom, animated: animated)
         }
+    }
+
+    /// A live chat file: the system document picker.
+    private func pickFile() {
+        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        }
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ConferBot.shared.setChatVisible(true)
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        ConferBot.shared.setChatVisible(false)
     }
 
     @objc private func closeTapped() {
@@ -254,3 +306,15 @@ extension ChatViewController: ChatInputViewDelegate {
 }
 
 import Combine
+
+extension ChatViewController: UIDocumentPickerDelegate {
+    public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        ConferBot.shared.sendLiveFile(fileURL: url) { [weak self] error in
+            guard let error = error else { return }
+            let alert = UIAlertController(title: nil, message: error, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            self?.present(alert, animated: true)
+        }
+    }
+}
