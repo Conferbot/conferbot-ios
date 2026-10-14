@@ -58,10 +58,12 @@ public struct MessageBubble: View {
                                 // Sent in the visitor's language: the agent's own words one tap away.
                                 if let translation = agentMessage.translation {
                                     let labels = LiveChat.translationLabels(translation.to)
-                                    Button(showOriginal ? labels.1 : labels.0) { showOriginal.toggle() }
-                                        .font(.caption)
-                                        .foregroundColor(textColor.opacity(0.8))
-                                        .underline()
+                                    Button { showOriginal.toggle() } label: {
+                                        Text(showOriginal ? labels.1 : labels.0)
+                                            .font(.caption)
+                                            .underline()
+                                            .foregroundColor(textColor.opacity(0.8))
+                                    }
                                 }
                             }
                         }
