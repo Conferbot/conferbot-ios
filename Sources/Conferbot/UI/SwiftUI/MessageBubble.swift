@@ -12,6 +12,8 @@ import SwiftUI
 public struct MessageBubble: View {
     let message: any RecordItem
     let customization: ConferBotCustomization?
+    /// A translated agent message shows the agent's own words when on.
+    @State private var showOriginal = false
 
     public init(message: any RecordItem, customization: ConferBotCustomization?) {
         self.message = message
@@ -51,7 +53,17 @@ public struct MessageBubble: View {
                         if agentMessage.deleted {
                             Text("This message was deleted").italic().opacity(0.7)
                         } else {
-                            ChatMarkdownText(text: agentMessage.text, color: textColor)
+                            VStack(alignment: .leading, spacing: 6) {
+                                ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor)
+                                // Sent in the visitor's language: the agent's own words one tap away.
+                                if let translation = agentMessage.translation {
+                                    let labels = LiveChat.translationLabels(translation.to)
+                                    Button(showOriginal ? labels.1 : labels.0) { showOriginal.toggle() }
+                                        .font(.caption)
+                                        .foregroundColor(textColor.opacity(0.8))
+                                        .underline()
+                                }
+                            }
                         }
                     }
                     .padding(12)
@@ -89,7 +101,12 @@ public struct MessageBubble: View {
     }
 
     private var isUserMessage: Bool {
-        return message.type == .userMessage || message.type == .userInputResponse
+        return message.type == .userMessage || message.type == .userInputResponse || message.type == .userLiveMessageFile
+    }
+
+    /// A relative /media proxy link opens on the server.
+    private func resolvedFileURL(_ raw: String) -> String {
+        LiveChat.resolveMediaURL(raw, origin: ConferBotEndpoints.socketURL)?.absoluteString ?? raw
     }
 
     private var botNodeData: [String: AnyCodable]? {
@@ -140,10 +157,17 @@ public struct MessageBubble: View {
     /// Extract file information from the message if present
     private func extractFileInfo() -> FileMessageInfo? {
         // Check for agent file message
+        // The visitor's file in a live chat
+        if let visitorFile = message as? UserLiveMessageFileRecord {
+            let url = resolvedFileURL(visitorFile.url)
+            let filename = LiveChat.fileName(visitorFile.fileName, url: url)
+            return FileMessageInfo(url: url, filename: filename, mimeType: visitorFile.mimeType ?? mimeType(for: filename), fileSize: nil)
+        }
+
         if let fileMessage = message as? AgentMessageFileRecord {
-            let filename = URL(string: fileMessage.file)?.lastPathComponent ?? fileMessage.file
+            let filename = LiveChat.fileName(nil, url: fileMessage.file)
             return FileMessageInfo(
-                url: fileMessage.file,
+                url: resolvedFileURL(fileMessage.file),
                 filename: filename,
                 mimeType: mimeType(for: filename),
                 fileSize: nil
