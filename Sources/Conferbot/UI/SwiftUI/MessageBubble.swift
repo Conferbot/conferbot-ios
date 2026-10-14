@@ -26,7 +26,7 @@ public struct MessageBubble: View {
                 Spacer()
             }
 
-            if !isUserMessage && (customization?.showAvatar ?? true) {
+            if !isUserMessage && (customization?.showAvatar ?? true) && !(look.map { $0.hideAvatar } ?? false) {
                 avatarView
             }
 
@@ -71,7 +71,7 @@ public struct MessageBubble: View {
                     .padding(12)
                     .background(backgroundColor)
                     .foregroundColor(textColor)
-                    .cornerRadius(customization?.bubbleCornerRadius ?? 16)
+                    .clipShape(bubbleShape)
 
                     // An AI reply's sources, buttons, cards and "Helpful?"
                     AgentReplyExtrasView(message: agentMessage, accent: pillPrimaryColor)
@@ -87,7 +87,7 @@ public struct MessageBubble: View {
                         .padding(12)
                         .background(backgroundColor)
                         .foregroundColor(textColor)
-                        .cornerRadius(customization?.bubbleCornerRadius ?? 16)
+                        .clipShape(bubbleShape)
                 }
 
                 Text((message as? AgentMessageRecord)?.edited == true ? "Edited \u{00B7} \(timeString)" : timeString)
@@ -129,6 +129,7 @@ public struct MessageBubble: View {
     }
 
     private var pillPrimaryColor: Color {
+        if let look = look { return Color(hex: look.optionBubbleColor) }
         if let color = customization?.primaryColor {
             return Color(color)
         }
@@ -253,7 +254,19 @@ public struct MessageBubble: View {
         }
     }
 
+    /// The bot's settings as the web applies them, once they arrived (Core/Customization).
+    private var look: ResolvedCustomizations? {
+        ConferBot.shared.hasServerLook ? ConferBot.shared.customizations : nil
+    }
+
+    /// The web's bubble corners, else the host app's radius.
+    private var bubbleShape: BubbleShape {
+        if let look = look { return BubbleShape(corners: isUserMessage ? look.userBubble : look.botBubble) }
+        return BubbleShape(corners: .all(Double(customization?.bubbleCornerRadius ?? 16)))
+    }
+
     private var backgroundColor: Color {
+        if let look = look { return Color(hex: isUserMessage ? look.userBubbleColor : look.botBubbleColor) }
         if isUserMessage {
             if let color = customization?.userBubbleColor {
                 return Color(color)
@@ -268,6 +281,7 @@ public struct MessageBubble: View {
     }
 
     private var textColor: Color {
+        if let look = look { return Color(hex: isUserMessage ? look.userTextColor : look.botTextColor) }
         return isUserMessage ? .white : .primary
     }
 
@@ -278,8 +292,10 @@ public struct MessageBubble: View {
     }
 
     private var avatarView: some View {
-        Group {
-            if let avatarURL = customization?.avatarURL {
+        let size = CGFloat(look?.avatarSize ?? 32)
+        let radius = CGFloat(look?.avatarRadius ?? 16)
+        return Group {
+            if let avatarURL = agentPhoto ?? (look.flatMap { URL(string: $0.avatar) }) ?? customization?.avatarURL {
                 AsyncImage(url: avatarURL) { image in
                     image.resizable()
                 } placeholder: {
@@ -289,8 +305,14 @@ public struct MessageBubble: View {
                 initialsAvatar
             }
         }
-        .frame(width: 32, height: 32)
-        .clipShape(Circle())
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+
+    /// A person's own photo in a live chat (an AI agent uses the bot's avatar).
+    private var agentPhoto: URL? {
+        guard let details = (message as? AgentMessageRecord)?.agentDetails, details.isAIAgent != true else { return nil }
+        return details.avatar.flatMap { URL(string: $0) }
     }
 
     /// Colored-circle initials fallback (never transparent) - shows the
@@ -620,6 +642,12 @@ public struct TypingIndicator: View {
     @State private var animating = false
     var avatarURL: URL? = nil
 
+    private var look: ResolvedCustomizations? {
+        ConferBot.shared.hasServerLook ? ConferBot.shared.customizations : nil
+    }
+
+    private var dotColor: Color { look.map { Color(hex: $0.botTextColor) } ?? .gray }
+
     public init(avatarURL: URL? = nil) {
         self.avatarURL = avatarURL
     }
@@ -643,12 +671,17 @@ public struct TypingIndicator: View {
                     .foregroundColor(.gray)
             }
 
-            // Typing dots in a bubble
-            HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(Color.gray)
-                        .frame(width: 8, height: 8)
+            // Typing dots in a bubble: the bot's colours and the web's
+            // 18/6 bubble once the bot's settings arrived.
+            HStack(spacing: look == nil ? 6 : 4) {
+                ForEach(0..<(look?.typingStyle == "wave" ? 5 : 3), id: \.self) { index in
+                    Group {
+                        if look?.typingStyle == "wave" {
+                            RoundedRectangle(cornerRadius: 1.5).fill(dotColor).frame(width: 3, height: animating ? 16 : 5)
+                        } else {
+                            Circle().fill(dotColor).frame(width: look == nil ? 8 : 6, height: look == nil ? 8 : 6)
+                        }
+                    }
                         .opacity(animating ? 0.3 : 1.0)
                         .animation(
                             Animation.easeInOut(duration: 0.6)
@@ -658,10 +691,11 @@ public struct TypingIndicator: View {
                         )
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color(UIColor.systemGray5))
-            .cornerRadius(16)
+            .padding(.horizontal, look == nil ? 16 : 12)
+            .frame(minWidth: look == nil ? nil : 54, minHeight: look == nil ? nil : 36)
+            .padding(.vertical, look == nil ? 10 : 0)
+            .background(look.map { Color(hex: $0.botBubbleColor) } ?? Color(UIColor.systemGray5))
+            .clipShape(BubbleShape(corners: look?.botBubble ?? .all(16)))
         }
         .padding(.horizontal, 12)
         .onAppear {
