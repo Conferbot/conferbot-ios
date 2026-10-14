@@ -94,6 +94,90 @@ public class ConferBot: ObservableObject {
     private var flowEngine: NodeFlowEngine?
     private var flowEngineCancellables = Set<AnyCancellable>()
 
+    // MARK: - Live chat extras
+    // Queue position, leave a message, receipts, locks, file requests, the
+    // lead card and the post-chat rating (Core/LiveChat).
+    public private(set) lazy var liveChat: LiveChatExtras = LiveChatExtras(
+        socket: { [weak self] in self?.socketClient },
+        sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        chatState: { [unowned self] in self.chatState },
+        addMessage: { [weak self] item in
+            guard let self = self, !self.messages.contains(where: { $0.id == item.id }) else { return }
+            self.messages.append(item)
+            self.saveSessionState()
+        },
+        sendRecord: { [weak self] in self?.sendCurrentRecord() }
+    )
+    private var liveChatCancellables = Set<AnyCancellable>()
+    /// The chat is on screen (ChatView appears): the agent's latest message counts as seen.
+    @Published public private(set) var isChatVisible = false
+
+    public func setChatVisible(_ visible: Bool) {
+        DispatchQueue.main.async {
+            self.isChatVisible = visible
+            if visible { self.liveChat.reportReceipts(chatVisible: true) }
+        }
+    }
+
+    /// Leave a message was sent or skipped: the flow carries on from the handover.
+    public func continueAfterLeaveMessage() {
+        Task { @MainActor in await self.flowEngine?.continueAfterHandover() }
+    }
+
+    /// The conversation's record to the server (response-record).
+    func sendCurrentRecord() {
+        guard let session = currentSession, let botId = botId else { return }
+        socketClient?.emit(event: SocketEvents.responseRecord, data: chatState.buildResponseData(chatSessionId: session.chatSessionId, botId: botId))
+    }
+
+    /// The visitor's file in a live chat: uploaded, then sent as the web widget sends it.
+    /// [completion] gets an error message, or nil when it went.
+    public func sendLiveFile(fileURL: URL, completion: @escaping (String?) -> Void = { _ in }) {
+        guard let session = currentSession, let apiKey = apiKey, let botId = botId else {
+            return DispatchQueue.main.async { completion("Uploads are not available") }
+        }
+        let uploader = FileUploadService(apiKey: apiKey, botId: botId, baseURL: config?.apiBaseURL ?? ConferBotEndpoints.apiBaseURL)
+        let name = fileURL.lastPathComponent
+        Task {
+            do {
+                // The /media proxy, bound to this conversation (as the web widget uploads).
+                let url = try await uploader.uploadFile(from: fileURL, sessionId: session.chatSessionId)
+                guard !url.isEmpty else {
+                    return await MainActor.run { completion("That file can't be sent. Please try another one.") }
+                }
+                self.liveChat.sendLiveFile(url: url, fileName: name, mimeType: nil)
+                await MainActor.run { completion(nil) }
+            } catch {
+                await MainActor.run { completion("That file can't be sent. Please try another one.") }
+            }
+        }
+    }
+
+    private func updateQueuePoll(state: NodeUIState?, live: Bool) {
+        if case .humanHandover = state, !live { liveChat.startQueuePoll() } else { liveChat.stopQueuePoll() }
+    }
+
+    /// Ask for the queue while a handover waits for a person; report the
+    /// visitor's delivered / seen receipts as agent messages arrive.
+    private func watchLiveChat() {
+        liveChatCancellables.removeAll()
+        $currentUIState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in self?.updateQueuePoll(state: state, live: self?.isLiveChatMode ?? false) }
+            .store(in: &liveChatCancellables)
+        $isLiveChatMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] live in self?.updateQueuePoll(state: self?.currentUIState, live: live) }
+            .store(in: &liveChatCancellables)
+        $messages
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.liveChat.reportReceipts(chatVisible: self.isChatVisible)
+            }
+            .store(in: &liveChatCancellables)
+    }
+
     // Offline Manager
     private var offlineManagerCancellables = Set<AnyCancellable>()
 
@@ -1468,6 +1552,7 @@ public class ConferBot: ObservableObject {
             // flow was never loaded from here: a flow bot ran nothing unless
             // the app loaded the flow itself.
             let agentBot = AgentBotParser.parseAgentBot(chatbotData)
+            self.liveChat.setChatbotData(chatbotData)
             let elements = (chatbotData["elements"] as? [[String: Any]])?.first
             let nodes = elements?["nodes"] as? [[String: Any]] ?? []
             let edges = elements?["edges"] as? [[String: Any]] ?? []
@@ -1482,6 +1567,8 @@ public class ConferBot: ObservableObject {
         }
 
         setupAgentBotListeners()
+        liveChat.setupListeners()
+        watchLiveChat()
 
         // Integration result - apply returned answer variables to chat state
         // so ${var} references downstream resolve (sheets read, docs, drive,
@@ -1676,7 +1763,8 @@ public class ConferBot: ObservableObject {
                     time: now,
                     text: messageText ?? "",
                     agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: ""),
-                    extras: (extras?.isEmpty == false || extras?.isFallback == true) ? extras : nil
+                    extras: (extras?.isEmpty == false || extras?.isFallback == true) ? extras : nil,
+                    translation: LiveChat.agentTranslation(json)
                 )
                 self.chatState.pushLiveChatRecord(
                     entryId: agentMessageId,
@@ -1980,7 +2068,8 @@ public class ConferBot: ObservableObject {
                     return
                 }
 
-                // Set live chat mode
+                // Set live chat mode; the handover step's waiting card goes
+                self.flowEngine?.handoverAccepted()
                 self.isLiveChatMode = true
                 self.currentAgent = agent
                 self.chatState.isLiveChatMode = true
@@ -2080,6 +2169,26 @@ public class ConferBot: ObservableObject {
 
     private func handleNoAgentsAvailable(data: [Any]) {
         Task { @MainActor in
+            // A flow at its handover step, as the web widget does it: the
+            // owner's fallback as the bot's message, then "Leave a message"
+            // (the flow carries on once it is sent or skipped), or straight
+            // on when the owner turned that off.
+            if let engine = self.flowEngine, engine.isAtHandover, let nodeId = engine.currentNodeId {
+                let nodeData = engine.getNodeInfo(nodeId)?["data"] as? [String: Any] ?? [:]
+                let fallback = LiveChat.plainText(self.chatState.resolveVariables(text: nodeData["fallbackMessage"] as? String ?? ""))
+                engine.handoverAccepted()
+                if !fallback.isEmpty {
+                    let id = "agent-declined-\(Int(Date().timeIntervalSince1970 * 1000))"
+                    self.messages.append(BotMessageRecord(id: id, time: Date(), text: fallback))
+                    self.chatState.pushServerEntry(["id": id, "_id": id, "type": "agent-declined-message", "message": fallback, "renderedText": fallback])
+                }
+                self.saveSessionState()
+                if (self.serverCustomizations?["chatLeaveMessage"] as? Bool) == false {
+                    await engine.continueAfterHandover()
+                }
+                return
+            }
+
             // Add system message
             let messageId = UUID().uuidString
             let systemMessage = SystemMessageRecord(
@@ -2129,10 +2238,12 @@ public class ConferBot: ObservableObject {
 
             self.saveSessionState()
             self.debugPrint("[ConferBot] Chat ended by server")
-        }
 
-        // Also run the normal session end logic
-        endSession()
+            // As on the web: the conversation stays on screen, the rating
+            // card shows (LiveChatExtras), and the flow carries on from the
+            // handover step. Ending the session here used to wipe the chat.
+            Task { await self.flowEngine?.continueAfterHandover() }
+        }
     }
 
     private func getDeviceInfo() -> [String: Any] {
