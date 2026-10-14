@@ -322,6 +322,25 @@ public enum LiveChat {
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// handover-timeout, sent once the handover step's max wait passes with
+    /// nobody joined: the server then decides (no-agents-available), as the
+    /// web widget's maxWaitTimer does.
+    public static func handoverTimeoutPayload(chatSessionId: String, nodeData: [String: Any]?, workspaceId: String?) -> [String: Any] {
+        var assignment: [String: Any] = [:]
+        assignment["assignmentType"] = nodeData?["assignmentType"]
+        assignment["assignmentStrategy"] = nodeData?["agentAssignmentStrategy"]
+        assignment["assignedAgents"] = nodeData?["assignedAgents"]
+        var out: [String: Any] = ["chatSessionId": chatSessionId, "assignmentData": assignment]
+        out["workspaceId"] = workspaceId
+        return out
+    }
+
+    /// The max wait in seconds (minutes as the builder wrote them).
+    public static func waitSeconds(_ v: Any?) -> Double {
+        let m = waitMinutes(v)
+        return ((m as? Double) ?? Double((m as? Int) ?? 2)) * 60
+    }
+
     /// Minutes, as the builder wrote them: half a minute is 0.5, not 2 (the default).
     public static func waitMinutes(_ v: Any?) -> Any {
         if let i = v as? Int { return i }
