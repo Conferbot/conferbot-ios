@@ -20,6 +20,11 @@ public struct ChatBottomBar: View {
     var hideBrand: Bool = false
     var customBrand: String? = nil
     var primaryColor: Color = .blue
+    /// Off while the agent turned replies off or locked the conversation.
+    var enabled: Bool = true
+    var placeholder: String = "Type a message..."
+    /// The paperclip: shown when given (a live chat that takes visitor files).
+    var onAttach: (() -> Void)? = nil
 
     @State private var isEditing = false
     @Environment(\.openURL) private var openURL
@@ -30,7 +35,10 @@ public struct ChatBottomBar: View {
         onEditingChanged: @escaping (Bool) -> Void = { _ in },
         hideBrand: Bool = false,
         customBrand: String? = nil,
-        primaryColor: Color = .blue
+        primaryColor: Color = .blue,
+        enabled: Bool = true,
+        placeholder: String = "Type a message...",
+        onAttach: (() -> Void)? = nil
     ) {
         self._text = text
         self.onSend = onSend
@@ -38,16 +46,29 @@ public struct ChatBottomBar: View {
         self.hideBrand = hideBrand
         self.customBrand = customBrand
         self.primaryColor = primaryColor
+        self.enabled = enabled
+        self.placeholder = placeholder
+        self.onAttach = onAttach
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             // ── Input row ──
             HStack(alignment: .center, spacing: 8) {
+                if let onAttach = onAttach {
+                    Button(action: onAttach) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 20))
+                            .foregroundColor(.secondary)
+                            .frame(width: 36, height: 44)
+                    }
+                    .disabled(!enabled)
+                    .accessibilityLabel("Attach a file")
+                }
                 // Pill-shaped input with subtle border
                 ZStack(alignment: .leading) {
                     if text.isEmpty {
-                        Text("Type a message...")
+                        Text(placeholder)
                             .foregroundColor(Color(hex: "4D4D4D"))
                             .font(.system(size: 16))
                             .padding(.horizontal, 18)
@@ -59,8 +80,9 @@ public struct ChatBottomBar: View {
                         .frame(minHeight: 44, maxHeight: 130)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .scrollContentBackground(.hidden)
+                        .hideEditorBackground()
                         .background(Color.white)
+                        .disabled(!enabled)
                         .onChange(of: text) { newValue in
                             if newValue.count > ConferBotConstants.maxMessageLength {
                                 text = String(newValue.prefix(ConferBotConstants.maxMessageLength))
@@ -105,7 +127,7 @@ public struct ChatBottomBar: View {
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        enabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func sendMessage() {
@@ -179,5 +201,19 @@ private extension Color {
             blue: Double(b) / 255,
             opacity: 1
         )
+    }
+}
+
+@available(iOS 15.0, *)
+private extension View {
+    /// TextEditor's own background off (iOS 16+; iOS 15 draws it clear already
+    /// once UITextView's background is cleared by the app's appearance).
+    @ViewBuilder
+    func hideEditorBackground() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollContentBackground(.hidden)
+        } else {
+            self
+        }
     }
 }
