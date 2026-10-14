@@ -44,6 +44,7 @@ public final class LiveChatExtras: ObservableObject {
     private let sendRecord: () -> Void
 
     private var queueTimer: Timer?
+    private var waitTimer: Timer?
     private var reportedDelivered = ""
     private var reportedSeen = ""
 
@@ -184,6 +185,26 @@ public final class LiveChatExtras: ObservableObject {
         }
     }
 
+    /// The handover step's max wait: once it passes with nobody joined, the
+    /// server is asked to decide (handover-timeout) and answers with
+    /// no-agents-available. Once per wait.
+    public func startWaitTimer(nodeData: [String: Any]?, workspaceId: String?) {
+        main {
+            guard self.waitTimer == nil else { return }
+            self.waitTimer = Timer.scheduledTimer(withTimeInterval: LiveChat.waitSeconds(nodeData?["maxWaitTime"]), repeats: false) { [weak self] _ in
+                guard let self, let id = self.sessionId() else { return }
+                self.socket()?.emit(event: "handover-timeout", data: LiveChat.handoverTimeoutPayload(chatSessionId: id, nodeData: nodeData, workspaceId: workspaceId))
+            }
+        }
+    }
+
+    public func stopWaitTimer() {
+        main {
+            self.waitTimer?.invalidate()
+            self.waitTimer = nil
+        }
+    }
+
     private func askQueue() {
         guard let id = sessionId() else { return }
         socket()?.emitWithAck(event: "queue-status", data: ["chatSessionId": id], timeout: 10) { res in
@@ -291,6 +312,7 @@ public final class LiveChatExtras: ObservableObject {
     }
 
     func reset() {
+        stopWaitTimer()
         stopQueuePoll()
         main {
             self.queue = nil
