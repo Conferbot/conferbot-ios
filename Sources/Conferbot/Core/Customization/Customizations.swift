@@ -42,6 +42,12 @@ public struct ResolvedCustomizations: Equatable {
     public var botBubble = BubbleCorners(topLeft: 18, topRight: 18, bottomRight: 18, bottomLeft: 6)
     public var userBubble = BubbleCorners(topLeft: 18, topRight: 18, bottomRight: 6, bottomLeft: 18)
     public var optionRadius: Double = 10
+    /// An outline round each bubble, from the theme (cartoon, neo-brutal...), or nil.
+    public var bubbleBorder: BubbleBorder?
+    /// The composer field's corner radius: 25 (a pill) unless the theme has its own.
+    public var fieldRadius: Double = 25
+    /// The chat surface the theme paints when the owner kept the default white, else nil.
+    public var surface: String?
     /// Message text size: 14.5 unless the owner set something other than 14.
     public var fontSize: Double = 14.5
     /// Colours as hex strings, with the web's defaults and fallbacks.
@@ -55,6 +61,12 @@ public struct ResolvedCustomizations: Equatable {
     public var optionTextColor = "#ffffff"
     /// dots, wave, shimmer, pencil or mascot (pencil and mascot draw dots until mascots land).
     public var typingStyle = "dots"
+    /// Send button: the theme palette's accent when it supplied the colours, else the header colour.
+    public var accent = "#0b4eb8"
+    /// Ink on the send button: the theme palette's, else nil (picked for contrast).
+    public var accentInk: String?
+    /// The widget theme in force (WidgetTheme).
+    public var theme = ResolvedWidgetTheme()
 
     public init() {}
 }
@@ -92,7 +104,7 @@ public enum Customizations {
         }
     }
 
-    public static func resolve(_ raw: [String: Any]?, botName: String = "") -> ResolvedCustomizations {
+    public static func resolve(_ raw: [String: Any]?, botName: String = "", theme: ResolvedWidgetTheme? = nil) -> ResolvedCustomizations {
         let c = raw ?? [:]
         var r = ResolvedCustomizations()
         let name = [str(c["logoText"]), str(c["botName"]), botName].first { !$0.isEmpty } ?? "Chat"
@@ -111,11 +123,21 @@ public enum Customizations {
         let shape = c["avatarShape"] as? String
         r.avatarShape = shape == "square" || shape == "rounded" ? shape! : "circle"
         r.avatarRadius = avatarRadius(r.avatarShape, size: r.avatarSize)
+        // A theme other than classic brings its own radii; the owner's still win.
+        let themeShape = theme?.shape
+        if let s = themeShape {
+            r.botBubble = BubbleCorners(topLeft: s.rBubble, topRight: s.rBubble, bottomRight: s.rBubble, bottomLeft: s.rTail)
+            r.userBubble = BubbleCorners(topLeft: s.rBubble, topRight: s.rBubble, bottomRight: s.rTail, bottomLeft: s.rBubble)
+            r.optionRadius = s.rCtl
+            r.fieldRadius = s.rField
+            r.bubbleBorder = s.bubbleBorder
+        }
         if let b = num(c["bubbleBorderRadius"]), b != 10 {
             r.botBubble = .all(b)
             r.userBubble = .all(b)
         }
-        if let o = num(c["optionBubbleBorderRadius"]) { r.optionRadius = o }
+        if let o = num(c["optionBubbleBorderRadius"]), o != 10 || themeShape == nil { r.optionRadius = o }
+        if let t = theme?.tokens, !WidgetTheme.ownsChatBackground(c) { r.surface = t.bg }
         if let f = num(c["fontSize"]), f > 0, f != 14 { r.fontSize = f }
         r.headerBg = str(c["headerBgColor"]).isEmpty ? "#0b4eb8" : str(c["headerBgColor"])
         r.headerText = str(c["headerTextColor"]).isEmpty ? "#ffffff" : str(c["headerTextColor"])
@@ -129,6 +151,9 @@ public enum Customizations {
         r.optionBubbleColor = [str(c["optionBubbleMsgColor"]), bot].first { !$0.isEmpty } ?? "#e7e4e4"
         r.optionTextColor = [str(c["optionBubbleTextColor"]), botText].first { !$0.isEmpty } ?? "#000000"
         if let t = c["typingStyle"] as? String, typingStyles.contains(t) { r.typingStyle = t }
+        r.accent = [str(c["themeAccent"]), str(c["headerBgColor"])].first { !$0.isEmpty } ?? "#0b4eb8"
+        r.accentInk = str(c["themeOnAccent"]).isEmpty ? nil : str(c["themeOnAccent"])
+        if let theme = theme { r.theme = theme }
         return r
     }
 }
