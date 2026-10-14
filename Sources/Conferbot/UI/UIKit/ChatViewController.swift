@@ -29,6 +29,7 @@ public class ChatViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        ConferBot.shared.setSystemDarkMode(traitCollection.userInterfaceStyle == .dark)
 
         setupUI()
         setupNavigationBar()
@@ -110,7 +111,18 @@ public class ChatViewController: UIViewController {
         navigationController?.navigationBar.scrollEdgeAppearance = appearance
         navigationController?.navigationBar.compactAppearance = appearance
         navigationController?.navigationBar.tintColor = ink
+        // The widget theme's surface behind the messages (the system one without a theme).
+        let surface = look.surface.map { UIColor(cbHex: $0) } ?? .systemBackground
+        view.backgroundColor = surface
+        tableView.backgroundColor = surface
+        chatInputView.applyLook(look)
         tableView.reloadData()
+    }
+
+    // A theme set to "auto" follows the phone's light / dark setting.
+    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        ConferBot.shared.setSystemDarkMode(traitCollection.userInterfaceStyle == .dark)
     }
 
     private func setupObservers() {
