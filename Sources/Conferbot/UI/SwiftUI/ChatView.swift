@@ -115,7 +115,10 @@ public struct ChatView: View {
                         hideBrand: (conferBot.serverCustomizations?["hideBrand"] as? Bool)
                             ?? conferBot.customization?.hideBrand
                             ?? false,
-                        primaryColor: conferBot.customization?.primaryColor.map { Color($0) } ?? .blue,
+                        customBrand: conferBot.hasServerLook ? conferBot.customizations.customBrand : nil,
+                        // The send button in the header colour, as on the web.
+                        primaryColor: conferBot.hasServerLook ? Color(hex: conferBot.customizations.headerBg)
+                            : (conferBot.customization?.primaryColor.map { Color($0) } ?? .blue),
                         enabled: !repliesOff,
                         placeholder: repliesOff ? "Replies are turned off for now" : "Type a message...",
                         onAttach: canAttach ? { showFileImporter = true } : nil
@@ -144,7 +147,73 @@ public struct ChatView: View {
         .onDisappear { conferBot.setChatVisible(false) }
     }
 
+    @ViewBuilder
     private var headerView: some View {
+        if conferBot.hasServerLook {
+            serverHeaderView
+        } else {
+            hostHeaderView
+        }
+    }
+
+    /// The header as the web draws it: the bot's colours, its logo (or the
+    /// agent's photo), the 18-character title, and the tagline or "Online".
+    private var serverHeaderView: some View {
+        let look = conferBot.customizations
+        let ink = Color(hex: look.headerText)
+        let agent = conferBot.currentAgent
+        return HStack(spacing: 10) {
+            if let agent = agent {
+                Group {
+                    if let photo = agent.avatar.flatMap({ URL(string: $0) }) {
+                        AsyncImage(url: photo) { image in image.resizable() } placeholder: { Color.clear }
+                    } else {
+                        Text(String(agent.name.prefix(1)).uppercased())
+                            .font(.headline)
+                            .foregroundColor(ink)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(ink.opacity(0.2))
+                    }
+                }
+                .frame(width: 38, height: 38)
+                .clipShape(Circle())
+            } else if !look.hideLogo, let logo = URL(string: look.logo) {
+                AsyncImage(url: logo) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent?.name ?? look.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(ink)
+                    .lineLimit(1)
+                if !conferBot.isConnected {
+                    Text("Connecting...").font(.caption).foregroundColor(ink.opacity(0.85))
+                } else if agent == nil, let tagline = look.tagline {
+                    Text(tagline).font(.caption).foregroundColor(ink.opacity(0.85)).lineLimit(1)
+                } else if agent == nil && look.showOnline {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(Color(red: 0.13, green: 0.77, blue: 0.37))
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
+                        Text("Online").font(.caption).foregroundColor(ink.opacity(0.85))
+                    }
+                }
+            }
+            Spacer()
+            if !enableKnowledgeBase {
+                Button(action: { showKnowledgeBaseSheet = true }) {
+                    Image(systemName: "book").font(.system(size: 18)).foregroundColor(ink)
+                }
+                .padding(.trailing, 4)
+            }
+        }
+        .padding()
+        .background(Color(hex: look.headerBg))
+    }
+
+    private var hostHeaderView: some View {
         HStack {
             if conferBot.customization?.showAvatar ?? true {
                 if let avatarURL = conferBot.customization?.avatarURL {
@@ -652,6 +721,7 @@ struct ChatView_Previews: PreviewProvider {
 /// The chips' colour: the bot's primary colour, else the system accent.
 @available(iOS 15.0, *)
 private var chipAccent: Color {
+    if ConferBot.shared.hasServerLook { return Color(hex: ConferBot.shared.customizations.optionBubbleColor) }
     if let color = ConferBot.shared.customization?.primaryColor { return Color(color) }
     return .accentColor
 }
