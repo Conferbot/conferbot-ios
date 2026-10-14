@@ -47,7 +47,7 @@ public enum AgentHandover {
             "chatMetaData": chatMetaData,
             "metaData": metaData,
             "priority": nodeData["priority"] as? String ?? "normal",
-            "maxWaitTime": nodeData["maxWaitTime"] as? Int ?? 2,
+            "maxWaitTime": LiveChat.waitMinutes(nodeData["maxWaitTime"]),
             "assignmentType": nodeData["assignmentType"] as? String ?? "auto",
             "assignmentStrategy": nodeData["agentAssignmentStrategy"] as? String ?? "",
             "assignedAgents": nodeData["assignedAgents"] as? [String] ?? [],
