@@ -285,6 +285,14 @@ public struct ChatView: View {
     }
 
     private var messagesView: some View {
+        messagesList
+            // The bot's chat background (Core/Customization/ChatBackground), as on the web.
+            .background(Group {
+                if conferBot.hasServerLook { ChatBackgroundView(background: ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
+            })
+    }
+
+    private var messagesList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
@@ -569,6 +577,14 @@ public struct ChatViewWithKBSheet: View {
     }
 
     private var messagesView: some View {
+        messagesList
+            // The bot's chat background (Core/Customization/ChatBackground), as on the web.
+            .background(Group {
+                if conferBot.hasServerLook { ChatBackgroundView(background: ChatBackgrounds.resolve(conferBot.serverCustomizations)) }
+            })
+    }
+
+    private var messagesList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
