@@ -289,6 +289,9 @@ Whenever the socket connects, the SDK fetches your bot's configuration (the same
 
 - **Floating widget (FAB)**: bubble background color (`widgetIconBgColor`, falling back to `headerBgColor`), size, corner radius, left/right position, edge offsets, launcher icon, and the CTA tooltip text (`chatIconCtaText`). The FAB is styled entirely from the server; there are currently no local overrides for it (`ConferBotFABConfig` is an empty placeholder reserved for future options).
 - **Branding**: the server `hideBrand` flag takes precedence over the local `ConferBotCustomization.hideBrand` value for the "Powered by Conferbot" footer.
+- **Chat look**: header colours, logo, title, tagline or "Online"; bot, visitor and option bubble colours and corners; avatar size and shape; font size; typing style; custom footer text. Applied in `ChatView` and `ChatViewController`.
+- **Chat background**: solid, gradient (linear, radial, mesh, blur), image with its mask, or one of the 13 patterns (patterns and gradients on iOS 15+; iOS 13-14 show the base colour).
+- **Widget theme**: all 27 dashboard themes (Classic, Minimal, Glass, Neo-brutal, Midnight, Aurora and the rest). Each brings its surfaces, text colours, corner radii and bubble outline, as on the web widget. **Appearance** light, dark, or auto (follows the phone's dark mode, also when it changes while the chat is open); Midnight, Neon, Chalkboard, Cyberpunk and Space are always dark. **Colours** "Brand" keeps your colours; "Theme palette" swaps in the theme's own header, bubble, option and send-button colours. Your own bubble radius, option radius and chat background still win over the theme. Theme fonts are not loaded on iOS; the system font is used.
 - **Bot identity**: the bot name from the dashboard is injected into the flow state, so flow nodes that reference it render correctly.
 - **Flow content**: all flow-builder changes (messages, choices, node styling data) come from the server on every connect.
 
@@ -316,7 +319,7 @@ ConferBot.shared.initialize(
 )
 ```
 
-**Precedence, precisely**: for the FAB and `hideBrand`, server settings win over local ones. For the chat header title, avatar, and bubble colors, only the local `ConferBotCustomization` applies today - the iOS chat surface does not yet remap dashboard theme colors onto bubbles the way the Flutter SDK's theme does. Dark mode follows the system appearance automatically via dynamic system colors.
+**Precedence, precisely**: once the bot's dashboard settings arrive they win over the local `ConferBotCustomization` for the FAB, `hideBrand`, the header, bubbles and the chat background. Before they arrive (or for a bot with none), the local customization applies. Light or dark follows the bot's theme appearance; with Classic in light and no theme, the system colours stay.
 
 ## Push Notifications
 
