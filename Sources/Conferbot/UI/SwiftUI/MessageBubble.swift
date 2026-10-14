@@ -72,6 +72,7 @@ public struct MessageBubble: View {
                     .background(backgroundColor)
                     .foregroundColor(textColor)
                     .clipShape(bubbleShape)
+                    .overlay(bubbleOutline)
 
                     // An AI reply's sources, buttons, cards and "Helpful?"
                     AgentReplyExtrasView(message: agentMessage, accent: pillPrimaryColor)
@@ -88,11 +89,12 @@ public struct MessageBubble: View {
                         .background(backgroundColor)
                         .foregroundColor(textColor)
                         .clipShape(bubbleShape)
+                        .overlay(bubbleOutline)
                 }
 
                 Text((message as? AgentMessageRecord)?.edited == true ? "Edited \u{00B7} \(timeString)" : timeString)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
             }
 
             if isUserMessage {
@@ -260,6 +262,14 @@ public struct MessageBubble: View {
     }
 
     /// The web's bubble corners, else the host app's radius.
+    /// The widget theme's outline round the bubble (cartoon, neo-brutal, sketch...).
+    @ViewBuilder
+    private var bubbleOutline: some View {
+        if let b = look?.bubbleBorder {
+            bubbleShape.stroke(Color(hex: b.color), lineWidth: CGFloat(b.width))
+        }
+    }
+
     private var bubbleShape: BubbleShape {
         if let look = look { return BubbleShape(corners: isUserMessage ? look.userBubble : look.botBubble) }
         return BubbleShape(corners: .all(Double(customization?.bubbleCornerRadius ?? 16)))
