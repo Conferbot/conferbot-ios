@@ -25,6 +25,12 @@ public struct ChatBottomBar: View {
     var placeholder: String = "Type a message..."
     /// The paperclip: shown when given (a live chat that takes visitor files).
     var onAttach: (() -> Void)? = nil
+    /// The widget theme's surfaces and text (nil: white, as before).
+    var tokens: ThemeTokens? = nil
+    /// The field's corner radius: 25 (a pill) unless the theme has its own.
+    var fieldRadius: Double = 25
+    /// Ink on the send button: the theme palette's, else white.
+    var sendInk: Color = .white
 
     @State private var isEditing = false
     @Environment(\.openURL) private var openURL
@@ -38,7 +44,10 @@ public struct ChatBottomBar: View {
         primaryColor: Color = .blue,
         enabled: Bool = true,
         placeholder: String = "Type a message...",
-        onAttach: (() -> Void)? = nil
+        onAttach: (() -> Void)? = nil,
+        tokens: ThemeTokens? = nil,
+        fieldRadius: Double = 25,
+        sendInk: Color = .white
     ) {
         self._text = text
         self.onSend = onSend
@@ -49,7 +58,14 @@ public struct ChatBottomBar: View {
         self.enabled = enabled
         self.placeholder = placeholder
         self.onAttach = onAttach
+        self.tokens = tokens
+        self.fieldRadius = fieldRadius
+        self.sendInk = sendInk
     }
+
+    private var surface: Color { tokens.map { Color(hex: $0.bg) } ?? .white }
+    private var muted: Color { tokens.map { Color(hex: $0.muted) } ?? Color(hex: "56595B") }
+    private var radius: CGFloat { CGFloat(min(fieldRadius, 25)) }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -69,19 +85,19 @@ public struct ChatBottomBar: View {
                 ZStack(alignment: .leading) {
                     if text.isEmpty {
                         Text(placeholder)
-                            .foregroundColor(Color(hex: "4D4D4D"))
+                            .foregroundColor(tokens.map { Color(hex: $0.muted) } ?? Color(hex: "4D4D4D"))
                             .font(.system(size: 16))
                             .padding(.horizontal, 18)
                     }
 
                     TextEditor(text: $text)
                         .font(.system(size: 16))
-                        .foregroundColor(.black)
+                        .foregroundColor(tokens.map { Color(hex: $0.ink) } ?? .black)
                         .frame(minHeight: 44, maxHeight: 130)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .hideEditorBackground()
-                        .background(Color.white)
+                        .background(tokens.map { Color(hex: $0.field) } ?? .white)
                         .disabled(!enabled)
                         .onChange(of: text) { newValue in
                             if newValue.count > ConferBotConstants.maxMessageLength {
@@ -94,10 +110,10 @@ public struct ChatBottomBar: View {
                         }
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: 25)
-                        .stroke(Color(hex: "E0E0E0"), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: radius)
+                        .stroke(tokens.map { Color(hex: $0.line2) } ?? Color(hex: "E0E0E0"), lineWidth: 1)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 25))
+                .clipShape(RoundedRectangle(cornerRadius: radius))
 
                 // Themed circular send button
                 Button(action: sendMessage) {
@@ -108,7 +124,7 @@ public struct ChatBottomBar: View {
 
                         Image(systemName: "arrow.up")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(sendInk)
                     }
                 }
                 .disabled(!canSend)
@@ -122,7 +138,7 @@ public struct ChatBottomBar: View {
                 footerView
             }
         }
-        .background(Color.white)
+        .background(surface)
         .shadow(color: Color(hex: "636363").opacity(0.12), radius: 4, x: 0, y: -4)
     }
 
@@ -144,7 +160,7 @@ public struct ChatBottomBar: View {
         if let brand = customBrand, !brand.isEmpty {
             Text(brand)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(Color(hex: "687882"))
+                .foregroundColor(tokens.map { Color(hex: $0.muted) } ?? Color(hex: "687882"))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 2)
                 .padding(.bottom, 8)
@@ -157,7 +173,7 @@ public struct ChatBottomBar: View {
                 HStack(spacing: 4) {
                     Text("Powered by ")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(hex: "56595B"))
+                        .foregroundColor(muted)
 
                     AsyncImage(url: URL(string: conferbotLogoURL)) { image in
                         image
