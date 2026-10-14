@@ -101,4 +101,16 @@ final class LiveChatTests: XCTestCase {
         XCTAssertEqual(LiveChat.waitMinutes(nil) as? Int, 2)
         XCTAssertEqual(LiveChat.waitMinutes("x") as? Int, 2)
     }
+
+    func testAsksTheServerToDecideOnceTheMaxWaitPasses() {
+        let p = LiveChat.handoverTimeoutPayload(chatSessionId: "s1", nodeData: ["assignmentType": "manual", "assignedAgents": ["a2"], "agentAssignmentStrategy": "round_robin"], workspaceId: "w1")
+        XCTAssertEqual(p["chatSessionId"] as? String, "s1")
+        XCTAssertEqual(p["workspaceId"] as? String, "w1")
+        let a = p["assignmentData"] as? [String: Any]
+        XCTAssertEqual(a?["assignmentType"] as? String, "manual")
+        XCTAssertEqual(a?["assignmentStrategy"] as? String, "round_robin")
+        XCTAssertEqual(a?["assignedAgents"] as? [String], ["a2"])
+        XCTAssertEqual(LiveChat.waitSeconds("0.5"), 30)
+        XCTAssertEqual(LiveChat.waitSeconds(nil), 120)
+    }
 }
