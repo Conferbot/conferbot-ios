@@ -43,6 +43,24 @@ public class ChatInputView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// The bot's look: the send button in the header colour (or the theme
+    /// palette's accent) and, under a widget theme, its surfaces, field
+    /// radius and text colours. Without a theme the system colours stay.
+    func applyLook(_ look: ResolvedCustomizations) {
+        sendButton.tintColor = UIColor(cbHex: look.accent)
+        guard let t = look.theme.tokens else { return }
+        let surface = UIColor(cbHex: t.bg)
+        backgroundColor = surface
+        containerView.backgroundColor = surface
+        containerView.layer.borderColor = UIColor(cbHex: t.line).cgColor
+        textView.backgroundColor = UIColor(cbHex: t.field)
+        textView.textColor = UIColor(cbHex: t.ink)
+        textView.layer.cornerRadius = CGFloat(min(look.fieldRadius, 20))
+        textView.layer.borderWidth = 1
+        textView.layer.borderColor = UIColor(cbHex: t.line2).cgColor
+        placeholderLabel.textColor = UIColor(cbHex: t.muted)
+    }
+
     private func setupUI() {
         backgroundColor = .systemBackground
 
