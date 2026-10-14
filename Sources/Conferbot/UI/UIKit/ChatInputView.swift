@@ -26,6 +26,14 @@ public class ChatInputView: UIView {
     private var textViewHeightConstraint: NSLayoutConstraint?
     private let maxHeight: CGFloat = 100
 
+    /// Replies off (the agent locked the conversation or turned them off).
+    public func setRepliesEnabled(_ enabled: Bool) {
+        textView.isEditable = enabled
+        sendButton.isEnabled = enabled && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        placeholderLabel.text = enabled ? "Type a message..." : "Replies are turned off for now"
+        alpha = enabled ? 1 : 0.7
+    }
+
     public override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
