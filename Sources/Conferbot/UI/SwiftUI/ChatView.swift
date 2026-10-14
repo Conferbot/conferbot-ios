@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Tab selection for chat view with knowledge base
 @available(iOS 15.0, *)
@@ -36,6 +37,9 @@ public enum ChatViewTab: Int, CaseIterable {
 @available(iOS 15.0, *)
 public struct ChatView: View {
     @ObservedObject private var conferBot = ConferBot.shared
+    @ObservedObject private var live = ConferBot.shared.liveChat
+    @State private var showFileImporter = false
+    @State private var uploadError: String?
     @State private var inputText = ""
     @State private var inputError: String?
     @State private var isSessionStarted = false
@@ -69,7 +73,16 @@ public struct ChatView: View {
                 VStack(spacing: 0) {
                     messagesView
 
-                    if let error = inputError {
+                    // Live chat: locked / connection lines and the owner's quick actions
+                    if live.lockedBy != nil {
+                        LiveSystemLine("This conversation has been locked").padding(.vertical, 4)
+                    }
+                    if let lost = live.agentConnectionLost {
+                        LiveSystemLine("\(lost)'s connection dropped. Hang on, they should be right back.").padding(.vertical, 4)
+                    }
+                    QuickActionsStrip(accent: pillColor)
+
+                    if let error = uploadError ?? inputError {
                         Text(error)
                             .font(.caption)
                             .foregroundColor(.red)
@@ -102,7 +115,10 @@ public struct ChatView: View {
                         hideBrand: (conferBot.serverCustomizations?["hideBrand"] as? Bool)
                             ?? conferBot.customization?.hideBrand
                             ?? false,
-                        primaryColor: conferBot.customization?.primaryColor.map { Color($0) } ?? .blue
+                        primaryColor: conferBot.customization?.primaryColor.map { Color($0) } ?? .blue,
+                        enabled: !repliesOff,
+                        placeholder: repliesOff ? "Replies are turned off for now" : "Type a message...",
+                        onAttach: canAttach ? { showFileImporter = true } : nil
                     )
                 }
             }
@@ -117,6 +133,15 @@ public struct ChatView: View {
         .sheet(isPresented: $showKnowledgeBaseSheet) {
             KnowledgeBaseView()
         }
+        // A live chat file: the system picker, uploaded and sent as the web widget sends it
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
+            if case .success(let url) = result {
+                uploadError = nil
+                conferBot.sendLiveFile(fileURL: url) { error in uploadError = error }
+            }
+        }
+        .onAppear { conferBot.setChatVisible(true) }
+        .onDisappear { conferBot.setChatVisible(false) }
     }
 
     private var headerView: some View {
@@ -195,8 +220,16 @@ public struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 12) {
                     ForEach(Array(conferBot.messages.enumerated()), id: \.offset) { index, message in
-                        MessageBubble(message: message, customization: conferBot.customization)
-                            .id(index)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            MessageBubble(message: message, customization: conferBot.customization)
+                            // "Sent / Delivered / Seen" under the visitor's latest live message
+                            if let receipt = visitorReceipt, receipt.id == message.id {
+                                Text(LiveChat.receiptLabel(receipt.state))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .id(index)
                     }
 
                     // Interactive choice pills for the node awaiting input
@@ -227,6 +260,10 @@ public struct ChatView: View {
                         }
                         .id("suggestions")
                     }
+
+                    // Live chat cards: the reply email, leave a message, a file asked for, the lead card, the rating
+                    LiveChatFooterCards(accent: pillColor, onUpload: { showFileImporter = true })
+                        .id("livecards")
                 }
                 .padding()
             }
@@ -242,6 +279,9 @@ public struct ChatView: View {
                         proxy.scrollTo(lastIndex, anchor: .bottom)
                     }
                 }
+            }
+            .onChange(of: liveCardsKey) { _ in
+                withAnimation { proxy.scrollTo("livecards", anchor: .bottom) }
             }
             .onChange(of: conferBot.isAgentTyping) { _ in
                 withAnimation {
@@ -270,6 +310,12 @@ public struct ChatView: View {
                 )
                 Spacer()
             }
+        case .humanHandover(let message):
+            // The compact wait card: where the visitor stands in line
+            HStack(alignment: .top) {
+                Spacer().frame(width: 40)
+                HandoverWaitCard(live: live, message: message, accent: pillColor)
+            }
         case .buttons(let buttons, let nodeId):
             HStack(alignment: .top) {
                 Spacer().frame(width: 40)
@@ -287,6 +333,23 @@ public struct ChatView: View {
         default:
             EmptyView()
         }
+    }
+
+    private var repliesOff: Bool { live.lockedBy != nil || !live.visitorInputEnabled }
+
+    private var canAttach: Bool {
+        conferBot.isLiveChatMode && (LiveChat.visitorUploadsOn(conferBot.serverCustomizations) || live.fileRequestedBy != nil)
+    }
+
+    private var visitorReceipt: VisitorReceipt? {
+        _ = live.receiptMarks
+        let personHere = conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false
+        return live.visitorReceipt(personHere: personHere)
+    }
+
+    /// Changes when a live chat card appears or changes, to keep it in view.
+    private var liveCardsKey: String {
+        "\(live.noAgentsAvailable)|\(live.handoverWaiting != nil)|\(live.fileRequestedBy ?? "")|\(live.leadCardOpen)|\(live.csatOpen)|\(live.csatSent)|\(live.leftMessageTo ?? "")"
     }
 
     private var pillColor: Color {
