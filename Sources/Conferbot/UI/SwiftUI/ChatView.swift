@@ -320,6 +320,7 @@ public struct ChatView: View {
                     // Interactive choice pills for the node awaiting input
                     if let uiState = conferBot.currentUIState {
                         interactiveChoicesView(for: uiState)
+                            .id("step")
                     }
 
                     // The AI reply as it is written (agent bots)
@@ -360,10 +361,16 @@ public struct ChatView: View {
             }
             .onChange(of: conferBot.messages.count) { _ in
                 withAnimation {
-                    if let lastIndex = conferBot.messages.indices.last {
+                    // The step waiting for an answer sits under the last message: keep it in view
+                    if conferBot.currentUIState?.stepNodeId != nil {
+                        proxy.scrollTo("step", anchor: .bottom)
+                    } else if let lastIndex = conferBot.messages.indices.last {
                         proxy.scrollTo(lastIndex, anchor: .bottom)
                     }
                 }
+            }
+            .onChange(of: conferBot.currentUIState?.stepNodeId) { id in
+                if id != nil { withAnimation { proxy.scrollTo("step", anchor: .bottom) } }
             }
             .onChange(of: liveCardsKey) { _ in
                 withAnimation { proxy.scrollTo("livecards", anchor: .bottom) }
@@ -376,48 +383,21 @@ public struct ChatView: View {
         }
     }
 
-    /// Renders answered-in-place choice/button nodes as tappable pills.
-    /// Text-input nodes are answered via the bottom bar instead.
+    /// The step waiting for the visitor, drawn in place: choice pills, the
+    /// rating, scale, slider, date, calendar, file, check options, ranking,
+    /// cards, matrix, consent and payment views, and the OTP / address /
+    /// signature extras (FlowStepViews.swift). Typed steps use the bottom bar.
     @ViewBuilder
     private func interactiveChoicesView(for uiState: NodeUIState) -> some View {
-        switch uiState {
-        case .singleChoice(let options, let nodeId), .quickReplies(let options, let nodeId):
-            HStack(alignment: .top) {
-                Spacer().frame(width: 40)
-                ChoicePillsView(
-                    pills: options.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
-                    selectedLabel: nil,
-                    isFrozen: false,
-                    primaryColor: pillColor,
-                    onTap: { pill in
-                        conferBot.handleChoiceSelection(optionId: pill.id, forNodeId: nodeId)
-                    }
-                )
-                Spacer()
-            }
-        case .humanHandover(let message):
+        if case .humanHandover(let message) = uiState {
             // The compact wait card: where the visitor stands in line, and
             // Cancel to leave the queue (queue-self-resolve)
             HStack(alignment: .top) {
                 Spacer().frame(width: 40)
                 HandoverWaitCard(live: live, message: message, accent: pillColor, onCancel: { conferBot.leaveQueue() })
             }
-        case .buttons(let buttons, let nodeId):
-            HStack(alignment: .top) {
-                Spacer().frame(width: 40)
-                ChoicePillsView(
-                    pills: buttons.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
-                    selectedLabel: nil,
-                    isFrozen: false,
-                    primaryColor: pillColor,
-                    onTap: { pill in
-                        conferBot.handleButtonClick(buttonId: pill.id, forNodeId: nodeId)
-                    }
-                )
-                Spacer()
-            }
-        default:
-            EmptyView()
+        } else {
+            FlowStepView(uiState: uiState)
         }
     }
 
@@ -616,6 +596,7 @@ public struct ChatViewWithKBSheet: View {
                     // Interactive choice pills for the node awaiting input
                     if let uiState = conferBot.currentUIState {
                         interactiveChoicesView(for: uiState)
+                            .id("step")
                     }
 
                     // The AI reply as it is written (agent bots)
@@ -652,10 +633,16 @@ public struct ChatViewWithKBSheet: View {
             }
             .onChange(of: conferBot.messages.count) { _ in
                 withAnimation {
-                    if let lastIndex = conferBot.messages.indices.last {
+                    // The step waiting for an answer sits under the last message: keep it in view
+                    if conferBot.currentUIState?.stepNodeId != nil {
+                        proxy.scrollTo("step", anchor: .bottom)
+                    } else if let lastIndex = conferBot.messages.indices.last {
                         proxy.scrollTo(lastIndex, anchor: .bottom)
                     }
                 }
+            }
+            .onChange(of: conferBot.currentUIState?.stepNodeId) { id in
+                if id != nil { withAnimation { proxy.scrollTo("step", anchor: .bottom) } }
             }
             .onChange(of: conferBot.isAgentTyping) { _ in
                 withAnimation {
@@ -682,42 +669,9 @@ public struct ChatViewWithKBSheet: View {
         }
     }
 
-    /// Renders answered-in-place choice/button nodes as tappable pills.
-    /// Text-input nodes are answered via the bottom bar instead.
-    @ViewBuilder
+    /// The step waiting for the visitor, drawn in place (FlowStepViews.swift).
     private func interactiveChoicesView(for uiState: NodeUIState) -> some View {
-        switch uiState {
-        case .singleChoice(let options, let nodeId), .quickReplies(let options, let nodeId):
-            HStack(alignment: .top) {
-                Spacer().frame(width: 40)
-                ChoicePillsView(
-                    pills: options.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
-                    selectedLabel: nil,
-                    isFrozen: false,
-                    primaryColor: pillColor,
-                    onTap: { pill in
-                        conferBot.handleChoiceSelection(optionId: pill.id, forNodeId: nodeId)
-                    }
-                )
-                Spacer()
-            }
-        case .buttons(let buttons, let nodeId):
-            HStack(alignment: .top) {
-                Spacer().frame(width: 40)
-                ChoicePillsView(
-                    pills: buttons.map { ChoicePillsView.Pill(id: $0.id, label: $0.label) },
-                    selectedLabel: nil,
-                    isFrozen: false,
-                    primaryColor: pillColor,
-                    onTap: { pill in
-                        conferBot.handleButtonClick(buttonId: pill.id, forNodeId: nodeId)
-                    }
-                )
-                Spacer()
-            }
-        default:
-            EmptyView()
-        }
+        FlowStepView(uiState: uiState)
     }
 
     private var pillColor: Color {
