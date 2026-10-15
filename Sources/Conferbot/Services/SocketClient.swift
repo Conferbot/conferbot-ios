@@ -15,6 +15,9 @@ public class SocketClient {
     private let socketURL: String
     private var manager: SocketManager?
     private var socket: SocketIOClient?
+    /// Listeners added with on(_:callback:), kept so they hold before connect()
+    /// creates the socket (ConferBot registers them first) and across a new socket.
+    private var handlers: [(event: String, callback: NormalCallback)] = []
 
     public var isConnected: Bool {
         return socket?.status == .connected
@@ -71,6 +74,7 @@ public class SocketClient {
         socket = manager?.defaultSocket
 
         setupConnectionHandlers()
+        for h in handlers { socket?.on(h.event, callback: h.callback) }
         socket?.connect()
     }
 
@@ -222,7 +226,9 @@ public class SocketClient {
             debugPrint("[ConferBot Socket] Cannot emit - not connected")
             return
         }
-        socket?.emit(event, data)
+        // Each item as its own argument: passing the variadic array on sent
+        // the server one array ([{botId}]) instead of the payload itself.
+        socket?.emit(event, with: data, completion: nil)
     }
 
     /// Emit event with dictionary data (for analytics)
@@ -254,11 +260,13 @@ public class SocketClient {
 
     /// Listen to event
     public func on(_ event: String, callback: @escaping NormalCallback) {
+        handlers.append((event, callback))
         socket?.on(event, callback: callback)
     }
 
     /// Remove event listener
     public func off(_ event: String) {
+        handlers.removeAll { $0.event == event }
         socket?.off(event)
     }
 
