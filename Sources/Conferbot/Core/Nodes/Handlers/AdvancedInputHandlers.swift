@@ -22,13 +22,18 @@ import Foundation
 public final class CalendarNodeHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Display.calendar }
 
-    private func zone(_ data: [String: Any]) -> String {
+    /// The bot's clock (data.timeZone, default UTC).
+    static func zone(_ data: [String: Any]) -> String {
         let z = JS.text(data["timeZone"])
         return z.isEmpty ? "UTC" : z
     }
 
-    /// A day's bookable slots on the bot's clock.
-    private func slotsFor(_ data: [String: Any], _ dayKey: String, _ now: Date) -> [FlowCalendar.Slot] {
+    private func zone(_ data: [String: Any]) -> String { Self.zone(data) }
+
+    private func slotsFor(_ data: [String: Any], _ dayKey: String, _ now: Date) -> [FlowCalendar.Slot] { Self.slots(data, dayKey, now: now) }
+
+    /// A day's bookable slots on the bot's clock (the chat's calendar view lists these).
+    static func slots(_ data: [String: Any], _ dayKey: String, now: Date) -> [FlowCalendar.Slot] {
         let z = zone(data)
         let dayName = FlowCalendar.dayNameInZone(FlowCalendar.noonInZone(dayKey, z), z)
         guard let schedule = JS.dicts(data["weeklyHours"]).first(where: { JS.text($0["dayName"]) == dayName }), JS.truthy(schedule["available"]) else { return [] }
