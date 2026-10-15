@@ -120,41 +120,64 @@ private struct EmailForm: View {
     }
 }
 
-/// The owner's quick actions (and "Talk to a person") above the composer, from the first AI answer on.
+/// The owner's quick actions (and "Talk to a person") above the composer,
+/// as on the web (quickActions.ts): from the first AI answer on. "Talk to a
+/// person" only on an AI agent bot, and only while no handover is under way
+/// and nobody is here (HandoverState.talkToPersonAllowed); it goes on tap and
+/// never comes back on the strip, and the owner's links stay.
 @available(iOS 15.0, *)
 public struct QuickActionsStrip: View {
     @ObservedObject var conferBot: ConferBot
     var accent: Color
     @Environment(\.openURL) private var openURL
+    /// Retired once tapped, or once a handover took it off: an AI reply
+    /// arriving mid-handover cannot bring it back.
+    @State private var humanRetired = false
 
     public init(conferBot: ConferBot = .shared, accent: Color) {
         self.conferBot = conferBot
         self.accent = accent
     }
 
+    /// Nobody is coming or here, on a bot whose owner offers a person.
+    private var offerHuman: Bool {
+        let personHere = conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false
+        return conferBot.agentBot != nil
+            && (conferBot.serverCustomizations?["chatTalkToHuman"] as? Bool) == true
+            && HandoverState.talkToPersonAllowed(conferBot.chatState.getServerRecord())
+            && !personHere
+    }
+
     public var body: some View {
         let aiAnswered = conferBot.messages.contains { ($0 as? AgentMessageRecord)?.agentDetails.isAIAgent == true }
-        let personHere = conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false
         let actions = AgentBotParser.quickActions(conferBot.serverCustomizations)
-        let human = conferBot.agentBot != nil && (conferBot.serverCustomizations?["chatTalkToHuman"] as? Bool) == true
-        if aiAnswered && !personHere && (!actions.isEmpty || human) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(actions, id: \.url) { a in
-                        pill("\(a.label) \u{2197}") {
-                            conferBot.trackGoal(goalId: "quick-action:\(a.label)", goalName: AgentBotParser.conversionEvent(label: a.label, url: a.url))
-                            if let url = URL(string: a.url) { openURL(url) }
+        let human = offerHuman && !humanRetired
+        Group {
+            if aiAnswered && (!actions.isEmpty || human) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(actions, id: \.url) { a in
+                            pill("\(a.label) \u{2197}") {
+                                conferBot.trackGoal(goalId: "quick-action:\(a.label)", goalName: AgentBotParser.conversionEvent(label: a.label, url: a.url))
+                                if let url = URL(string: a.url) { openURL(url) }
+                            }
+                        }
+                        if human {
+                            pill("Talk to a person") {
+                                humanRetired = true
+                                Task { try? await conferBot.sendMessage(LiveChat.talkToPersonAsk) }
+                            }
                         }
                     }
-                    if human {
-                        pill("Talk to a person") {
-                            Task { try? await conferBot.sendMessage(LiveChat.talkToPersonAsk) }
-                        }
-                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
             }
+        }
+        // A handover under way (or a person here) after the first answer
+        // takes it off for good.
+        .onChange(of: aiAnswered && !offerHuman) { off in
+            if off { humanRetired = true }
         }
     }
 
@@ -171,12 +194,15 @@ public struct QuickActionsStrip: View {
     }
 }
 
-/// The handover step while it waits for a person: where they stand, about how long.
+/// The handover step while it waits for a person: where they stand, about
+/// how long, and Cancel to leave the queue.
 @available(iOS 15.0, *)
 public struct HandoverWaitCard: View {
     @ObservedObject var live: LiveChatExtras
     let message: String?
     var accent: Color
+    /// Leave the queue (ConferBot.leaveQueue); no Cancel without it.
+    var onCancel: (() -> Void)? = nil
 
     public var body: some View {
         LiveCard(indent: false) {
@@ -185,6 +211,13 @@ public struct HandoverWaitCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     CardTitle(text: LiveChat.queueLine(live.queue))
                     CardSub(text: LiveChat.queueSubline(live.queue))
+                }
+                if let onCancel = onCancel {
+                    Spacer(minLength: 8)
+                    Button("Cancel", action: onCancel)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .accessibilityHint("Leave the queue")
                 }
             }
             if let message = message, !message.isEmpty {
@@ -406,7 +439,7 @@ public struct LiveChatStrip: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if case .humanHandover(let message) = conferBot.currentUIState {
-                HandoverWaitCard(live: live, message: message, accent: accent)
+                HandoverWaitCard(live: live, message: message, accent: accent, onCancel: { conferBot.leaveQueue() })
             }
             if let receipt = live.visitorReceipt(personHere: conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false) {
                 Text(LiveChat.receiptLabel(receipt.state))
