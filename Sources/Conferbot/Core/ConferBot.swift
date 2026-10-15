@@ -708,6 +708,7 @@ public class ConferBot: ObservableObject {
     /// Identify current user
     public func identify(user: ConferBotUser) {
         self.currentUser = user
+        ChatState.shared.visitorContext = user.toVisitorContext()
         debugPrint("[ConferBot] User identified: \(user.id)")
     }
 
