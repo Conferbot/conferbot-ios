@@ -122,9 +122,16 @@ public class MessageCell: UITableViewCell {
         } else if let audioMessage = message as? AgentMessageAudioRecord {
             messageLabel.text = "🎵 Audio message"
         } else if let joinedMessage = message as? AgentJoinedMessageRecord {
-            messageLabel.text = "\(joinedMessage.agentDetails.name) joined the chat"
+            // With "They can see your conversation so far" after an AI handover.
+            messageLabel.text = HandoverState.joinedText(joinedMessage.agentDetails.name)
+                + (joinedMessage.afterAI == true ? "\n" + HandoverState.handedOverNote : "")
             bubbleView.backgroundColor = .systemYellow.withAlphaComponent(0.2)
             messageLabel.textColor = .label
+        } else if let leftMessage = message as? AgentLeftMessageRecord {
+            // "<name> left the chat", or the Connecting line and how its wait ended.
+            messageLabel.text = leftMessage.text
+            bubbleView.backgroundColor = .systemGray6
+            messageLabel.textColor = .secondaryLabel
         } else if let systemMessage = message as? SystemMessageRecord {
             messageLabel.text = systemMessage.text
             bubbleView.backgroundColor = .systemGray6
@@ -143,7 +150,7 @@ public class MessageCell: UITableViewCell {
 
         // The bot's own colours and radius (Core/Customization), as on the web.
         if ConferBot.shared.hasServerLook,
-           !(message is AgentJoinedMessageRecord), !(message is SystemMessageRecord) {
+           !(message is AgentJoinedMessageRecord), !(message is AgentLeftMessageRecord), !(message is SystemMessageRecord) {
             let look = ConferBot.shared.customizations
             bubbleView.backgroundColor = UIColor(cbHex: isUserMessage ? look.userBubbleColor : look.botBubbleColor)
             messageLabel.textColor = UIColor(cbHex: isUserMessage ? look.userTextColor : look.botTextColor)
