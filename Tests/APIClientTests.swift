@@ -98,6 +98,34 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(session.isActive)
     }
 
+    /// The payload embed-server's MobileSessionService.initSession really
+    /// sends: no _id, botId or isActive (#60).
+    func testInitSession_serverPayload() async throws {
+        let mockResponse: [String: Any] = [
+            "success": true,
+            "data": [
+                "responseId": "6ad0fd0a1b2c3d4e5f607182",
+                "chatSessionId": "026b833d-5a3c-415b-8e38-05d5769cacee",
+                "visitorId": "visitor-789",
+                "record": [],
+                "answerVariables": [],
+                "restored": false
+            ]
+        ]
+        MockURLProtocol.requestHandler = { request in
+            (mockHTTPResponse(url: request.url!.absoluteString, statusCode: 200), mockJSONData(mockResponse))
+        }
+
+        let session = try await sut.initSession()
+
+        XCTAssertEqual(session.id, "6ad0fd0a1b2c3d4e5f607182")
+        XCTAssertEqual(session.chatSessionId, "026b833d-5a3c-415b-8e38-05d5769cacee")
+        XCTAssertEqual(session.botId, testBotId)
+        XCTAssertEqual(session.visitorId, "visitor-789")
+        XCTAssertTrue(session.record.isEmpty)
+        XCTAssertTrue(session.isActive)
+    }
+
     func testInitSession_withUserId() async throws {
         let userId = "user-123"
         let mockResponse: [String: Any] = [
