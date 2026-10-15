@@ -9,6 +9,9 @@ import Foundation
 import Combine
 #if canImport(UIKit)
 import UIKit
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
 #endif
 
 /// ConferBot delegate protocol for event callbacks
@@ -1285,16 +1288,35 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Calendar slot selection recorded for node: \(nodeId)")
     }
 
-    /// Handle file upload completion
+    /// A file the visitor picked for a file step (a local copy the app can
+    /// read). The step checks its type and size and uploads it to the bot's
+    /// media endpoint, as the web does; a local path is never saved (#72).
     public func handleFileUpload(fileURL: URL, forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
         // Track file upload interaction
         analytics.trackInteraction(type: .filesUploaded, data: [
             "nodeId": nodeId,
-            "fileURL": fileURL.absoluteString,
             "fileExtension": fileURL.pathExtension
         ])
 
-        handleNodeInput(fileURL.absoluteString, forNodeId: nodeId)
+        let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let file: [String: Any] = ["file": [
+            "uri": fileURL.absoluteString,
+            "name": fileURL.lastPathComponent,
+            "type": Self.mimeType(forExtension: fileURL.pathExtension),
+            "size": size
+        ]]
+        chatState.setAnswer(nodeId: nodeId, value: fileURL.lastPathComponent)
+        Task { await flowEngine.handleUserInput(file, forNodeId: nodeId) }
+        saveSessionState()
+    }
+
+    /// A file's media type from its extension ("" when unknown).
+    static func mimeType(forExtension ext: String) -> String {
+        #if canImport(UniformTypeIdentifiers)
+        if #available(iOS 14.0, macOS 11.0, *), let type = UTType(filenameExtension: ext)?.preferredMIMEType { return type }
+        #endif
+        return ""
     }
 
     /// Get current node ID being processed
