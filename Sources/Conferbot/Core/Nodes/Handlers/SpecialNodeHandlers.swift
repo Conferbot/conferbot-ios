@@ -46,24 +46,9 @@ public protocol FlowCompletionDelegate: AnyObject {
 @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
 public extension ChatState {
 
-    /// Marks the conversation as complete
-    /// - Parameter reason: Optional reason for completion
-    func markConversationComplete(reason: String? = nil) {
-        setVariable(name: "_flowComplete", value: true)
-        setVariable(name: "_flowCompletedAt", value: ISO8601DateFormatter().string(from: Date()))
-        if let reason = reason {
-            setVariable(name: "_flowCompletionReason", value: reason)
-        }
-    }
-
     /// Checks if the conversation flow is complete
     var isFlowComplete: Bool {
         return getVariable(name: "_flowComplete") as? Bool ?? false
-    }
-
-    /// Gets the session ID from the record
-    var sessionId: String? {
-        return record["sessionId"] as? String
     }
 
     /// Adds a goal record to the transcript
@@ -183,7 +168,7 @@ public final class GoalHandler: BaseNodeHandler {
         }
 
         // Get session ID from state
-        let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
+        let sessionId = state.sessionId.isEmpty ? (state.getVariable(name: "_sessionId") as? String ?? "") : state.sessionId
 
         // Create timestamp
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -317,7 +302,7 @@ public final class EndConversationHandler: BaseNodeHandler {
             ?? "completed"
 
         // Get session ID
-        let sessionId = state.sessionId ?? state.getVariable(name: "_sessionId") as? String ?? ""
+        let sessionId = state.sessionId.isEmpty ? (state.getVariable(name: "_sessionId") as? String ?? "") : state.sessionId
 
         // Create timestamp
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -488,6 +473,11 @@ public final class SpecialNodeHandlerFactory {
 }
 
 // MARK: - Handler Registration Extension
+
+/// goal-node and end-conversation-node (kept for older flows; the web has neither).
+enum SpecialNodeHandlers {
+    static var all: [NodeHandler] { [GoalHandler(), EndConversationHandler()] }
+}
 
 public extension NodeHandlerRegistry {
 
