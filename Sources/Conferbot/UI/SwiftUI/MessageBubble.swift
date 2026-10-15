@@ -21,6 +21,31 @@ public struct MessageBubble: View {
     }
 
     public var body: some View {
+        if let line = systemLine {
+            // A centred line, as on the web: joined, left, the Connecting
+            // line (dots while it waits) and how it ended, chat ended.
+            SystemLineView(text: line.text, pending: line.pending, note: line.note,
+                           color: look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
+        } else {
+            bubbleRow
+        }
+    }
+
+    /// The line's words for a joined / left / system record, nil for a bubble.
+    private var systemLine: (text: String, pending: Bool, note: String?)? {
+        if let left = message as? AgentLeftMessageRecord {
+            return (left.text, left.isPendingHandover, nil)
+        }
+        if let joined = message as? AgentJoinedMessageRecord {
+            return (HandoverState.joinedText(joined.agentDetails.name), false, joined.afterAI == true ? HandoverState.handedOverNote : nil)
+        }
+        if let system = message as? SystemMessageRecord {
+            return (system.text, false, nil)
+        }
+        return nil
+    }
+
+    private var bubbleRow: some View {
         HStack {
             if isUserMessage {
                 Spacer()
@@ -347,6 +372,56 @@ public struct MessageBubble: View {
         }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "B" : String(trimmed.prefix(1)).uppercased()
+    }
+}
+
+// MARK: - System Line
+
+/// A centred system line (web .cb-sys): with three dots fading in turn while
+/// the Connecting line waits, and a note under it ("They can see your
+/// conversation so far").
+@available(iOS 15.0, *)
+struct SystemLineView: View {
+    let text: String
+    let pending: Bool
+    let note: String?
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 3) {
+            if pending {
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.2) / 1.2
+                    HStack(spacing: 3) {
+                        ForEach(0..<3, id: \.self) { i in
+                            Circle().fill(color).frame(width: 5, height: 5).opacity(Self.dotOpacity(t, i))
+                        }
+                    }
+                }
+                .accessibilityHidden(true)
+            }
+            Text(text)
+                .font(.caption)
+                .foregroundColor(color)
+                .multilineTextAlignment(.center)
+            if let note = note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundColor(color.opacity(0.8))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Each dot brightens in turn over the 1.2s loop.
+    static func dotOpacity(_ t: Double, _ i: Int) -> Double {
+        let peak = (Double(i) + 0.5) / 4
+        let d = abs(t - peak)
+        return d < 0.25 ? 1 - d / 0.25 * 0.7 : 0.3
     }
 }
 
