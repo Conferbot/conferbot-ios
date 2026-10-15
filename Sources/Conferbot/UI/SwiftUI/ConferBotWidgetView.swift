@@ -214,9 +214,87 @@ private struct ConferBotFABButton: View {
     let onTap: () -> Void
 
     @State private var isPressed = false
+    // Motion (Core/Customization/LauncherMotion): the moment playing, the ripple, idle moments played.
+    @State private var moment: (state: String, start: Date)?
+    @State private var ripple: (start: Date, delay: Double, iterations: Int)?
+    @State private var played = 0
+    @State private var idleTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Nothing moves for an image or avatar launcher, or when the phone asks for reduced motion.
+    private var still: Bool {
+        reduceMotion || customizations.iconImageUrl != nil || customizations.look.style == "avatar" || !ConferBot.shared.hasServerLook
+    }
 
     var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: moment == nil && ripple == nil)) { timeline in
+            content(now: timeline.date)
+        }
+        .onAppear {
+            guard !still else { return }
+            // The ripple after the launcher settles (whatever the motion mode), then idle moments.
+            ripple = (Date(), LauncherMotion.rippleDelay, LauncherMotion.rippleIter)
+            scheduleIdle()
+        }
+        .onDisappear { idleTask?.cancel() }
+        .onChange(of: unreadCount) { [old = unreadCount] new in
+            // A message while the chat is closed: the icon reacts and the ripple plays once more.
+            guard new > old, !isOpen, !still else { return }
+            if customizations.look.animation != "off" { moment = ("msg", Date()) }
+            ripple = (Date(), 0, 1)
+        }
+        .onChange(of: isOpen) { open in
+            if open {
+                launcherOpenedAt = Date()
+                moment = nil
+                ripple = nil
+                idleTask?.cancel()
+            }
+        }
+    }
+
+    /// Idle moments: the first ~2s in, then the plan's pace, never after the chat was opened.
+    private func scheduleIdle() {
+        idleTask?.cancel()
+        let mode = customizations.look.animation
+        idleTask = Task { @MainActor in
+            while let wait = LauncherMotion.nextIdleDelay(mode, played: played) {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
+                if Task.isCancelled || isOpen { return }
+                if let at = launcherOpenedAt, Date().timeIntervalSince(at) * 1000 < LauncherMotion.openedRestMs { return }
+                played += 1
+                moment = ("idle", Date())
+            }
+        }
+    }
+
+    private func frameAt(_ now: Date) -> [OpFrame?]? {
+        guard let m = moment, !isOpen else { return nil }
+        let ms = now.timeIntervalSince(m.start) * 1000
+        if ms >= LauncherMotion.momentMs {
+            DispatchQueue.main.async { if moment?.start == m.start { moment = nil } }
+            return nil
+        }
+        guard let icon = LauncherIcons.byId(customizations.iconName) else { return nil }
+        return LauncherMotion.iconFrame(icon, state: m.state, t: ms / 1000)
+    }
+
+    private func ringsAt(_ now: Date) -> [MotionRing?] {
+        guard let r = ripple, !isOpen else { return [nil, nil] }
+        let t = now.timeIntervalSince(r.start)
+        if t > r.delay + LauncherMotion.rippleGap + LauncherMotion.rippleDur * Double(r.iterations) {
+            DispatchQueue.main.async { if ripple?.start == r.start { ripple = nil } }
+            return [nil, nil]
+        }
+        return [LauncherMotion.rippleRing(t, ring: 0, iterations: r.iterations, delay: r.delay),
+                LauncherMotion.rippleRing(t, ring: 1, iterations: r.iterations, delay: r.delay)]
+    }
+
+    @ViewBuilder
+    private func content(now: Date) -> some View {
         let look = customizations.look
+        let frame = still ? nil : frameAt(now)
+        let rings = still ? [nil, nil] : ringsAt(now)
         let iconSize = CGFloat(look.glyph)
         let size = customizations.fabSize
         let shape = BubbleShape(corners: look.corners)
@@ -225,6 +303,16 @@ private struct ConferBotFABButton: View {
         let avatar = look.style == "avatar" && customizations.iconImageUrl == nil ? look.avatar : nil
 
         ZStack {
+            // The ripple: rings of the launcher's colour growing out from behind it.
+            ForEach(0..<2, id: \.self) { k in
+                if let ring = rings[k] {
+                    shape.fill(customizations.fabColor)
+                        .frame(width: customizations.fabWidth, height: size)
+                        .scaleEffect(ring.scale)
+                        .opacity(ring.opacity)
+                        .allowsHitTesting(false)
+                }
+            }
             // The label pill draws its own background round the text.
             if !showLabel {
             Group {
@@ -261,7 +349,7 @@ private struct ConferBotFABButton: View {
                     .offset(x: size / 2 - dot / 2 - (size >= 56 ? 2 : 1), y: size / 2 - dot / 2 - (size >= 56 ? 2 : 1))
             } else if showLabel {
                 HStack(spacing: size * 0.16) {
-                    LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: size * 0.52)
+                    LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: size * 0.52, frame: frame)
                     Text(look.label)
                         .font(.system(size: max(13, min(16, (size * 0.3).rounded())), weight: .semibold))
                         .foregroundColor(ink)
@@ -280,7 +368,7 @@ private struct ConferBotFABButton: View {
                 )
             } else {
                 // The web's launcher icons (Core/Customization/LauncherIcons).
-                LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: iconSize)
+                LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: iconSize, frame: frame)
             }
 
             // Unread badge
@@ -313,6 +401,9 @@ private struct ConferBotFABButton: View {
         )
     }
 }
+
+/// When the chat was last opened in this app session: idle moments rest a while after.
+private var launcherOpenedAt: Date?
 
 // MARK: - CTA Tooltip
 
