@@ -243,7 +243,7 @@ private struct ConferBotFABButton: View {
             if isOpen {
                 CloseIconShape()
                     .stroke(ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .frame(width: iconSize, height: iconSize)
+                    .frame(width: size * 0.6, height: size * 0.6)
             } else if let url = customizations.iconImageUrl.flatMap(URL.init(string:)) {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .frame(width: iconSize, height: iconSize)
@@ -261,7 +261,7 @@ private struct ConferBotFABButton: View {
                     .offset(x: size / 2 - dot / 2 - (size >= 56 ? 2 : 1), y: size / 2 - dot / 2 - (size >= 56 ? 2 : 1))
             } else if showLabel {
                 HStack(spacing: size * 0.16) {
-                    BubbleIconView(iconName: customizations.iconName, color: ink, size: size * 0.52)
+                    LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: size * 0.52)
                     Text(look.label)
                         .font(.system(size: max(13, min(16, (size * 0.3).rounded())), weight: .semibold))
                         .foregroundColor(ink)
@@ -279,11 +279,8 @@ private struct ConferBotFABButton: View {
                     }
                 )
             } else {
-                BubbleIconView(
-                    iconName: customizations.iconName,
-                    color: ink,
-                    size: iconSize
-                )
+                // The web's launcher icons (Core/Customization/LauncherIcons).
+                LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: iconSize)
             }
 
             // Unread badge
