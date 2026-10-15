@@ -70,6 +70,15 @@ public final class ChatState: ObservableObject {
     /// Lock for thread-safe access
     private let lock = NSLock()
 
+    private var visitorContextStorage: [String: Any]?
+
+    /// The app's signed-in user (ConferBotUser.toVisitorContext), sent with every
+    /// response record. Set by ConferBot.identify; kept across resets.
+    public var visitorContext: [String: Any]? {
+        get { lock.lock(); defer { lock.unlock() }; return visitorContextStorage }
+        set { lock.lock(); visitorContextStorage = newValue; lock.unlock() }
+    }
+
     /// Maximum number of transcript entries to retain (prevents unbounded memory growth)
     private let maxTranscriptEntries = 500
 
@@ -628,6 +637,13 @@ public final class ChatState: ObservableObject {
         }
         if let workspaceId = workspaceId {
             data["workspaceId"] = workspaceId
+        }
+        // The app's signed-in user travels with every record, as the web widget's
+        // visitorContext; the server checks its hash and drops it.
+        if let ctx = visitorContextStorage {
+            data["visitorContext"] = ctx
+            if let name = ctx["name"] as? String { data["visitorName"] = name }
+            if let email = ctx["email"] as? String { data["visitorEmail"] = email }
         }
 
         return data
