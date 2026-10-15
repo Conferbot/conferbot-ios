@@ -67,6 +67,7 @@ public struct MessageBubble: View {
                         selectedLabel: frozen.selected,
                         isFrozen: true,
                         primaryColor: pillPrimaryColor,
+                        ink: look.map { Color(hex: $0.optionTextColor) },
                         onTap: nil
                     )
                 } else if let rich = message as? AgentRichMessageRecord {
@@ -487,7 +488,10 @@ struct ChoicePillsView: View {
     /// Label of the selected pill (only meaningful when frozen)
     let selectedLabel: String?
     let isFrozen: Bool
+    /// The option bubble colour (filled, as the web's choice bubbles).
     let primaryColor: Color
+    /// The option text colour; nil: the old outlined pill in `primaryColor`.
+    var ink: Color? = nil
     let onTap: ((Pill) -> Void)?
 
     var body: some View {
@@ -502,17 +506,29 @@ struct ChoicePillsView: View {
         let isSelected = isFrozen && pill.label == selectedLabel
 
         return Button(action: { onTap?(pill) }) {
-            Text(pill.label)
-                .font(.system(size: 15, weight: .medium))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isSelected ? primaryColor : Color.clear)
-                .foregroundColor(isSelected ? .white : primaryColor)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule().stroke(primaryColor, lineWidth: 1)
-                )
-                .opacity(isFrozen && !isSelected ? 0.45 : 1)
+            if let ink = ink {
+                // The bot's option bubble: its colour, its text colour (web __chat__choice__bubble)
+                Text(pill.label)
+                    .font(.system(size: 15, weight: .medium))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(primaryColor)
+                    .foregroundColor(ink)
+                    .clipShape(Capsule())
+                    .opacity(isFrozen && !isSelected ? 0.45 : 1)
+            } else {
+                Text(pill.label)
+                    .font(.system(size: 15, weight: .medium))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(isSelected ? primaryColor : Color.clear)
+                    .foregroundColor(isSelected ? .white : primaryColor)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(primaryColor, lineWidth: 1)
+                    )
+                    .opacity(isFrozen && !isSelected ? 0.45 : 1)
+            }
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(isFrozen)
