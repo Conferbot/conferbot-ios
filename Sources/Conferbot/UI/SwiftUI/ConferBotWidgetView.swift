@@ -31,52 +31,34 @@ extension Color {
 struct WidgetCustomizations {
     enum FABPosition { case left, right }
 
+    /// The launcher as the web draws it on a phone (Core/Customization/Launcher).
+    var look: ResolvedLauncher
     var fabColor: Color
     var fabSize: CGFloat
-    var fabBorderRadius: CGFloat
+    var fabWidth: CGFloat
     var position: FABPosition
     var offsetX: CGFloat
     var offsetBottom: CGFloat
+    var tucked: CGFloat
     var iconName: String?
-    var iconType: String?
     var iconImageUrl: String?
     var ctaText: String?
     var ctaBorderRadius: CGFloat
 
-    init(customizations: [String: Any]?) {
+    init(customizations: [String: Any]?, screenWidth: Double = 0) {
         let c = customizations ?? [:]
-
-        func hexColor(_ key: String) -> Color? {
-            guard let hex = c[key] as? String, !hex.isEmpty else { return nil }
-            return Color(hex: hex)
-        }
-
-        self.fabColor = hexColor("widgetIconBgColor")
-            ?? hexColor("headerBgColor")
-            ?? Color(hex: "#1b55f3")
-
-        let rawSize = (c["widgetSize"] as? NSNumber)?.doubleValue ?? 50.0
-        self.fabSize = CGFloat(rawSize)
-
-        if let br = (c["widgetBorderRadius"] as? NSNumber)?.doubleValue {
-            self.fabBorderRadius = CGFloat(br)
-        } else {
-            self.fabBorderRadius = self.fabSize / 2
-        }
-
-        let pos = c["widgetPosition"] as? String
-        self.position = pos == "left" ? .left : .right
-
-        let offsetR = (c["widgetOffsetRight"] as? NSNumber)?.doubleValue ?? 10.0
-        let offsetL = (c["widgetOffsetLeft"] as? NSNumber)?.doubleValue ?? 10.0
-        self.offsetX = CGFloat(self.position == .left ? offsetL : offsetR)
-        self.offsetBottom = CGFloat((c["widgetOffsetBottom"] as? NSNumber)?.doubleValue ?? 10.0)
-
-        self.iconName = c["widgetIconSVG"] as? String
-        self.iconType = c["widgetIconType"] as? String
-        self.iconImageUrl = c["widgetIconImage"] as? String
-        self.ctaText = c["chatIconCtaText"] as? String
-
+        let look = Launcher.resolve(customizations, screenWidth: screenWidth)
+        self.look = look
+        self.fabColor = Color(hex: look.solid)
+        self.fabSize = CGFloat(look.size)
+        self.fabWidth = CGFloat(look.width)
+        self.position = look.position == "left" ? .left : .right
+        self.offsetX = CGFloat(look.side)
+        self.offsetBottom = CGFloat(look.bottom)
+        self.tucked = CGFloat(look.tucked)
+        self.iconName = look.iconId
+        self.iconImageUrl = look.imageUrl
+        self.ctaText = look.ctaText
         let ctaBr = CGFloat((c["widgetBorderRadius"] as? NSNumber)?.doubleValue ?? 50.0)
         self.ctaBorderRadius = min(ctaBr, 20)
     }
@@ -234,25 +216,72 @@ private struct ConferBotFABButton: View {
     @State private var isPressed = false
 
     var body: some View {
-        let iconSize = customizations.fabSize * 0.6
+        let look = customizations.look
+        let iconSize = CGFloat(look.glyph)
+        let size = customizations.fabSize
+        let shape = BubbleShape(corners: look.corners)
+        let ink = Color(hex: look.ink)
+        let showLabel = look.style == "label" && customizations.iconImageUrl == nil
+        let avatar = look.style == "avatar" && customizations.iconImageUrl == nil ? look.avatar : nil
 
         ZStack {
-            RoundedRectangle(cornerRadius: customizations.fabBorderRadius)
-                .fill(customizations.fabColor)
-                .frame(width: customizations.fabSize, height: customizations.fabSize)
-                .shadow(
-                    color: Color(.sRGB, red: 50/255, green: 50/255, blue: 93/255, opacity: 0.25),
-                    radius: 27, x: 0, y: 13
-                )
+            // The label pill draws its own background round the text.
+            if !showLabel {
+            Group {
+                if let g = look.gradient {
+                    // Left to right, as the web's linear-gradient(to right).
+                    shape.fill(LinearGradient(colors: g.map { Color(hex: $0) }, startPoint: .leading, endPoint: .trailing))
+                } else {
+                    shape.fill(customizations.fabColor)
+                }
+            }
+            .frame(width: customizations.fabWidth, height: size)
+            // A soft glow in the header colour (0 0 4px), as the web draws it.
+            .shadow(color: Color(hex: look.glow).opacity(0.9), radius: 4, x: 0, y: 0)
+            }
 
             if isOpen {
                 CloseIconShape()
-                    .stroke(Color.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .stroke(ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .frame(width: iconSize, height: iconSize)
+            } else if let url = customizations.iconImageUrl.flatMap(URL.init(string:)) {
+                AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    .frame(width: iconSize, height: iconSize)
+                    .clipShape(Circle())
+            } else if let url = avatar.flatMap(URL.init(string:)) {
+                // The photo fills the button inside a thin ring of its colour, with an online dot.
+                AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.white }
+                    .frame(width: size - 6, height: size - 6)
+                    .clipShape(BubbleShape(corners: look.corners))
+                let dot = max(10, size * 0.24)
+                Circle()
+                    .fill(Color(hex: "#22c55e"))
+                    .frame(width: dot, height: dot)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                    .offset(x: size / 2 - dot / 2 - (size >= 56 ? 2 : 1), y: size / 2 - dot / 2 - (size >= 56 ? 2 : 1))
+            } else if showLabel {
+                HStack(spacing: size * 0.16) {
+                    BubbleIconView(iconName: customizations.iconName, color: ink, size: size * 0.52)
+                    Text(look.label)
+                        .font(.system(size: max(13, min(16, (size * 0.3).rounded())), weight: .semibold))
+                        .foregroundColor(ink)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, (size - size * 0.52) / 2)
+                .frame(minWidth: size, minHeight: size)
+                .background(
+                    Group {
+                        if let g = look.gradient {
+                            shape.fill(LinearGradient(colors: g.map { Color(hex: $0) }, startPoint: .leading, endPoint: .trailing))
+                        } else {
+                            shape.fill(customizations.fabColor)
+                        }
+                    }
+                )
             } else {
                 BubbleIconView(
                     iconName: customizations.iconName,
-                    color: .white,
+                    color: ink,
                     size: iconSize
                 )
             }
@@ -273,7 +302,7 @@ private struct ConferBotFABButton: View {
                     }
                     Spacer()
                 }
-                .frame(width: customizations.fabSize, height: customizations.fabSize)
+                .frame(width: customizations.fabWidth, height: size)
             }
         }
         .scaleEffect(isPressed ? 0.9 : 1.0)
@@ -347,12 +376,12 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
     }
 
     private var customizations: WidgetCustomizations {
-        WidgetCustomizations(customizations: bot.serverCustomizations)
+        WidgetCustomizations(customizations: bot.serverCustomizations, screenWidth: Double(UIScreen.main.bounds.width))
     }
 
     public var body: some View {
         let c = customizations
-        let ctaEdge = c.offsetX + c.fabSize + 10
+        let ctaEdge = c.offsetX - c.tucked + c.fabWidth + 10
 
         ZStack {
             content
@@ -400,15 +429,16 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                 }
                 .padding(c.position == .right ? .trailing : .leading, c.offsetX)
                 .padding(.bottom, c.offsetBottom)
+                // Peek: the tab is tucked part-way off screen.
+                .offset(x: c.position == .right ? c.tucked : -c.tucked)
             }
         }
         .sheet(isPresented: $isChatOpen) {
             ChatView()
         }
         .onReceive(bot.$serverCustomizations) { customs in
-            guard let customs = customs,
-                  let ctaText = customs["chatIconCtaText"] as? String,
-                  !ctaText.isEmpty else { return }
+            // Only when the owner turned the greeting on.
+            guard Launcher.resolve(customs).ctaText != nil else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 if !isChatOpen { showCta = true }
             }
