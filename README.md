@@ -279,6 +279,18 @@ try await ConferBot.shared.startSession()
 
 Only `id` is required; `name`, `email`, `phone`, and `metadata` are optional. If you never call `identify`, the SDK generates a persistent anonymous visitor ID that survives app restarts.
 
+The user (its `metadata`, then `id`, `name`, `email`, `phone`) also travels with every message record as the chat's visitor context, as the web widget's `visitorContext` does, so the dashboard shows the visitor's name, email and your own fields.
+
+### Identity verification
+
+To stop anyone posing as one of your users, turn on identity verification in your workspace and pass a `hash`: the HMAC-SHA256 (hex) of the user's `id` (or `email` when there is no id), keyed with your workspace's identity secret. Make it on your server and never ship the secret in the app.
+
+```swift
+ConferBot.shared.identify(user: ConferBotUser(id: "user-123", email: "jane@example.com", hash: hashFromYourServer))
+```
+
+The server checks the hash and drops it before storing. A chat with a matching hash is filed as verified; a wrong hash is rejected, and no hash leaves it unverified.
+
 ## Theming and Flow-Builder Customizations
 
 There are two sources of appearance settings, and they apply to different parts of the UI:
