@@ -20,12 +20,14 @@ UIs:
 | #16 | 56 icons (SwiftUI Canvas) | `LauncherIcons.swift`, `UI/SwiftUI/LauncherIconView.swift` |
 | #17 | Launcher motion, passes the golden test | `LauncherMotion.swift`, `LauncherMotionData.swift` |
 | #18 | User as `visitorContext` + identity hash | `Models/Configuration.swift` (`toVisitorContext`), `Core/State/ChatState.swift`, `Core/ConferBot.swift` (`identify`) |
+| #20 | Greeting card: rules, smart greetings, frequency, per-bot memory, 11 styles and their reveals (SwiftUI), in place of the plain tooltip | `Core/Customization/Greeting.swift`, `GreetingState.swift`, `UI/SwiftUI/GreetingCardView.swift`, `ConferBotWidgetView.swift`, `Tests/GreetingTests.swift` |
+| #19 | Socket fixes found while testing the greeting: listeners added before `connect()` were dropped (the bot's settings never arrived), and `emit` sent its items as one array (`get-chatbot-data` got `[{botId}]`) | `Services/SocketClient.swift` |
 
 ## Left in this SDK
 
-1. **Greeting card** (see "Porting the greeting card" below): SwiftUI in `ConferBotWidgetView`, with UserDefaults key `conferbot.greeting.<botId>`.
-2. The rest of the list below.
-3. **UIKit gaps:** UIKit lags SwiftUI (initials avatar, typing styles). Audit it against the SwiftUI chat.
+1. The rest of the list below.
+2. **UIKit gaps:** UIKit lags SwiftUI (initials avatar, typing styles; no launcher, so no greeting card). Audit it against the SwiftUI chat.
+3. **Greeting card leftovers:** the plain `card` style does not take a widget theme's tokens yet (RN doesn't either); the agent's initials avatar and reply field (proactive agent message), mascots (`mascotInGreeting`) and the exit/collapse animations are not drawn; the word fade-up is opacity only (no rise or blur); chips wrap from iOS 16 and stack one per line on iOS 15. Fonts are the phone's nearest (Noteworthy, Marker Felt, Georgia, Courier New); nothing is bundled.
 4. `initialize(...)` takes no user. Only `identify(user:)` sets the visitor context. Consider an optional `user:` parameter, as Android has.
 
 ## How to test
@@ -34,7 +36,11 @@ UIs:
   - Build and test the core in `swift:5.10-jammy` docker, with `#if canImport(FoundationNetworking)` imports and the UI folders left out.
   - The 28 tests in RN's `scripts/parity/ios-linux-baseline-fails.txt` already fail on Linux; only failures outside that list matter.
   - One run segfaulted (signal 11) partway through and passed on the rerun, so rerun once before investigating a crash.
-- **UI changes:**
+- **Mac with Xcode (simulator):**
+  - Tests: `xcodebuild test -scheme Conferbot -destination 'platform=iOS Simulator,name=iPhone 16 Pro'` from the repo root. `swift test` does not work (the package is iOS only). On 2026-10-15 the same 29 tests fail on `main` with and without the greeting work (ChatState, FileUploadService, KnowledgeBaseService, NodeFlowEngine, NodeHandlerRegistry, among others), and one XCTestExpectation "multiple calls to fulfill" crash restarts the run.
+  - Example app: `Example/SwiftUI` is a SwiftPM executable, not an Xcode app. Build it with `xcodebuild build -scheme ConferbotExample -destination ...` from `Example/SwiftUI`, copy the `ConferbotExample` binary from `Build/Products/Debug-iphonesimulator` into a `ConferbotExample.app` folder with `Sources/Info.plist` (`$(EXECUTABLE_NAME)` replaced, ATS `NSAllowsLocalNetworking` on for a local server), `codesign -s -` it, then `xcrun simctl install booted` and `xcrun simctl launch booted com.conferbot.example`.
+  - Against a local embed-server: pass `ConferBotConfig(apiBaseURL: "http://localhost:8001/api/v1/mobile", socketURL: "http://localhost:8001")` and a local bot id in `ExampleApp.swift` (don't commit it). `xcrun simctl io booted screenshot <file>` for screenshots.
+- **UI changes without a Mac:**
   - Push to a `build/<name>` branch and wait for the "iOS build" GitHub Actions check (`.github/workflows/ios-build.yml`, macOS simulator build).
   - Then fast-forward `main` and delete the branch.
 
@@ -53,7 +59,7 @@ Every web widget feature works the same in the 4 mobile SDKs: customization, lau
 | 56 launcher icons, drawn from the widget SVGs | done | done | done | done |
 | Launcher motion (idle moments, message reaction, ripple) | done | done | done | done |
 | Signed-in user as `visitorContext` + identity hash | done | done | done | done |
-| Greeting card (rules, frequency, 11 styles) | done | logic done, UI on a branch | todo | todo |
+| Greeting card (rules, frequency, 11 styles) | done | logic done, UI on a branch | done | todo |
 | Launcher entrance / attention / idle call | todo | todo | todo | todo |
 | Home screen | todo | todo | todo | todo |
 | Mascots (incl. `mascotInGreeting`) | todo | todo | todo | todo |
@@ -83,6 +89,8 @@ All paths are under `conferbot-widget/src/`.
 - **Reply time:** `ts/chat/replyTime.ts`, `replyTimeView.ts`, `headerPresence.ts`.
 
 ### Porting the greeting card (from RN)
+
+Done in iOS (2026-10-15): `Greeting.swift` (pure, with `GreetingTests`), `GreetingState.swift` (`GreetingStore`, per-bot JSON in UserDefaults), `GreetingCardView.swift` (the 11 styles, reveals and `GreetingController`). The notes below stay for Flutter.
 
 - **`src/core/greeting.ts`** is pure and tested. Port it with its tests.
   - `decideGreeting(c, facts)` picks the card:
