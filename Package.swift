@@ -32,6 +32,10 @@ let package = Package(
             path: "Tests",
             exclude: [
                 "ConnectionTest.swift"
+            ],
+            resources: [
+                // The shared flow-node fixtures (scripts/sync-flow-fixtures.sh)
+                .copy("Resources/flows")
             ]
         )
     ]
