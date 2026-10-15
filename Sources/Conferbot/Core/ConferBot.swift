@@ -109,6 +109,8 @@ public class ConferBot: ObservableObject {
     // Configuration
     private var apiKey: String?
     private var botId: String?
+    /// The bot initialize(...) was called with, or nil before (the greeting card keeps its memory per bot).
+    public var activeBotId: String? { botId }
     private var config: ConferBotConfig?
     public var customization: ConferBotCustomization?
     private var currentUser: ConferBotUser?
