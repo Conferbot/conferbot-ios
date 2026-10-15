@@ -679,6 +679,24 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNotNil(record["updatedAt"])
     }
 
+    /// A session names the conversation for the steps' events and keeps the
+    /// answers a restore put back (#62).
+    func testSetSessionNamesTheConversationForTheSteps() {
+        state.setAnswer(nodeId: "n1", value: "Jane")
+
+        state.setSession(sessionId: "chat-1", botId: "bot-1")
+
+        XCTAssertEqual(state.sessionId, "chat-1")
+        let adapter = ChatStateNodeStateAdapter(chatState: state)
+        XCTAssertEqual(adapter.chatSessionId, "chat-1")
+        XCTAssertEqual(adapter.botId, "bot-1")
+        XCTAssertEqual(state.getAnswer(nodeId: "n1") as? String, "Jane")
+
+        state.resetConversation()
+        XCTAssertEqual(adapter.chatSessionId, "chat-1")
+        XCTAssertEqual(adapter.botId, "bot-1")
+    }
+
     func testInitializeRecordCreatesEmptyAnswers() {
         // When initializing record
         state.initializeRecord(sessionId: "session-123", botId: "bot-456")
