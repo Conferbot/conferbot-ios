@@ -251,7 +251,7 @@ private struct ConferBotFABButton: View {
             } else if let url = avatar.flatMap(URL.init(string:)) {
                 // The photo fills the button inside a thin ring of its colour, with an online dot.
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.white }
-                    .frame(width: size - 6, height: size - 6)
+                    .frame(width: customizations.fabWidth - 6, height: size - 6)
                     .clipShape(BubbleShape(corners: look.corners))
                 let dot = max(10, size * 0.24)
                 Circle()
