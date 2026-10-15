@@ -30,6 +30,43 @@ final class ChatStateTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Visitor Context Tests
+
+    func testBuildResponseDataCarriesTheSignedInUser() {
+        let user = ConferBotUser(
+            id: "u-42",
+            name: "Ada",
+            email: "ada@example.com",
+            metadata: ["plan": AnyCodable("pro")],
+            hash: "abc123"
+        )
+        state.visitorContext = user.toVisitorContext()
+        defer { state.visitorContext = nil }
+
+        let data = state.buildResponseData(chatSessionId: "s-1", botId: "b-1")
+        let ctx = data["visitorContext"] as? [String: Any]
+
+        XCTAssertEqual(ctx?["id"] as? String, "u-42")
+        XCTAssertEqual(ctx?["plan"] as? String, "pro")
+        XCTAssertEqual(ctx?["hash"] as? String, "abc123")
+        XCTAssertEqual(data["visitorName"] as? String, "Ada")
+        XCTAssertEqual(data["visitorEmail"] as? String, "ada@example.com")
+    }
+
+    func testBuildResponseDataLeavesVisitorFieldsOutWithoutAUser() {
+        state.visitorContext = nil
+        let data = state.buildResponseData(chatSessionId: "s-1", botId: "b-1")
+        XCTAssertNil(data["visitorContext"])
+        XCTAssertNil(data["visitorName"])
+    }
+
+    func testVisitorContextSurvivesReset() {
+        state.visitorContext = ["id": "u-1"]
+        defer { state.visitorContext = nil }
+        state.reset()
+        XCTAssertEqual(state.visitorContext?["id"] as? String, "u-1")
+    }
+
     // MARK: - Singleton Tests
 
     func testSharedInstanceReturnsSameInstance() {
