@@ -49,6 +49,9 @@ public final class HandoverLifecycle {
         schedule: schedule
     )
     private var nudge: SignalTimer?
+    /// This wait has been left: the ack and the room's queue-left both
+    /// arrive for one Cancel, and only the first draws the line (#63).
+    private var leftThisWait = false
 
     init(hooks: Hooks, schedule: @escaping ConnectingSignal.Schedule = ConnectingSignal.mainQueueTimer) {
         self.hooks = hooks
@@ -114,6 +117,7 @@ public final class HandoverLifecycle {
     /// A flow's handover waiting for a person straight away: the 20s signal
     /// (web special.ts startHandover; not when an AI agent takes it first).
     func flowWaitStarted(nodeData: [String: Any]?) {
+        leftThisWait = false
         let ai = (nodeData?["assignedAIAgents"] as? [Any]) ?? []
         if ai.isEmpty { connecting.start() }
     }
@@ -154,6 +158,7 @@ public final class HandoverLifecycle {
         let details = Self.details(raw) ?? AgentDetails(id: "", name: "", email: "")
         let handover = kind == .handover
         if handover {
+            leftThisWait = false
             connecting.start()
             armNudge()
             // The same escalation again: one line is enough.
@@ -244,6 +249,8 @@ public final class HandoverLifecycle {
 
     /// Out of the queue: the line, the record, the signal, the flow moves on.
     private func leftQueue() {
+        guard !leftThisWait else { return }
+        leftThisWait = true
         waitOver("cancelled")
         settle(.cancelled)
         let id = Self.entryId("queue-self-resolved")
@@ -382,6 +389,7 @@ public final class HandoverLifecycle {
 
     /// A new conversation: nothing is waiting.
     func reset() {
+        leftThisWait = false
         connecting.end()
         clearNudge()
     }
