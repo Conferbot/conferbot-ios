@@ -105,6 +105,9 @@ public class ConferBot: ObservableObject {
     // Knowledge Base - Published properties
     @Published public private(set) var knowledgeBaseCategories: [KnowledgeBaseCategory] = []
     @Published public private(set) var isLoadingKnowledgeBase: Bool = false
+    /// A help article the chat asked to open (a source under an AI answer
+    /// or an article card); the chat screens show it in the help centre.
+    @Published public private(set) var helpArticleToOpen: String?
 
     // Configuration
     private var apiKey: String?
@@ -1585,6 +1588,13 @@ public class ConferBot: ObservableObject {
                 self.chatState.setVariable(name: "_botName", value: botName)
             }
 
+            // The help centre: published articles without bodies, sent only
+            // while the owner has it on (embed-server chatbotHandler).
+            if let help = KnowledgeBaseData.from(json: json["knowledgeBaseData"]) {
+                self.knowledgeBaseService?.apply(help)
+                DispatchQueue.main.async { self.knowledgeBaseCategories = help.categories }
+            }
+
             // Store integration webhooks so the Zapier handler can look up
             // the webhook registered for its node
             if let integrationWebhooks = chatbotData["integrationWebhooks"] as? [[String: Any]] {
@@ -2433,6 +2443,25 @@ public class ConferBot: ObservableObject {
         limit: Int = 3
     ) -> [KnowledgeBaseArticle] {
         return knowledgeBaseService?.getRelatedArticles(for: article, limit: limit) ?? []
+    }
+
+    /// Whether the owner turned the help centre on (`enableKnowledgeBase`).
+    public var isHelpCentreOn: Bool { HelpCentre.isOn(serverCustomizations) }
+
+    /// Open a help article by id, as the web widget's openArticle does: the
+    /// chat screens switch to the help centre and show it. False while the
+    /// help centre is off.
+    @discardableResult
+    public func openHelpArticle(id: String) -> Bool {
+        guard HelpCentre.canOpenArticle(serverCustomizations, articleId: id) else { return false }
+        let set = { self.helpArticleToOpen = id }
+        if Thread.isMainThread { set() } else { DispatchQueue.main.async(execute: set) }
+        return true
+    }
+
+    /// The help centre took the article ``helpArticleToOpen`` asked for.
+    public func helpArticleOpened() {
+        helpArticleToOpen = nil
     }
 
     /// Clear Knowledge Base cache
