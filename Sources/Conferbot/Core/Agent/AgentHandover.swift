@@ -53,7 +53,26 @@ public enum AgentHandover {
             "assignedAgents": nodeData["assignedAgents"] as? [String] ?? [],
             "assignedAIAgents": nodeData["assignedAIAgents"] as? [String] ?? []
         ]
+        stepSettings(nodeData).forEach { payload[$0.key] = $0.value }
         extra.forEach { payload[$0.key] = $0.value }
         return payload
+    }
+
+    /// The handover step's own settings, as the web widget sends them with
+    /// initiate-handover: the team's email (an explicit false is what keeps
+    /// it off), the sound, and the assignment overrides only when the step
+    /// has them (a step that follows the workspace sends what it always did).
+    public static func stepSettings(_ nodeData: [String: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for key in ["enableHandoverEmail", "enableHandoverSound", "checkedSoundTab", "selectedSound", "customHandoverSoundUrl"] {
+            if let v = nodeData[key], !(v is NSNull) { out[key] = v }
+        }
+        if let method = nodeData["assignmentMethod"] as? String, !method.isEmpty, method != "workspace" {
+            out["assignmentMethod"] = method
+        }
+        if let skills = nodeData["requiredSkills"] as? [Any], !skills.isEmpty {
+            out["requiredSkills"] = skills
+        }
+        return out
     }
 }
