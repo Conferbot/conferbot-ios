@@ -108,6 +108,14 @@ public struct MessageBubble: View {
                         backgroundColor: backgroundColor,
                         cornerRadius: customization?.bubbleCornerRadius ?? 16
                     )
+                } else if let html = botHtml {
+                    // Text from the builder's rich-text editor, drawn
+                    // formatted as the web draws it (#64)
+                    ChatMarkdownText(text: ChatMarkdown.htmlToMarkdown(html), color: textColor)
+                        .padding(12)
+                        .background(backgroundColor)
+                        .clipShape(bubbleShape)
+                        .overlay(bubbleOutline)
                 } else {
                     Text(messageText)
                         .padding(12)
@@ -161,6 +169,12 @@ public struct MessageBubble: View {
             return Color(color)
         }
         return .blue
+    }
+
+    /// A bot message whose text is the owner's HTML (<p>, <strong>, <a>...).
+    private var botHtml: String? {
+        guard let text = (message as? BotMessageRecord)?.text, text.range(of: "<[a-zA-Z/][^>]*>", options: .regularExpression) != nil else { return nil }
+        return text
     }
 
     private var messageText: String {
