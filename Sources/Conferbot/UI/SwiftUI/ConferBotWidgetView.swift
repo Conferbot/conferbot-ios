@@ -42,11 +42,8 @@ struct WidgetCustomizations {
     var tucked: CGFloat
     var iconName: String?
     var iconImageUrl: String?
-    var ctaText: String?
-    var ctaBorderRadius: CGFloat
 
     init(customizations: [String: Any]?, screenWidth: Double = 0) {
-        let c = customizations ?? [:]
         let look = Launcher.resolve(customizations, screenWidth: screenWidth)
         self.look = look
         self.fabColor = Color(hex: look.solid)
@@ -58,9 +55,6 @@ struct WidgetCustomizations {
         self.tucked = CGFloat(look.tucked)
         self.iconName = look.iconId
         self.iconImageUrl = look.imageUrl
-        self.ctaText = look.ctaText
-        let ctaBr = CGFloat((c["widgetBorderRadius"] as? NSNumber)?.doubleValue ?? 50.0)
-        self.ctaBorderRadius = min(ctaBr, 20)
     }
 }
 
@@ -405,39 +399,6 @@ private struct ConferBotFABButton: View {
 /// When the chat was last opened in this app session: idle moments rest a while after.
 private var launcherOpenedAt: Date?
 
-// MARK: - CTA Tooltip
-
-@available(iOS 15.0, *)
-private struct ConferBotCTATooltip: View {
-    let text: String
-    let backgroundColor: Color
-    let borderRadius: CGFloat
-    let isVisible: Bool
-    let onDismiss: () -> Void
-
-    var body: some View {
-        if !text.isEmpty {
-            Button(action: onDismiss) {
-                Text(text)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(backgroundColor)
-                    .cornerRadius(borderRadius)
-            }
-            .frame(maxWidth: 212, alignment: .leading)
-            .shadow(
-                color: Color(.sRGB, red: 50/255, green: 50/255, blue: 93/255, opacity: 0.25),
-                radius: 27, x: 0, y: 13
-            )
-            .opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible ? 0 : 10)
-            .animation(.easeInOut(duration: 0.3), value: isVisible)
-        }
-    }
-}
-
 // MARK: - Public Config
 
 public struct ConferBotFABConfig {
@@ -450,7 +411,8 @@ public struct ConferBotFABConfig {
 public struct ConferBotWidgetOverlay<Content: View>: View {
     @ObservedObject private var bot = ConferBot.shared
     @State private var isChatOpen = false
-    @State private var showCta = false
+    /// The greeting card by the closed launcher (GreetingCardView, Core/Customization/Greeting).
+    @StateObject private var greeting = GreetingController()
 
     private let content: Content
     private let config: ConferBotFABConfig
@@ -469,29 +431,35 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
 
     public var body: some View {
         let c = customizations
-        let ctaEdge = c.offsetX - c.tucked + c.fabWidth + 10
+        // The greeting card: 12 above the launcher, its edge in line with it.
+        let cardEdge = max(8, c.offsetX - c.tucked)
 
         ZStack {
             content
 
-            // CTA Tooltip
-            if let ctaText = c.ctaText, !ctaText.isEmpty {
+            if let card = greeting.card, !isChatOpen {
                 VStack {
                     Spacer()
                     HStack {
                         if c.position == .right { Spacer() }
-                        ConferBotCTATooltip(
-                            text: ctaText,
-                            backgroundColor: c.fabColor,
-                            borderRadius: c.ctaBorderRadius,
-                            isVisible: showCta && !isChatOpen,
-                            onDismiss: { showCta = false }
+                        GreetingCardView(
+                            card: card,
+                            alignLeft: c.position == .left,
+                            onPress: { pressGreeting(card) },
+                            onClose: { greeting.dismiss() },
+                            onStarter: { text in
+                                greeting.closeForNow()
+                                openChat()
+                                send(text)
+                            }
                         )
                         if c.position == .left { Spacer() }
                     }
-                    .padding(c.position == .right ? .trailing : .leading, ctaEdge)
-                    .padding(.bottom, c.offsetBottom)
+                    .padding(c.position == .right ? .trailing : .leading, cardEdge)
+                    .padding(.bottom, c.offsetBottom + c.fabSize + 12)
                 }
+                .transition(.asymmetric(insertion: .identity, removal: .opacity.combined(with: .offset(y: 6)).combined(with: .scale(scale: 0.98, anchor: c.position == .right ? .bottomTrailing : .bottomLeading))))
+                .zIndex(1)
             }
 
             // FAB
@@ -507,9 +475,7 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                             if isChatOpen {
                                 isChatOpen = false
                             } else {
-                                isChatOpen = true
-                                showCta = false
-                                bot.resetUnreadCount()
+                                openChat()
                             }
                         }
                     )
@@ -525,12 +491,40 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
             ChatView()
         }
         .onReceive(bot.$serverCustomizations) { customs in
-            // Only when the owner turned the greeting on.
-            guard Launcher.resolve(customs).ctaText != nil else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if !isChatOpen { showCta = true }
-            }
+            greeting.update(customizations: customs, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: bot.agentBot)
         }
+        .onReceive(bot.$agentBot) { agent in
+            greeting.update(customizations: bot.serverCustomizations, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: agent)
+        }
+        .onChange(of: isChatOpen) { open in
+            // Opening the chat: chatted, and the card rests as if closed.
+            if open { greeting.chatOpened() }
+            greeting.update(customizations: bot.serverCustomizations, chatOpen: open, botId: bot.activeBotId, agentBot: bot.agentBot)
+        }
+    }
+
+    private func openChat() {
+        guard !isChatOpen else { return }
+        isChatOpen = true
+        bot.resetUnreadCount()
+    }
+
+    /// The visitor's words, once the chat has opened.
+    private func send(_ text: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            Task { try? await bot.sendMessage(text) }
+        }
+    }
+
+    /// A tap on the card: open the chat (and send its words), or follow its link.
+    private func pressGreeting(_ card: GreetingCardData) {
+        greeting.closeForNow()
+        if card.click == "link", let url = URL(string: card.linkUrl), !card.linkUrl.isEmpty {
+            UIApplication.shared.open(url)
+            return
+        }
+        openChat()
+        if card.click == "send" { send(card.text) }
     }
 }
 
