@@ -147,12 +147,24 @@ struct AgentReplyExtrasView: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array((extras?.sources ?? []).enumerated()), id: \.offset) { _, source in
+                    // A help article opens in the help centre (the web's
+                    // agentSources openArticle); a page in the browser.
+                    let inApp = source.articleId != nil && conferBot.isHelpCentreOn
                     Button {
-                        if let url = source.url.flatMap(URL.init(string:)) { openURL(url) }
+                        if inApp, let id = source.articleId {
+                            conferBot.openHelpArticle(id: id)
+                        } else if let url = source.url.flatMap(URL.init(string:)) {
+                            openURL(url)
+                        }
                     } label: {
                         HStack(spacing: 6) {
+                            if source.articleId != nil {
+                                Image(systemName: "doc.text").font(.caption2).foregroundColor(.secondary)
+                            }
                             Text(source.title).font(.footnote.weight(.medium)).lineLimit(1).foregroundColor(.primary)
-                            if let url = source.url {
+                            if inApp {
+                                Text("Help article \u{203A}").font(.caption2).foregroundColor(.secondary)
+                            } else if let url = source.url {
                                 Text("\(AgentBotParser.sourceHost(url)) \u{2197}").font(.caption2).foregroundColor(.secondary)
                             }
                             Spacer(minLength: 0)
@@ -163,7 +175,7 @@ struct AgentReplyExtrasView: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(UIColor.separator), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
-                    .disabled(source.url == nil)
+                    .disabled(!inApp && source.url == nil)
                 }
 
                 if let card = extras?.card {
@@ -320,6 +332,7 @@ struct RichAgentMessageView: View {
     let record: AgentRichMessageRecord
     let accent: Color
     let bubbleColor: Color
+    @ObservedObject private var conferBot = ConferBot.shared
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -339,12 +352,16 @@ struct RichAgentMessageView: View {
                     .opacity(record.answered != nil && record.answered != option ? 0.45 : 1)
                 }
             }
-        case .article(_, let title, let snippet, let url)?:
+        case .article(let articleId, let title, let snippet, let url)?:
             CardSurface {
                 Text("Help article").font(.caption2).foregroundColor(.secondary)
                 Text(title).font(.subheadline.weight(.semibold))
                 if !snippet.isEmpty { Text(snippet).font(.footnote).foregroundColor(.secondary).lineLimit(3) }
-                if let link = url.flatMap(URL.init(string:)) {
+                // In the help centre by id (the web's agentRich openArticle),
+                // else the public page when there is one.
+                if HelpCentre.canOpenArticle(conferBot.serverCustomizations, articleId: articleId) {
+                    Button("Read article \u{203A}") { conferBot.openHelpArticle(id: articleId) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                } else if let link = url.flatMap(URL.init(string:)) {
                     Button("Read article \u{2197}") { openURL(link) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
                 }
             }
