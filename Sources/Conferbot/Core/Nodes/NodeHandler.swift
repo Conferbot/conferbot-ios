@@ -16,21 +16,40 @@ public enum NodeResult {
 
     /// Continue to next node with optional data
     /// - Parameters:
-    ///   - nextNodeId: Optional specific node to proceed to
+    ///   - nextNodeId: Optional specific node to proceed to (nil: the step's first edge)
     ///   - data: Optional data to pass forward
     case proceed(String?, [String: Any]?)
 
     /// Wait for a duration then proceed
     /// - Parameters:
-    ///   - delay: Time interval to wait
+    ///   - delay: Time interval to wait (seconds)
     ///   - nextNodeId: Optional specific node to proceed to
     case delayedProceed(TimeInterval, String?)
 
-    /// Jump to a specific node by ID
+    /// Jump to a specific node by ID (a missing one ends the chat)
     case jumpTo(String)
+
+    /// Leave by an exact handle (`source-1`, `source-<id>`...). No edge from
+    /// that handle ends the chat - except a rich step's `fallback`: taken
+    /// when the handle has no edge and the fallback has one (web goPort).
+    case port(String, fallback: String?)
+
+    /// The visitor's answer was refused: the message is said and the step
+    /// keeps waiting (nothing is recorded). `uiState` redraws the step;
+    /// `inCard`: said on the step's own card, at once (rich steps).
+    case invalid(String, uiState: NodeUIState?, inCard: Bool)
+
+    /// The chat ends here (as when a path has no next step).
+    case end
 
     /// An error occurred during node processing
     case error(String)
+
+    /// Move on along the step's FIRST edge, whatever its handle.
+    public static var next: NodeResult { .proceed(nil, nil) }
+
+    /// Leave by exactly this handle.
+    public static func port(_ handle: String) -> NodeResult { .port(handle, fallback: nil) }
 }
 
 // MARK: - Node UI State
@@ -105,6 +124,10 @@ public enum NodeUIState {
     ///   - description: Optional description of the payment
     ///   - nodeId: The node ID for tracking
     case payment(paymentUrl: String, amount: Double?, currency: String, description: String?, nodeId: String)
+
+    /// A step drawn by its own card that this SDK has no native view for
+    /// yet (matrix): its type and data, for a custom renderer.
+    case rich(type: String, data: [String: Any], nodeId: String)
 
     /// Display loading state
     case loading
@@ -316,17 +339,30 @@ public enum CalendarMode: String, Codable, CaseIterable {
 
 // MARK: - Node Handler Protocol
 
-/// Protocol for handling specific node types
+/// Protocol for handling specific node types.
+///
+/// The engine hands `handle` the node with its `FlowContext` under the
+/// "ctx" key (the bot API, the socket, timers, the step's edges); a step
+/// that waits for the visitor gets their answer in `handleResponse`.
 public protocol NodeHandler {
     /// The type of node this handler processes
     var nodeType: String { get }
 
     /// Handle the node and return a result
     /// - Parameters:
-    ///   - node: The node data dictionary
+    ///   - node: The node data dictionary (with "ctx" when the engine runs it)
     ///   - state: Current chat state
     /// - Returns: The result of processing this node
-    func handle(node: [String: Any], state: ChatState) async -> NodeResult
+    @MainActor func handle(node: [String: Any], state: ChatState) async -> NodeResult
+
+    /// The visitor's answer to a step waiting for one: typed text (String),
+    /// a picked button ({buttonId}), a value ({value}), a file ({file})...
+    /// nil: no answer handling (the engine moves on along the first edge).
+    @MainActor func handleResponse(_ response: Any, node: [String: Any], state: ChatState) async -> NodeResult?
+}
+
+public extension NodeHandler {
+    @MainActor func handleResponse(_ response: Any, node: [String: Any], state: ChatState) async -> NodeResult? { nil }
 }
 
 // MARK: - Base Node Handler
@@ -334,15 +370,20 @@ public protocol NodeHandler {
 /// Base class with helper methods for node handlers
 open class BaseNodeHandler: NodeHandler {
 
-    public var nodeType: String {
+    open var nodeType: String {
         fatalError("Subclasses must override nodeType")
     }
 
     public init() {}
 
     /// Handle the node - must be overridden by subclasses
-    open func handle(node: [String: Any], state: ChatState) async -> NodeResult {
+    @MainActor open func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         fatalError("Subclasses must override handle(node:state:)")
+    }
+
+    /// The visitor's answer - overridden by steps that wait for one
+    @MainActor open func handleResponse(_ response: Any, node: [String: Any], state: ChatState) async -> NodeResult? {
+        nil
     }
 
     // MARK: - Helper Methods
