@@ -101,7 +101,11 @@ public class APIClient {
             throw ConferBotError.noData
         }
 
-        return session
+        // session/init does not send the bot back: the session belongs to ours.
+        guard session.botId.isEmpty else { return session }
+        return ChatSession(id: session.id, chatSessionId: session.chatSessionId, botId: botId,
+                           visitorId: session.visitorId, record: session.record, chatDate: session.chatDate,
+                           visitorMeta: session.visitorMeta, isActive: session.isActive)
     }
 
     /// Get session history
