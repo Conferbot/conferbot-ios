@@ -256,7 +256,8 @@ final class KnowledgeBaseServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             XCTAssertTrue(request.url?.absoluteString.contains("/knowledge-base/search") == true)
-            XCTAssertTrue(request.url?.absoluteString.contains("q=") == true)
+            // The server reads `query` (#51).
+            XCTAssertTrue(request.url?.query?.hasPrefix("query=") == true)
 
             return (
                 mockHTTPResponse(url: request.url!.absoluteString, statusCode: 200),
