@@ -130,6 +130,9 @@ public class ConferBot: ObservableObject {
 
     // Node Flow Engine
     private var flowEngine: NodeFlowEngine?
+    /// The step answered in its own view (answerStep): its reply lines are
+    /// shown as the visitor's bubbles until the flow moves past it.
+    private var echoNodeId: String?
     /// The socket events the flow's steps listen to (one app listener each, fanned out).
     private let flowEvents = FlowEventHub()
     private var flowEngineCancellables = Set<AnyCancellable>()
@@ -622,6 +625,17 @@ public class ConferBot: ObservableObject {
             }
         }
 
+        // A step answered in its own view says the visitor's reply itself
+        // ("⭐⭐⭐⭐", "Oct 19, 2026", "Signed: ..."): shown as their bubble.
+        chatState.onUserEntryAppended = { [weak self] entry in
+            guard let self = self, let nodeId = entry["nodeId"] as? String,
+                  let text = entry["message"] as? String, !text.isEmpty else { return }
+            Task { @MainActor in
+                guard nodeId == self.echoNodeId else { return }
+                self.messages.append(UserMessageRecord(id: "user-step-\(UUID().uuidString)", time: Date(), text: text))
+            }
+        }
+
         // Subscribe to flow engine state changes
         flowEngine?.$currentUIState
             .receive(on: DispatchQueue.main)
@@ -661,6 +675,7 @@ public class ConferBot: ObservableObject {
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
             .sink { [weak self] nodeId in
+                if let echo = self?.echoNodeId, echo != nodeId { self?.echoNodeId = nil }
                 guard let self = self,
                       let nodeInfo = self.flowEngine?.getNodeInfo(nodeId),
                       let nodeType = nodeInfo["type"] as? String else { return }
@@ -955,6 +970,7 @@ public class ConferBot: ObservableObject {
     /// Handle user input for the current node
     public func handleNodeInput(_ input: Any, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+        echoNodeId = nil
 
         // Add user message bubble (right-aligned) showing the input text
         let inputText = stringValue(from: input)
@@ -1034,6 +1050,7 @@ public class ConferBot: ObservableObject {
     /// Handle button click from node UI
     public func handleButtonClick(buttonId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+        echoNodeId = nil
 
         // A button that opens a page (a navigate link, the payment's
         // Checkout) opens it; the step keeps waiting, so nothing is frozen.
@@ -1115,6 +1132,7 @@ public class ConferBot: ObservableObject {
     /// Handle choice selection from node UI
     public func handleChoiceSelection(optionId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+        echoNodeId = nil
 
         // Freeze the choice pills into the transcript so they persist across
         // view rebuilds: disabled, selected one highlighted - web widget parity
@@ -1185,9 +1203,34 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Choice selected: \(optionId) for node: \(nodeId)")
     }
 
+    /// The visitor's answer to a step drawn by its own view (rating, scale,
+    /// slider, date, calendar, file, check options, ranking, cards, matrix,
+    /// consent, OTP, address, signature, payment), in the flow-node spec's
+    /// shape: build it with `FlowStepAnswer`. The visitor's bubble is the
+    /// step's own reply, so a refused answer shows none.
+    public func answerStep(_ response: Any, forNodeId nodeId: String) {
+        guard let flowEngine = flowEngine else { return }
+        echoNodeId = nodeId
+        chatState.setAnswer(nodeId: nodeId, value: response)
+        analytics.trackInteraction(type: .formSubmitted, data: ["nodeId": nodeId, "inputType": "step"])
+        Task { await flowEngine.handleUserInput(response, forNodeId: nodeId) }
+        saveSessionState()
+        if let session = currentSession {
+            sessionStorage.updateSessionActivity(sessionId: session.chatSessionId)
+        }
+    }
+
+    /// The step waiting for the visitor: its node type and data (what its
+    /// view draws from), nil when none is waiting.
+    public func waitingStep(_ nodeId: String) -> (type: String, data: [String: Any])? {
+        guard let info = flowEngine?.getNodeInfo(nodeId) else { return nil }
+        return (info["type"] as? String ?? "", info["data"] as? [String: Any] ?? [:])
+    }
+
     /// Handle multiple choice selections
     public func handleMultipleChoiceSelection(optionIds: [String], forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+        echoNodeId = nil
 
         // Add user message bubble (right-aligned) showing the selected options
         let displayText = optionIds.joined(separator: ", ")
