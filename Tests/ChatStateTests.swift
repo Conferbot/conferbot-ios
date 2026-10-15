@@ -346,51 +346,27 @@ final class ChatStateTests: XCTestCase {
         XCTAssertEqual(resolved, "Hello, John!")
     }
 
-    func testResolveVariablesLeavesUnknownPlaceholders() {
-        // Given text with unknown placeholder
-        let text = "Hello, {{unknown}}!"
-
-        // When resolving variables
-        let resolved = state.resolveVariables(text: text)
-
-        // Then the placeholder should remain
-        XCTAssertEqual(resolved, "Hello, {{unknown}}!")
+    func testResolveVariablesShowsNothingForAnUnknownVariableAndTidiesTheGap() {
+        // The web widget (nodeLogic.fillVariables): unknown is blank, the gap closes
+        XCTAssertEqual(state.resolveVariables(text: "Hello, {{unknown}}!"), "Hello,!")
+        XCTAssertEqual(state.resolveVariables(text: "Hey ${name}, welcome"), "Hey, welcome")
     }
 
-    func testResolveVariablesWithDotNotationForUser() {
-        // Given user metadata
+    func testResolveVariablesReadsTheAnswersByName() {
+        state.saveVariableByName("plan", value: "Pro")
+        XCTAssertEqual(state.resolveVariables(text: "Plan: {plan} / ${ANSWERS.plan} / $${plan}"), "Plan: Pro / Pro / $Pro")
+    }
+
+    func testResolveVariablesReadsTheVisitorsDetails() {
         state.updateMetadata(key: "name", value: "John")
-        let text = "Hello, {{user.name}}!"
-
-        // When resolving variables
-        let resolved = state.resolveVariables(text: text)
-
-        // Then the placeholder should be replaced
-        XCTAssertEqual(resolved, "Hello, John!")
+        XCTAssertEqual(state.resolveVariables(text: "Hello, {{name}}!"), "Hello, John!")
     }
 
-    func testResolveVariablesWithDotNotationForAnswer() {
-        // Given an answer
-        state.setAnswer(nodeId: "q1", value: "Test Answer")
-        let text = "Your answer: {{answer.q1}}"
-
-        // When resolving variables
-        let resolved = state.resolveVariables(text: text)
-
-        // Then the placeholder should be replaced
-        XCTAssertEqual(resolved, "Your answer: Test Answer")
-    }
-
-    func testResolveVariablesWithDotNotationForVariable() {
-        // Given a variable
+    func testResolveVariablesEscapesValuesInOwnerHtml() {
+        state.saveVariableByName("x", value: "<b>")
+        XCTAssertEqual(state.resolveVariables(html: "<p>{x}</p>"), "<p>&lt;b&gt;</p>")
         state.setVariable(name: "count", value: 42)
-        let text = "Count: {{variable.count}}"
-
-        // When resolving variables
-        let resolved = state.resolveVariables(text: text)
-
-        // Then the placeholder should be replaced
-        XCTAssertEqual(resolved, "Count: 42")
+        XCTAssertEqual(state.resolveVariables(text: "Count: {count}"), "Count: 42")
     }
 
     func testResolveVariablesPriorityOrder() {
@@ -686,15 +662,14 @@ final class ChatStateTests: XCTestCase {
 
         state.setSession(sessionId: "chat-1", botId: "bot-1")
 
+        // The steps read them from the state (FlowContext.sessionId / botId)
         XCTAssertEqual(state.sessionId, "chat-1")
-        let adapter = ChatStateNodeStateAdapter(chatState: state)
-        XCTAssertEqual(adapter.chatSessionId, "chat-1")
-        XCTAssertEqual(adapter.botId, "bot-1")
+        XCTAssertEqual(state.botId, "bot-1")
         XCTAssertEqual(state.getAnswer(nodeId: "n1") as? String, "Jane")
 
         state.resetConversation()
-        XCTAssertEqual(adapter.chatSessionId, "chat-1")
-        XCTAssertEqual(adapter.botId, "bot-1")
+        XCTAssertEqual(state.sessionId, "chat-1")
+        XCTAssertEqual(state.botId, "bot-1")
     }
 
     func testInitializeRecordCreatesEmptyAnswers() {
