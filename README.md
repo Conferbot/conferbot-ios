@@ -420,7 +420,8 @@ The bot's flow runs on the device as the web widget runs it: the SDK passes all 
 - Answers are saved under each step's answer variable and fill `{name}`, `${name}`, `{{name}}` in later text (an unknown one shows nothing). Card numbers, ids and passwords are masked in what is saved and sent unless the bot's `redactSensitive` is off.
 - GPT, AI route / extract, knowledge-base answers, OTP codes, address search and payments go through the bot server; the owner's keys never reach the app. Integrations (Sheets, HubSpot, Slack...) run on the server.
 - Bot messages written in the rich-text editor are drawn formatted (bold, italic, links, lists).
-- Headless: answer the waiting step with `ConferBot.shared.handleNodeInput(_:forNodeId:)` (text, a rating, a date), `handleButtonClick(buttonId:forNodeId:)` or `handleMultipleChoiceSelection(optionIds:forNodeId:)`. The stock chat doesn't draw every step yet (see `docs/PARITY.md`, #45).
+- The SwiftUI chat draws every step that waits for the visitor: choice pills, stars or faces, the opinion scale, a slider, the date / time picker, the calendar and its slots, file upload, check options, ranking, cards, the matrix, consent, payment, and the OTP / address / signature extras next to the composer, in the bot's option colours. The UIKit chat doesn't draw them yet (#74).
+- Headless: answer the waiting step with `ConferBot.shared.answerStep(_:forNodeId:)` and the spec's answer built with `FlowStepAnswer` (`.value(4)`, `.calendar(date:slot:)`, `.checked(ids)`, `.matrix(...)`...), or `handleNodeInput(_:forNodeId:)` (typed text), `handleButtonClick(buttonId:forNodeId:)`, `handleMultipleChoiceSelection(optionIds:forNodeId:)`. `waitingStep(nodeId)` gives the step's type and data.
 
 ## Advanced Usage
 
@@ -451,7 +452,13 @@ ConferBot.shared.handleChoiceSelection(optionId: "Pricing", forNodeId: nodeId)
 ConferBot.shared.handleMultipleChoiceSelection(optionIds: ["A", "B"], forNodeId: nodeId)
 ConferBot.shared.handleRatingSelection(rating: 5, forNodeId: nodeId)
 ConferBot.shared.handleDateSelection(date: Date(), forNodeId: nodeId)
-ConferBot.shared.handleFileUpload(fileURL: url, forNodeId: nodeId)
+ConferBot.shared.handleFileUpload(fileURL: url, forNodeId: nodeId)    // a local copy: the step uploads it
+
+// Any step, with the flow-node spec's answer
+ConferBot.shared.answerStep(FlowStepAnswer.value(4), forNodeId: nodeId)                          // rating, scale, slider
+ConferBot.shared.answerStep(FlowStepAnswer.calendar(date: "2026-10-21", slot: "09:30"), forNodeId: nodeId)
+ConferBot.shared.answerStep(FlowStepAnswer.consent(agreed: true), forNodeId: nodeId)
+ConferBot.shared.waitingStep(nodeId)                                                               // (type, data)
 
 ConferBot.shared.getCurrentNodeId()
 ConferBot.shared.nodeRequiresInteraction("user-input")   // Bool
@@ -549,7 +556,9 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | `handleMultipleChoiceSelection(optionIds: [String], forNodeId: String)` | Answer a multi-choice node |
 | `handleRatingSelection(rating: Int, forNodeId: String)` | Answer a rating node |
 | `handleDateSelection(date: Date, forNodeId: String)` | Answer a date node |
-| `handleFileUpload(fileURL: URL, forNodeId: String)` | Complete a file-upload node |
+| `handleFileUpload(fileURL: URL, forNodeId: String)` | Answer a file step with a local file (the step uploads it) |
+| `answerStep(_ response: Any, forNodeId: String)` | Answer any step with the spec's answer (`FlowStepAnswer`); the visitor's bubble is the step's reply |
+| `waitingStep(_ nodeId: String) -> (type: String, data: [String: Any])?` | The waiting step's type and data |
 | `getCurrentNodeId() -> String?` | Current flow node ID |
 | `nodeRequiresInteraction(_ nodeType: String) -> Bool` | Whether a node type waits for user input |
 | `trackGoal(goalId: String, goalName: String? = nil, value: Any? = nil)` | Track a conversion goal |
