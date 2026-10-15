@@ -123,6 +123,18 @@ public struct SocketEvents {
     public static let visitorInputToggled = "visitor-input-toggled"
     public static let destroyNotification = "destroy-notification"
 
+    // The handover's wait (embed-server handoverHandler.js, chatRoomHandler.js)
+    /// Server to client: nobody could join an AI escalation; the AI keeps the chat.
+    public static let handoverWaiting = "handover-waiting"
+    /// Client to server: the max wait passed with nobody joined; the server decides.
+    public static let handoverTimeout = "handover-timeout"
+    /// Client to server (with acknowledgement): the visitor leaves the queue.
+    public static let queueSelfResolve = "queue-self-resolve"
+    /// Server to client: the visitor left the queue (here or on another device).
+    public static let queueLeft = "queue-left"
+    /// Client to server (with acknowledgement): where the live chat stands after a restart.
+    public static let liveChatState = "live-chat-state"
+
     // GPT node events - Server to client
     public static let gptNodeResponse = "gpt-node-response"
 
