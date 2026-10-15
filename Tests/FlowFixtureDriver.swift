@@ -298,7 +298,11 @@ enum FlowFixtureDriver {
         return out
     }
 
-    static func run(_ fx: [String: Any]) async -> FlowFixtureResult {
+    /// A visitor action played another way (the step views' own answers,
+    /// FlowStepViewAnswerTests): `handled` false leaves it to the driver.
+    typealias AnswerOverride = (_ action: [String: Any], _ ui: NodeUIState?, _ node: [String: Any]?, _ memo: inout [String: Any]) throws -> (handled: Bool, answer: Any?)
+
+    static func run(_ fx: [String: Any], answers override: AnswerOverride? = nil) async -> FlowFixtureResult {
         let clock = FlowVirtualClock()
         let server = JS.dict(fx["server"])
         let transport = FlowFakeTransport(server: server)
@@ -341,8 +345,13 @@ enum FlowFixtureDriver {
             do {
                 if action == "serverEvent" {
                     socket.fire(JS.text(a["event"]), JS.dict(a["payload"]))
-                } else if let response = try answerFor(a, engine.currentUIState, at.flatMap { engine.getNode($0) }, &memo) {
-                    Task { @MainActor in await engine.submitResponse(response) }
+                } else {
+                    let node = at.flatMap { engine.getNode($0) }
+                    let own = try override?(a, engine.currentUIState, node, &memo)
+                    let answer = own?.handled == true ? own?.answer : try answerFor(a, engine.currentUIState, node, &memo)
+                    if let response = answer {
+                        Task { @MainActor in await engine.submitResponse(response) }
+                    }
                 }
             } catch {
                 problems.append("input \(i) (\(action)): \(error)")
