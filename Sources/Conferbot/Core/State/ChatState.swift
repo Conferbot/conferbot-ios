@@ -670,6 +670,20 @@ public final class ChatState: ObservableObject {
         serverRecord.append(entry)
     }
 
+    /// Replaces the server record (a handover line settled, a restored record annotated).
+    public func setServerRecord(_ record: [[String: Any]]) {
+        lock.lock()
+        defer { lock.unlock() }
+        serverRecord = record
+    }
+
+    /// Changes the server record in one step: `transform` gets the record and returns the new one.
+    public func updateServerRecord(_ transform: ([[String: Any]]) -> [[String: Any]]) {
+        lock.lock()
+        defer { lock.unlock() }
+        serverRecord = transform(serverRecord)
+    }
+
     /// Appends a live chat entry as the web widget records it (a visitor's
     /// file {url}, a message left by email {via, data}), replacing one with
     /// the same id.
@@ -845,6 +859,35 @@ public extension ChatState {
         restoreUserMetadata(storedState.userMetadata)
         restoreTranscript(storedState.transcript)
         restoreVariables(storedState.variables)
+        restoreServerRecord(storedState)
+    }
+
+    /// The server record and the flow's step from storage: a restart reads
+    /// its live chat from them (they used not to be saved, so a restored
+    /// chat had no record of its handover).
+    func restoreServerRecord(_ storedState: StoredChatState) {
+        let record = storedState.serverRecordJSON
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }
+        lock.lock()
+        defer { lock.unlock() }
+        if let record = record { serverRecord = record }
+        if let node = storedState.currentNodeId { currentNodeId = node }
+    }
+
+    /// The server record as JSON for storage; entries that can't be written are left out.
+    static func serverRecordJSON(_ record: [[String: Any]]) -> Data? {
+        func safe(_ v: Any) -> Any? {
+            switch v {
+            case let d as Date: return ISO8601DateFormatter().string(from: d)
+            case let a as [Any]: return a.compactMap(safe)
+            case let m as [String: Any]: return m.compactMapValues(safe)
+            case is String, is NSNumber, is NSNull: return v
+            case let c as AnyCodable: return safe(c.value)
+            default: return nil
+            }
+        }
+        let clean = record.map { $0.compactMapValues(safe) }
+        return JSONSerialization.isValidJSONObject(clean) ? try? JSONSerialization.data(withJSONObject: clean) : nil
     }
 
     /// Convert current state to storable format
@@ -873,7 +916,9 @@ public extension ChatState {
             answerVariables: storedAnswers,
             userMetadata: storedMetadata,
             transcript: storedTranscript,
-            variables: storedVariables
+            variables: storedVariables,
+            serverRecordJSON: Self.serverRecordJSON(serverRecord),
+            currentNodeId: currentNodeId
         )
     }
 
