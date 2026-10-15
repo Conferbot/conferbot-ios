@@ -291,8 +291,9 @@ public final class ChatAnalytics: ObservableObject {
     /// Socket emit closure for sending analytics
     private var emitHandler: ((String, [String: Any]) -> Void)?
 
-    /// Lock for thread-safe access
-    private let lock = NSLock()
+    /// Lock for thread-safe access. Recursive: emit() takes it too and is
+    /// called while it is held (#61).
+    private let lock = NSRecursiveLock()
 
     /// Cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
