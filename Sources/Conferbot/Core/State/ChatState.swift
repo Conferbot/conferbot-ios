@@ -82,43 +82,20 @@ public final class ChatState: ObservableObject {
     /// Maximum number of transcript entries to retain (prevents unbounded memory growth)
     private let maxTranscriptEntries = 500
 
-    /// Variable pattern regex for {{varName}} syntax
-    private let doubleBracePattern: NSRegularExpression? = {
-        do {
-            return try NSRegularExpression(
-                pattern: "\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}\\}",
-                options: []
-            )
-        } catch {
-            #if DEBUG
-            print("[ChatState] Failed to compile doubleBracePattern regex: \(error)")
-            #endif
-            return nil
-        }
-    }()
+    /// The answer variables in the web widget's shape: one entry per step
+    /// that asked (registered when shown, filled by the answer) or per name
+    /// saved, in the order they were made. The flow reads them by name
+    /// (the first entry with that key) and sends them as answerVariables.
+    private var answerEntries: [FlowAnswerVariable] = []
 
-    /// Variable pattern regex for ${varName} and {varName} syntax
-    /// Matches both ${selection} and {selection} (web widget standard)
-    /// Uses negative lookbehind/lookahead to avoid matching inside {{varName}}
-    private let singleBracePattern: NSRegularExpression? = {
-        do {
-            return try NSRegularExpression(
-                pattern: "(?<!\\{)\\$?\\{\\s*([a-zA-Z_][a-zA-Z0-9_.]*)\\s*\\}(?!\\})",
-                options: []
-            )
-        } catch {
-            #if DEBUG
-            print("[ChatState] Failed to compile singleBracePattern regex: \(error)")
-            #endif
-            return nil
-        }
-    }()
+    /// Card numbers, ids and passwords masked in answers and records
+    /// (customizations.redactSensitive: on unless false).
+    private var redactSensitiveStorage = true
 
     // MARK: - Initialization
 
-    private init() {
-        // Private initializer for singleton
-    }
+    /// ChatState.shared is the app's; tests and headless flows make their own.
+    init() {}
 
     // MARK: - Answer Management
 
@@ -194,157 +171,186 @@ public final class ChatState: ObservableObject {
         }
     }
 
+    /// Removes a flow variable.
+    public func deleteVariable(name: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        variables.removeValue(forKey: name)
+    }
+
+    // MARK: - Flow answers (the web widget's answer variables)
+
+    /// The conversation's chatSessionId ("" before a session).
+    public var sessionId: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return record["sessionId"] as? String ?? ""
+    }
+
+    /// The bot this conversation belongs to ("" before a session).
+    public var botId: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return record["botId"] as? String ?? ""
+    }
+
+    /// Masking of card numbers, ids and passwords in the answers and the
+    /// visitor's record entries (web customizations.redactSensitive: on
+    /// unless false). The transcript keeps what was typed (#30).
+    public var redactSensitive: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return redactSensitiveStorage }
+        set { lock.lock(); redactSensitiveStorage = newValue; lock.unlock() }
+    }
+
+    private func maskedLocked(_ value: Any?) -> Any {
+        let v = redactSensitiveStorage ? Redact.maskValue(value) : value
+        return v ?? NSNull()
+    }
+
+    /// A question step with data.answerVariable registers {nodeId, key,
+    /// value: null} when it is shown; its answer then fills it by nodeId
+    /// (web index.ts _nodeCategorizeHelper / _setAnswerVariable).
+    public func registerAnswerVariable(nodeId: String, key: String) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        answerEntries.append(FlowAnswerVariable(nodeId: nodeId, key: key, value: NSNull()))
+    }
+
+    /// Fills the entry registered for a step (the first with that nodeId).
+    /// A step that registered none stores nothing. True when one was filled.
+    @discardableResult
+    public func setAnswerVariable(nodeId: String, value: Any?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let i = answerEntries.firstIndex(where: { $0.nodeId == nodeId }) else { return false }
+        answerEntries[i].value = maskedLocked(value)
+        return true
+    }
+
+    /// Saves a value under a variable's name: every entry with that name
+    /// gets it; with none, one entry is added (nodeId "column_mapped_<key>"
+    /// unless one is given) - web index.ts _setAnswerVariableByKey.
+    public func saveVariableByName(_ key: String, value: Any?, nodeId: String? = nil) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let v = maskedLocked(value)
+        var matched = false
+        for i in answerEntries.indices where answerEntries[i].key == key {
+            answerEntries[i].value = v
+            matched = true
+        }
+        if !matched {
+            let id = (nodeId?.isEmpty == false) ? nodeId! : "column_mapped_\(key)"
+            answerEntries.append(FlowAnswerVariable(nodeId: id, key: key, value: v))
+        }
+    }
+
+    /// Whether an entry with this key exists (answered or not).
+    public func hasAnswerVariable(_ key: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return answerEntries.contains { $0.key == key }
+    }
+
+    /// An answer by name: the FIRST entry with that key (web
+    /// _getValueFromAnswerVariableKey); nil when there is none.
+    public func answerValue(_ key: String) -> Any? {
+        lock.lock()
+        defer { lock.unlock() }
+        return answerEntries.first { $0.key == key }?.value
+    }
+
+    /// The answer variables in the order they were made.
+    public func flowAnswerVariables() -> [FlowAnswerVariable] {
+        lock.lock()
+        defer { lock.unlock() }
+        return answerEntries
+    }
+
+    /// A placeholder's value: the answers first (the first entry with that
+    /// key), then the flow variables, then the visitor's details. Internal
+    /// "_" variables never fill text.
+    public func lookupVariable(_ key: String) -> Any? {
+        let name = key.trimmed
+        guard !name.isEmpty else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        if let entry = answerEntries.first(where: { $0.key == name }) { return entry.value }
+        if !name.hasPrefix("_"), let v = variables[name] { return v }
+        return userMetadata[name]
+    }
+
+    /// Adds a record entry, merging into an earlier one for the same step
+    /// and kind (type|shape) as the web widget's _pushDataToRecord. The
+    /// visitor's own entries are masked first.
+    public func addRecord(_ entry: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
+        let e = redactSensitiveStorage ? Redact.maskRecordEntry(entry) : entry
+        let id = JS.text(e["id"]).isEmpty ? JS.text(e["_id"]) : JS.text(e["id"])
+        func kind(_ r: [String: Any]) -> String { "\(JS.text(r["type"]))|\(JS.text(r["shape"]))" }
+        if !id.isEmpty, let i = serverRecord.firstIndex(where: {
+            (JS.text($0["id"]).isEmpty ? JS.text($0["_id"]) : JS.text($0["id"])) == id && kind($0) == kind(e)
+        }) {
+            var merged = serverRecord[i]
+            for (k, v) in e { merged[k] = v }
+            var data = JS.dict(serverRecord[i]["data"])
+            for (k, v) in JS.dict(e["data"]) { data[k] = v }
+            merged["data"] = data
+            serverRecord[i] = merged
+            return
+        }
+        serverRecord.append(e)
+    }
+
+    /// Appends an entry as it is - every visit of a step and every edge
+    /// taken is its own entry (web index.ts S.record.push).
+    public func appendRecord(_ entry: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
+        serverRecord.append(entry)
+    }
+
+    /// The chat reached the end of its flow.
+    public func markConversationComplete(reason: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        variables["_flowComplete"] = true
+        variables["_flowCompletedAt"] = Flow.iso(Date())
+        if let reason = reason { variables["_flowCompletionReason"] = reason }
+    }
+
+    /// A bot line on the transcript (the chat draws it): its plain text, the
+    /// owner's HTML when it has some, and media / link details.
+    public func addBotEntry(text: String, html: String? = nil, nodeId: String, nodeType: String, data: [String: Any]? = nil) {
+        guard !text.isEmpty || data != nil else { return }
+        var entry: [String: Any] = ["type": "bot", "message": text, "nodeId": nodeId, "nodeType": nodeType]
+        if let html = html, html != text { entry["html"] = html }
+        if let data = data {
+            entry["data"] = data
+            for (k, v) in data where entry[k] == nil { entry[k] = v }
+        }
+        addToTranscript(entry: entry)
+    }
+
     // MARK: - Variable Resolution
 
-    /// Resolves variable placeholders in text
-    /// Supports {{varName}}, ${varName}, and {varName} patterns
-    /// - Parameter text: The text containing variable placeholders
-    /// - Returns: The text with variables replaced by their values
+    /// Fills the placeholders in text the way the web widget does
+    /// (nodeLogic.fillVariables): {x}, ${x}, {{x}}, ${ANSWERS.x} and $${x}
+    /// from the answers, then the flow variables, then the visitor's
+    /// details; an unknown, null or "" value shows nothing and the gap it
+    /// leaves is tidied. Values go in as they are (raw).
     public func resolveVariables(text: String) -> String {
-        lock.lock()
-        let currentVariables = variables
-        let currentAnswers = answerVariables
-        let currentMetadata = userMetadata
-        lock.unlock()
-
-        var result = text
-
-        // Process {{varName}} pattern first (most specific, avoids partial match by single-brace)
-        if let doubleBracePattern = doubleBracePattern {
-            result = resolvePattern(
-                in: result,
-                using: doubleBracePattern,
-                variables: currentVariables,
-                answers: currentAnswers,
-                metadata: currentMetadata
-            )
-        }
-
-        // Process ${varName} and {varName} patterns (web widget standard)
-        if let singleBracePattern = singleBracePattern {
-            result = resolvePattern(
-                in: result,
-                using: singleBracePattern,
-                variables: currentVariables,
-                answers: currentAnswers,
-                metadata: currentMetadata
-            )
-        }
-
-        return result
+        guard !text.isEmpty else { return text }
+        return FlowText.fillVariables(text, { [weak self] in self?.lookupVariable($0) }, mode: .raw)
     }
 
-    /// Helper method to resolve a specific regex pattern
-    private func resolvePattern(
-        in text: String,
-        using regex: NSRegularExpression,
-        variables: [String: Any],
-        answers: [String: Any],
-        metadata: [String: Any]
-    ) -> String {
-        var result = text
-        let range = NSRange(text.startIndex..., in: text)
-
-        // Find all matches in reverse order to preserve indices
-        let matches = regex.matches(in: text, options: [], range: range).reversed()
-
-        for match in matches {
-            guard let varNameRange = Range(match.range(at: 1), in: text),
-                  let fullMatchRange = Range(match.range, in: text) else {
-                continue
-            }
-
-            let varName = String(text[varNameRange])
-
-            // Try to resolve the variable from different sources
-            if let value = resolveValue(for: varName, variables: variables, answers: answers, metadata: metadata) {
-                result = result.replacingCharacters(in: fullMatchRange, with: stringValue(from: value))
-            }
-        }
-
-        return result
-    }
-
-    /// Resolves a variable name to its value
-    private func resolveValue(
-        for varName: String,
-        variables: [String: Any],
-        answers: [String: Any],
-        metadata: [String: Any]
-    ) -> Any? {
-        // Check for dot notation (e.g., user.name)
-        let parts = varName.split(separator: ".").map(String.init)
-
-        if parts.count > 1 {
-            let prefix = parts[0]
-            let key = parts.dropFirst().joined(separator: ".")
-
-            switch prefix {
-            case "user", "metadata":
-                return getNestedValue(from: metadata, path: key)
-            case "answer", "answers":
-                return getNestedValue(from: answers, path: key)
-            case "var", "variable", "variables":
-                return getNestedValue(from: variables, path: key)
-            default:
-                // Try as a nested path in variables
-                return getNestedValue(from: variables, path: varName)
-            }
-        }
-
-        // Simple variable name - check all sources
-        // Priority: answers > variables > metadata
-        if let value = answers[varName] {
-            return value
-        }
-        if let value = variables[varName] {
-            return value
-        }
-        if let value = metadata[varName] {
-            return value
-        }
-
-        return nil
-    }
-
-    /// Gets a nested value from a dictionary using dot notation path
-    private func getNestedValue(from dict: [String: Any], path: String) -> Any? {
-        let parts = path.split(separator: ".").map(String.init)
-        var current: Any = dict
-
-        for part in parts {
-            if let dict = current as? [String: Any], let value = dict[part] {
-                current = value
-            } else if let array = current as? [Any], let index = Int(part), index < array.count {
-                current = array[index]
-            } else {
-                return nil
-            }
-        }
-
-        return current
-    }
-
-    /// Converts any value to a string representation
-    private func stringValue(from value: Any) -> String {
-        switch value {
-        case let string as String:
-            return string
-        case let number as NSNumber:
-            return number.stringValue
-        case let bool as Bool:
-            return bool ? "true" : "false"
-        case let array as [Any]:
-            return array.map { stringValue(from: $0) }.joined(separator: ", ")
-        case let dict as [String: Any]:
-            if let jsonData = try? JSONSerialization.data(withJSONObject: dict, options: []),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                return jsonString
-            }
-            return String(describing: dict)
-        default:
-            return String(describing: value)
-        }
+    /// The same, for owner HTML: the values are HTML-escaped.
+    public func resolveVariables(html: String) -> String {
+        guard !html.isEmpty else { return html }
+        return FlowText.fillVariables(html, { [weak self] in self?.lookupVariable($0) }, mode: .html)
     }
 
     // MARK: - Metadata Management
@@ -551,22 +557,15 @@ public final class ChatState: ObservableObject {
 
     // MARK: - Integration Payload Helpers
 
-    /// Builds the answer variables list without acquiring the lock.
-    /// Callers must hold `lock` or otherwise guarantee exclusive access.
+    /// The answer variables as the server reads them: [{nodeId, key,
+    /// value}] in the order they were made (web answerVariables). Callers
+    /// must hold `lock`.
     private func answerVariablesListLocked() -> [[String: Any]] {
-        var merged: [String: Any] = [:]
-        for (key, value) in userMetadata {
-            merged[key] = value
-        }
-        for (key, value) in variables where !key.hasPrefix("_") {
-            merged[key] = value
-        }
-        return merged.map { ["key": $0.key, "value": $0.value] }
+        answerEntries.map { ["nodeId": $0.nodeId, "key": $0.key, "value": $0.value] }
     }
 
-    /// Answer variables in the server's expected format: an array of
-    /// { key, value } dictionaries keyed by variable name. The server uses
-    /// this list to resolve ${var} placeholders in integration node data.
+    /// The answer variables in the server's format: [{nodeId, key, value}].
+    /// The server resolves ${var} placeholders in integration steps from it.
     public func getAnswerVariablesList() -> [[String: Any]] {
         lock.lock()
         defer { lock.unlock() }
@@ -745,6 +744,7 @@ public final class ChatState: ObservableObject {
         defer { lock.unlock() }
 
         answerVariables = [:]
+        answerEntries = []
         variables = [:]
         userMetadata = [:]
         transcript = []
@@ -763,6 +763,7 @@ public final class ChatState: ObservableObject {
         defer { lock.unlock() }
 
         answerVariables = [:]
+        answerEntries = []
         transcript = []
         isTyping = false
         isLiveChatMode = false
@@ -890,6 +891,12 @@ public extension ChatState {
         defer { lock.unlock() }
         if let record = record { serverRecord = record }
         if let node = storedState.currentNodeId { currentNodeId = node }
+        if let saved = storedState.answerVariablesJSON.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) {
+            answerEntries = saved.compactMap { e in
+                guard let key = e["key"] as? String, !key.isEmpty else { return nil }
+                return FlowAnswerVariable(nodeId: JS.text(e["nodeId"]), key: key, value: e["value"] ?? NSNull())
+            }
+        }
     }
 
     /// The server record as JSON for storage; entries that can't be written are left out.
@@ -936,7 +943,8 @@ public extension ChatState {
             transcript: storedTranscript,
             variables: storedVariables,
             serverRecordJSON: Self.serverRecordJSON(serverRecord),
-            currentNodeId: currentNodeId
+            currentNodeId: currentNodeId,
+            answerVariablesJSON: Self.serverRecordJSON(answerVariablesListLocked())
         )
     }
 
@@ -969,4 +977,14 @@ public extension ChatState {
         restoreFromStoredState(storedState)
         return true
     }
+}
+
+// MARK: - Flow answer variable
+
+/// One answer variable as the web widget keeps it: the step that asked (or
+/// "column_mapped_<key>" for a value saved by name), its key and value.
+public struct FlowAnswerVariable {
+    public let nodeId: String
+    public let key: String
+    public var value: Any
 }
