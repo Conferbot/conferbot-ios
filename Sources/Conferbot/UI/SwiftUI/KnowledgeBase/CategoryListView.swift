@@ -12,20 +12,27 @@ import SwiftUI
 public struct CategoryListView: View {
     let categories: [KnowledgeBaseCategory]
     let onCategorySelected: (KnowledgeBaseCategory) -> Void
+    /// The newest articles, above the topics (empty hides the list).
+    let recentArticles: [KnowledgeBaseArticle]
+    let onArticleSelected: ((KnowledgeBaseArticle) -> Void)?
 
     @State private var animateItems = false
 
     public init(
         categories: [KnowledgeBaseCategory],
-        onCategorySelected: @escaping (KnowledgeBaseCategory) -> Void
+        onCategorySelected: @escaping (KnowledgeBaseCategory) -> Void,
+        recentArticles: [KnowledgeBaseArticle] = [],
+        onArticleSelected: ((KnowledgeBaseArticle) -> Void)? = nil
     ) {
         self.categories = categories
         self.onCategorySelected = onCategorySelected
+        self.recentArticles = recentArticles
+        self.onArticleSelected = onArticleSelected
     }
 
     public var body: some View {
         Group {
-            if categories.isEmpty {
+            if categories.isEmpty && recentArticles.isEmpty {
                 emptyStateView
             } else {
                 categoriesListView
@@ -77,6 +84,12 @@ public struct CategoryListView: View {
     private var categoriesListView: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
+                // Recent articles (hideRecentArticles hides them)
+                if !recentArticles.isEmpty {
+                    recentArticlesView
+                        .padding(.top, 8)
+                }
+
                 // Header
                 headerView
                     .padding(.top, 8)
@@ -97,6 +110,45 @@ public struct CategoryListView: View {
             }
             .padding()
         }
+    }
+
+    // MARK: - Recent Articles
+
+    private var recentArticlesView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent articles")
+                .font(.headline)
+            ForEach(recentArticles) { article in
+                Button {
+                    onArticleSelected?(article)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.accentColor)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(article.title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundColor(.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            if let topic = article.categoryName {
+                                Text(topic).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(12)
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Header View
