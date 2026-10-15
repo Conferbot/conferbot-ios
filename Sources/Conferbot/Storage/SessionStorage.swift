@@ -160,6 +160,9 @@ public struct StoredChatState: Codable {
     public let serverRecordJSON: Data?
     /// The flow's step when it was saved (a restart at the handover step waits there).
     public let currentNodeId: String?
+    /// The flow's answer variables ([{nodeId, key, value}]) as JSON, so a
+    /// restored chat still fills {name} and its conditions read the answers.
+    public let answerVariablesJSON: Data?
 
     public init(
         sessionId: String,
@@ -169,7 +172,8 @@ public struct StoredChatState: Codable {
         variables: [String: AnyCodable],
         lastUpdated: Date = Date(),
         serverRecordJSON: Data? = nil,
-        currentNodeId: String? = nil
+        currentNodeId: String? = nil,
+        answerVariablesJSON: Data? = nil
     ) {
         self.sessionId = sessionId
         self.answerVariables = answerVariables
@@ -179,6 +183,7 @@ public struct StoredChatState: Codable {
         self.lastUpdated = lastUpdated
         self.serverRecordJSON = serverRecordJSON
         self.currentNodeId = currentNodeId
+        self.answerVariablesJSON = answerVariablesJSON
     }
 }
 
