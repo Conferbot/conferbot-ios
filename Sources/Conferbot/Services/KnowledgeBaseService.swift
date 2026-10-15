@@ -17,6 +17,8 @@ public class KnowledgeBaseService: ObservableObject {
     @Published public private(set) var searchResults: [KnowledgeBaseArticle] = []
     @Published public private(set) var loadingState: KnowledgeBaseLoadingState = .idle
     @Published public private(set) var currentArticle: KnowledgeBaseArticle?
+    /// The newest published articles (at most four), for the Recent list.
+    @Published public private(set) var recentArticles: [KnowledgeBaseArticle] = []
 
     // MARK: - Private Properties
 
@@ -88,8 +90,10 @@ public class KnowledgeBaseService: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            let apiResponse = try decoder.decode(KnowledgeBaseArticlesResponse.self, from: data)
-            let fetchedArticles = apiResponse.data ?? []
+            // {data: {recentArticles, categories}} (embed-server getKBArticles), or a plain list.
+            let payload = try decoder.decode(KnowledgeBaseEnvelope.self, from: data).data
+            if let help = payload?.help { apply(help) }
+            let fetchedArticles = payload?.articles ?? payload?.help?.allArticles ?? []
 
             articles = fetchedArticles
             loadingState = .loaded
@@ -138,8 +142,9 @@ public class KnowledgeBaseService: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            let apiResponse = try decoder.decode(KnowledgeBaseCategoriesResponse.self, from: data)
-            let fetchedCategories = apiResponse.data ?? []
+            // {data: {categories}} (embed-server getKBCategories), or a plain list.
+            let payload = try decoder.decode(KnowledgeBaseEnvelope.self, from: data).data
+            let fetchedCategories = payload?.categories ?? payload?.help?.categories ?? []
 
             categories = fetchedCategories
             loadingState = .loaded
@@ -175,8 +180,13 @@ public class KnowledgeBaseService: ObservableObject {
         loadingState = .loading
 
         do {
-            let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            guard let url = URL(string: "\(baseURL)/knowledge-base/search?q=\(encodedQuery)") else {
+            // The server reads `query` (embed-server searchKBArticles); `q` was a 400.
+            var components = URLComponents(string: "\(baseURL)/knowledge-base/search")
+            // Encoded by hand: queryItems leaves "&", "=" and "+" as they are.
+            var allowed = CharacterSet.urlQueryAllowed
+            allowed.remove(charactersIn: "&=+?#")
+            components?.percentEncodedQuery = "query=" + (query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query)
+            guard let url = components?.url else {
                 throw ConferBotError.apiError("Invalid URL: \(baseURL)/knowledge-base/search")
             }
             var request = URLRequest(url: url)
@@ -194,8 +204,8 @@ public class KnowledgeBaseService: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
 
-            let apiResponse = try decoder.decode(KnowledgeBaseArticlesResponse.self, from: data)
-            let results = apiResponse.data ?? []
+            let payload = try decoder.decode(KnowledgeBaseEnvelope.self, from: data).data
+            let results = (payload?.articles ?? []).map(withTopicName)
 
             searchResults = results
             loadingState = .loaded
@@ -205,6 +215,36 @@ public class KnowledgeBaseService: ObservableObject {
             loadingState = .error(error.localizedDescription)
             throw error
         }
+    }
+
+    /// The help centre from the server's own payload: `knowledgeBaseData`
+    /// in `fetched-chatbot-data` (no bodies; opened articles are fetched)
+    /// or the REST `{categories, recentArticles}`. The list then shows
+    /// without another request.
+    public func apply(_ data: KnowledgeBaseData) {
+        let update = {
+            self.categories = data.categories
+            self.recentArticles = data.recentArticles
+            self.categoriesCache = data.categories
+            self.cacheExpiration = Date().addingTimeInterval(self.cacheDuration)
+            for article in data.allArticles where self.articleCache[article.id]?.hasContent != true {
+                self.articleCache[article.id] = article
+            }
+            self.loadingState = .loaded
+        }
+        if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
+    }
+
+    /// A known article (from the list), without fetching its body.
+    public func cachedArticle(id: String) -> KnowledgeBaseArticle? {
+        articleCache[id]
+    }
+
+    /// Fills in the topic's name from the loaded topics when the article names it by id only.
+    private func withTopicName(_ article: KnowledgeBaseArticle) -> KnowledgeBaseArticle {
+        guard article.categoryName == nil, let topicId = article.categoryId ?? (article.category.isEmpty ? nil : article.category),
+              let topic = categories.first(where: { $0.id == topicId }) else { return article }
+        return article.merged(categoryId: topic.id, categoryName: topic.name)
     }
 
     /// Local search through cached articles
@@ -237,8 +277,10 @@ public class KnowledgeBaseService: ObservableObject {
     /// Get a specific article by ID
     @MainActor
     public func getArticle(id: String) async throws -> KnowledgeBaseArticle {
-        // Check cache first
-        if let cached = articleCache[id] {
+        // Check cache first: an article from the connect payload has no
+        // body yet and is fetched once.
+        let known = articleCache[id]
+        if let cached = known, cached.hasContent {
             currentArticle = cached
             return cached
         }
@@ -266,9 +308,10 @@ public class KnowledgeBaseService: ObservableObject {
 
             let apiResponse = try decoder.decode(KnowledgeBaseArticleResponse.self, from: data)
 
-            guard let article = apiResponse.data else {
+            guard let fetched = apiResponse.data else {
                 throw ConferBotError.noData
             }
+            let article = withTopicName(known.map { $0.merged(body: fetched) } ?? fetched)
 
             currentArticle = article
             articleCache[id] = article
@@ -477,22 +520,43 @@ public class KnowledgeBaseService: ObservableObject {
 
 // MARK: - API Response Types
 
-private struct KnowledgeBaseArticlesResponse: Codable {
-    let success: Bool
-    let data: [KnowledgeBaseArticle]?
-    let error: String?
-    let message: String?
+/// `{success, data}` where `data` is a list of articles or topics, or the
+/// help centre object `{categories, recentArticles}`.
+private struct KnowledgeBaseEnvelope: Decodable {
+    let data: KnowledgeBasePayload?
 }
 
-private struct KnowledgeBaseCategoriesResponse: Codable {
-    let success: Bool
-    let data: [KnowledgeBaseCategory]?
-    let error: String?
-    let message: String?
+private struct KnowledgeBasePayload: Decodable {
+    var articles: [KnowledgeBaseArticle]?
+    var categories: [KnowledgeBaseCategory]?
+    var help: KnowledgeBaseData?
+
+    init(from decoder: Decoder) throws {
+        if let list = try? decoder.singleValueContainer().decode(KnowledgeBaseLossyList<KnowledgeBaseArticle>.self) {
+            articles = list.items
+            categories = (try? decoder.singleValueContainer().decode(KnowledgeBaseLossyList<KnowledgeBaseCategory>.self))?.items
+            // A plain list is one or the other; a topic list has names, not titles.
+            if let first = categories?.first, !(first.name.isEmpty), articles?.first?.title.isEmpty != false {
+                articles = nil
+            } else {
+                categories = nil
+            }
+            return
+        }
+        help = try KnowledgeBaseData(from: decoder)
+        // A wrapper ({knowledgeBaseData: {...}}), as in GET /mobile/chatbot/:id/kb.
+        if help?.categories.isEmpty == true, help?.recentArticles.isEmpty == true,
+           let wrapped = try? decoder.container(keyedBy: WrapperKeys.self).decode(KnowledgeBaseData.self, forKey: .knowledgeBaseData) {
+            help = wrapped
+        }
+        categories = help?.categories
+    }
+
+    private enum WrapperKeys: String, CodingKey { case knowledgeBaseData }
 }
 
 private struct KnowledgeBaseArticleResponse: Codable {
-    let success: Bool
+    let success: Bool?
     let data: KnowledgeBaseArticle?
     let error: String?
     let message: String?
