@@ -22,6 +22,7 @@ UIs:
 | #18 | User as `visitorContext` + identity hash | `Models/Configuration.swift` (`toVisitorContext`), `Core/State/ChatState.swift`, `Core/ConferBot.swift` (`identify`) |
 | #20 | Greeting card: rules, smart greetings, frequency, per-bot memory, 11 styles and their reveals (SwiftUI), in place of the plain tooltip | `Core/Customization/Greeting.swift`, `GreetingState.swift`, `UI/SwiftUI/GreetingCardView.swift`, `ConferBotWidgetView.swift`, `Tests/GreetingTests.swift` |
 | #50, #51, #33, #42, #54 | Help centre: reads the server's payloads (socket `knowledgeBaseData` without bodies, REST `{data: {categories, recentArticles}}`, millisecond dates, populated `category`), fetches a body on open, searches with `query`, follows `enableKnowledgeBase` / `hideRecentArticles` (host `enableKnowledgeBase: false` only hides), opens AI sources and article cards by `articleId`, and opens articles from a topic or Related | `Models/KnowledgeBase.swift`, `Services/KnowledgeBaseService.swift`, `Core/Customization/HelpCentre.swift`, `UI/SwiftUI/ChatView.swift`, `UI/SwiftUI/AgentReplyViews.swift`, `UI/SwiftUI/KnowledgeBase/`, `Tests/HelpCentreTests.swift` (fixtures captured from a local embed-server in `Tests/KnowledgeBaseFixtures.swift`) |
+| #21, #22, #23, #24, #25, #34, #36, #57 | Handover lifecycle, ported from RN (#28-#32, #58, #59 there): an AI escalating draws the Connecting line (an idle pause draws nothing) that settles to one of 4 outcomes; the 20s `cb:waiting-for-human` and the other waiting signals (`onWidgetSignal`); the header keeps the bot with Online and the reply time; "Talk to a person" only while nobody is coming or here, gone once tapped; the wait card's Cancel leaves the queue (`queue-self-resolve`, `queue-left`); an AI escalation's max wait plus 30s nudges the server (`handover-timeout`) and the SDK's own "no agents" line is gone; a restart saves the server record and asks `live-chat-state`; `initiate-handover` carries the step's email, sound and assignment settings | `Core/LiveChat/HandoverState.swift`, `HandoverWaiting.swift`, `ReplyTime.swift`, `HandoverLifecycle.swift`, `Core/ConferBot.swift`, `Core/NodeFlowEngine.swift` (`waitAt`, `resumeFrom`, `loadFlow(_:keepingState:)`), `Core/State/ChatState.swift` + `Storage/SessionStorage.swift` (record saved), `Core/Agent/AgentHandover.swift` (`stepSettings`), `UI/SwiftUI/MessageBubble.swift` (centred lines), `ChatView.swift` (header), `LiveChatCards.swift`, `Tests/Handover*Tests.swift`, `Tests/ReplyTimeTests.swift` |
 | #19 | Socket fixes found while testing the greeting: listeners added before `connect()` were dropped (the bot's settings never arrived), and `emit` sent its items as one array (`get-chatbot-data` got `[{botId}]`) | `Services/SocketClient.swift` |
 
 ## Left in this SDK
@@ -30,7 +31,8 @@ UIs:
 2. **UIKit gaps:** UIKit lags SwiftUI (initials avatar, typing styles; no launcher, so no greeting card). Audit it against the SwiftUI chat.
 3. **Greeting card leftovers:** the plain `card` style does not take a widget theme's tokens yet (RN doesn't either); the agent's initials avatar and reply field (proactive agent message), mascots (`mascotInGreeting`) and the exit/collapse animations are not drawn; the word fade-up is opacity only (no rise or blur); chips wrap from iOS 16 and stack one per line on iOS 15. Fonts are the phone's nearest (Noteworthy, Marker Felt, Georgia, Courier New); nothing is bundled.
 4. **Help centre leftovers:** search uses REST only (the web also searches over the socket's `search-kb-articles` and merges its own title matches); bodies are fetched over REST, not `get-kb-article`. Recent articles sit at the top of the help centre, as there is no home screen yet. UIKit has no help centre.
-5. `initialize(...)` takes no user. Only `identify(user:)` sets the visitor context. Consider an optional `user:` parameter, as Android has.
+5. **Handover leftovers:** the smart-wait help card while queued (`queue-help`, "That solved it") is not drawn (#58). UIKit has the wait card's Cancel, the lines and the bot-name title, but no status line under the title (no reply time). The handover node's own survey and end-chat actions are not drawn on iOS (RN's `submit-chat-rating` survey and `queue-self-resolve` on end chat have nothing to port to). `endSession` still sends `end-chat`, which the server refuses from a visitor (harmless).
+6. `initialize(...)` takes no user. Only `identify(user:)` sets the visitor context. Consider an optional `user:` parameter, as Android has.
 
 ## How to test
 
@@ -68,7 +70,8 @@ Every web widget feature works the same in the 4 mobile SDKs: customization, lau
 | `widgetLanguage` (i18n) | todo | todo | todo | todo |
 | Message sounds | todo | todo | todo | todo |
 | Celebrations / reactions | todo | todo | todo | todo |
-| Reply-time wording | todo | todo | todo | todo |
+| Reply-time wording (header) | done | todo | done | todo |
+| Handover lifecycle (Connecting line, outcomes, signals, leave queue, restore) | done | todo | done | todo |
 
 Live chat / agent features (handover, queue card, receipts, rating, files, prefill, max-wait timeout, agent bot replies, suggestion chips) are done in all 4.
 
@@ -89,6 +92,16 @@ All paths are under `conferbot-widget/src/`.
 - **Sounds:** `ts/chat/messageSound.ts`.
 - **Celebrations:** `ts/chat/delight/` (celebrate, reactions, rules) and `ts/chat/ratingFx.ts`.
 - **Reply time:** `ts/chat/replyTime.ts`, `replyTimeView.ts`, `headerPresence.ts`.
+
+### Porting the handover lifecycle (from RN, #28-#32, #58, #59)
+
+Done in iOS (2026-10-15). RN's notes (its `docs/PARITY.md`) hold for Android and Flutter; what iOS did differently:
+
+- **The record is the server record** (`ChatState.serverRecord`): `HandoverState` reads `[[String: Any]]` entries. The on-screen lines are `AgentLeftMessageRecord` (`handover`, `settled`) and `AgentJoinedMessageRecord` (`afterAI`), with the same ids as their server entries, so a restore can copy the annotations across.
+- **Saving the record (#22):** `StoredChatState` now carries `serverRecordJSON` and `currentNodeId`; `ConferBot.saveChatState` writes it and `restoreChatState` reads it back. Without them a restart had nothing to read the handover from. A chat ended is recorded as `agent-chat-ended` (it was a `system-message`).
+- **`HandoverLifecycle`** takes closures (`Hooks`), not the socket, so `HandoverLifecycleTests` drives it with a fake socket and clock (`FakeClock` in `HandoverWaitingTests.swift`). ConferBot calls it from its own `agent-accepted`, `agent-left`, `no-agents-available`, `chat-ended` and `ai-agent-inactive-close` handlers, in that order before drawing anything; it listens to `handover-waiting` and `queue-left` itself.
+- **Restore:** the flow is loaded with `loadFlow(_:keepingState: true)` (the old `loadFlow` reset the answers), then `resumeRestored`. On connect a restored session joins its room again: the join sent from `initialize` went out before the socket was connected.
+- **The AI escalation's nudge** (web `armAIEscalationNudge`) is armed on the Connecting line with the step's max wait (the flow's handover step, or an agent bot's shell step) and cleared by every answer from the server.
 
 ### Porting the greeting card (from RN)
 
