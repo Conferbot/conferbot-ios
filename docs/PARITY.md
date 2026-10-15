@@ -21,6 +21,7 @@ UIs:
 | #17 | Launcher motion, passes the golden test | `LauncherMotion.swift`, `LauncherMotionData.swift` |
 | #18 | User as `visitorContext` + identity hash | `Models/Configuration.swift` (`toVisitorContext`), `Core/State/ChatState.swift`, `Core/ConferBot.swift` (`identify`) |
 | #20 | Greeting card: rules, smart greetings, frequency, per-bot memory, 11 styles and their reveals (SwiftUI), in place of the plain tooltip | `Core/Customization/Greeting.swift`, `GreetingState.swift`, `UI/SwiftUI/GreetingCardView.swift`, `ConferBotWidgetView.swift`, `Tests/GreetingTests.swift` |
+| #50, #51, #33, #42, #54 | Help centre: reads the server's payloads (socket `knowledgeBaseData` without bodies, REST `{data: {categories, recentArticles}}`, millisecond dates, populated `category`), fetches a body on open, searches with `query`, follows `enableKnowledgeBase` / `hideRecentArticles` (host `enableKnowledgeBase: false` only hides), opens AI sources and article cards by `articleId`, and opens articles from a topic or Related | `Models/KnowledgeBase.swift`, `Services/KnowledgeBaseService.swift`, `Core/Customization/HelpCentre.swift`, `UI/SwiftUI/ChatView.swift`, `UI/SwiftUI/AgentReplyViews.swift`, `UI/SwiftUI/KnowledgeBase/`, `Tests/HelpCentreTests.swift` (fixtures captured from a local embed-server in `Tests/KnowledgeBaseFixtures.swift`) |
 | #19 | Socket fixes found while testing the greeting: listeners added before `connect()` were dropped (the bot's settings never arrived), and `emit` sent its items as one array (`get-chatbot-data` got `[{botId}]`) | `Services/SocketClient.swift` |
 
 ## Left in this SDK
@@ -28,7 +29,8 @@ UIs:
 1. The rest of the list below.
 2. **UIKit gaps:** UIKit lags SwiftUI (initials avatar, typing styles; no launcher, so no greeting card). Audit it against the SwiftUI chat.
 3. **Greeting card leftovers:** the plain `card` style does not take a widget theme's tokens yet (RN doesn't either); the agent's initials avatar and reply field (proactive agent message), mascots (`mascotInGreeting`) and the exit/collapse animations are not drawn; the word fade-up is opacity only (no rise or blur); chips wrap from iOS 16 and stack one per line on iOS 15. Fonts are the phone's nearest (Noteworthy, Marker Felt, Georgia, Courier New); nothing is bundled.
-4. `initialize(...)` takes no user. Only `identify(user:)` sets the visitor context. Consider an optional `user:` parameter, as Android has.
+4. **Help centre leftovers:** search uses REST only (the web also searches over the socket's `search-kb-articles` and merges its own title matches); bodies are fetched over REST, not `get-kb-article`. Recent articles sit at the top of the help centre, as there is no home screen yet. UIKit has no help centre.
+5. `initialize(...)` takes no user. Only `identify(user:)` sets the visitor context. Consider an optional `user:` parameter, as Android has.
 
 ## How to test
 
