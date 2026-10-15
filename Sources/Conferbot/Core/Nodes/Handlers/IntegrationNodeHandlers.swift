@@ -2230,6 +2230,9 @@ public final class HumanHandoverHandler: BaseIntegrationHandler {
             ]
 
             if let dept = department { handoverPayload["department"] = dept }
+            // The step's email, sound and assignment settings (an email
+            // turned off on the step must stay off).
+            AgentHandover.stepSettings(nodeData).forEach { handoverPayload[$0.key] = $0.value }
 
             // Send response-record before handover so the server has the
             // Response document when creating the ticket/notification
