@@ -185,55 +185,52 @@ public struct ChatView: View {
         }
     }
 
-    /// The header as the web draws it: the bot's colours, its logo (or the
-    /// agent's photo), the 18-character title, and the tagline or "Online".
+    /// The header as the web draws it: the bot's colours, its logo, the
+    /// 18-character title, and the tagline or the status line. It keeps the
+    /// bot when an agent joins (web headerPresence.ts).
     private var serverHeaderView: some View {
         let look = conferBot.customizations
         let ink = Color(hex: look.headerText)
-        let agent = conferBot.currentAgent
         return HStack(spacing: 10) {
-            if let agent = agent {
-                Group {
-                    if let photo = agent.avatar.flatMap({ URL(string: $0) }) {
-                        AsyncImage(url: photo) { image in image.resizable() } placeholder: { Color.clear }
-                    } else {
-                        Text(String(agent.name.prefix(1)).uppercased())
-                            .font(.headline)
-                            .foregroundColor(ink)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(ink.opacity(0.2))
-                    }
-                }
-                .frame(width: 38, height: 38)
-                .clipShape(Circle())
-            } else if !look.hideLogo, let logo = URL(string: look.logo) {
+            if !look.hideLogo, let logo = URL(string: look.logo) {
                 AsyncImage(url: logo) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .frame(width: 38, height: 38)
                     .clipShape(Circle())
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(agent?.name ?? look.title)
+                Text(look.title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ink)
                     .lineLimit(1)
                 if !conferBot.isConnected {
                     Text("Connecting...").font(.caption).foregroundColor(ink.opacity(0.85))
-                } else if agent == nil, let tagline = look.tagline {
+                } else if let tagline = look.tagline {
                     Text(tagline).font(.caption).foregroundColor(ink.opacity(0.85)).lineLimit(1)
-                } else if agent == nil && look.showOnline {
+                } else if look.showOnline, let status = headerStatus {
                     HStack(spacing: 5) {
                         Circle()
                             .fill(Color(red: 0.13, green: 0.77, blue: 0.37))
                             .frame(width: 7, height: 7)
                             .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
-                        Text("Online").font(.caption).foregroundColor(ink.opacity(0.85))
+                        Text(status).font(.caption).foregroundColor(ink.opacity(0.85)).lineLimit(1)
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
             Spacer()
         }
         .padding()
         .background(Color(hex: look.headerBg))
+    }
+
+    /// "Online", the team's reply time ("Typically replies in a few
+    /// minutes", "Online · team back Monday 9 AM"), or plain "Online" once a
+    /// person is in the chat (ReplyTime, the web's replyTime.ts).
+    private var headerStatus: String? {
+        let personHere = HandoverState.phase(conferBot.chatState.getServerRecord()) == .joined
+            || (conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false)
+        return ReplyTime.headerStatus(conferBot.serverCustomizations?["replyTime"] as? [String: Any],
+                                      personInChat: personHere, agentBot: conferBot.agentBot != nil)
     }
 
     private var hostHeaderView: some View {
@@ -399,10 +396,11 @@ public struct ChatView: View {
                 Spacer()
             }
         case .humanHandover(let message):
-            // The compact wait card: where the visitor stands in line
+            // The compact wait card: where the visitor stands in line, and
+            // Cancel to leave the queue (queue-self-resolve)
             HStack(alignment: .top) {
                 Spacer().frame(width: 40)
-                HandoverWaitCard(live: live, message: message, accent: pillColor)
+                HandoverWaitCard(live: live, message: message, accent: pillColor, onCancel: { conferBot.leaveQueue() })
             }
         case .buttons(let buttons, let nodeId):
             HStack(alignment: .top) {
