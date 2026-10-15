@@ -24,7 +24,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Headless mode** - `ConferBot.shared` is an `ObservableObject` with a full delegate protocol, so you can build a completely custom UI
 - **Real-time messaging** - Socket.IO powered, same events as the Conferbot web widget
 - **Node flow engine** - Renders the full flow-builder node set (choices, buttons, ratings, dates, file uploads, and more) natively. Text questions (ask-name, ask-email, ...) are answered by typing in the single bottom input bar, and answered choice pills stay in the transcript - exactly like the web widget
-- **Live agent handover** - `initiateHandover(message:)` with agent join/leave/typing callbacks
+- **Live agent handover** - the web widget's handover lifecycle: the "Connecting you with the team…" line and how the wait ended, the header's reply time, leaving the queue, waiting signals, and a live chat picked back up after the app restarts
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
 - **Push notifications** - APNs token registration and notification handling
@@ -456,6 +456,35 @@ ConferBot.shared.initiateHandover(message: "I need help with billing")
 
 Agent lifecycle arrives via `agentDidJoin` / `agentDidLeave`, `isAgentTyping`, and `currentAgent`. During live chat, `sendTypingIndicator(isTyping:)` forwards visitor typing to the agent console.
 
+The chat follows the handover as the web widget does:
+
+- **The Connecting line.** When an AI agent hands the visitor to the team, the chat shows "Connecting you with the team…" with typing dots. It settles to how the wait ended: "Connected with the team", "The team couldn't join just now", "You left the queue" or "Chat ended before the team joined". A person joining after the AI gets "They can see your conversation so far". An AI pausing an idle visitor draws nothing.
+- **The header** keeps the bot's name. Under it: the team's reply time ("Typically replies in a few minutes", "Online · team back Monday 9 AM"), then plain "Online" once a person is in the chat. An AI agent bot shows "Online" only.
+- **"Talk to a person"** (AI agent bots with the owner's switch on) is offered only while nobody is coming or here, and goes once tapped.
+- **Leaving the queue.** The wait card's Cancel tells the server (`queue-self-resolve`) and the flow carries on. A person who already accepted keeps the chat. Call it yourself with `leaveQueue`:
+
+```swift
+ConferBot.shared.leaveQueue { left in
+    // false: a person already picked the chat up
+}
+```
+
+- **Max wait.** A flow handover asks the server to decide once the step's max wait passes. After an AI escalation the SDK waits the max wait plus 30 seconds, then nudges the server (`handover-timeout`) and draws nothing itself.
+- **Restart.** A restored session asks the server where its live chat stands (`live-chat-state`): back live with the agent and the join line it missed, back on the handover step's wait without asking again, or the flow carries on. The server record and the flow's step are saved with the session for this.
+- **Waiting signals**, as the web widget's `cb:*` events:
+
+```swift
+let stop = ConferBot.shared.onWidgetSignal(.waitingForHuman) { detail in
+    // 20s into a wait with nobody yet, or the server's handover-waiting.
+    // detail.offline, detail.reason ("offline" / "busy"), detail.backAt
+}
+ConferBot.shared.onWidgetSignal(.humanJoined) { detail in print(detail.name ?? "") }
+ConferBot.shared.onWidgetSignal(.waitOver) { detail in print(detail.reason ?? "") } // unavailable, cancelled, ended
+stop() // unsubscribe
+```
+
+The handover step's own settings (team email on or off, sound, assignment method and skills) are sent with the request.
+
 ### Goals, analytics, and raw socket events
 
 ```swift
@@ -489,6 +518,8 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | `sendMessage(_ text: String, metadata: [String: AnyCodable]? = nil) async throws` | Send a text message (auto-queued offline) |
 | `sendTypingIndicator(isTyping: Bool)` | Send visitor typing status |
 | `initiateHandover(message: String? = nil)` | Request a live agent |
+| `leaveQueue(_ done: @escaping (Bool) -> Void = { _ in })` | Leave the handover queue (`done(false)` when a person already has the chat) |
+| `onWidgetSignal(_ signal: WidgetSignal, _ listener: @escaping (WidgetSignalDetail) -> Void) -> () -> Void` | Listen to `.waitingForHuman`, `.humanJoined`, `.waitOver`; returns the unsubscribe |
 | `endSession(clearStorage: Bool = true)` | End the current session |
 | `present(from viewController: UIViewController, animated: Bool = true)` | Present the UIKit chat modal |
 | `registerPushToken(_ token: String)` | Register an APNs device token |
