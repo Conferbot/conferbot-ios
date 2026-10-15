@@ -719,6 +719,24 @@ public final class ChatState: ObservableObject {
         ]
     }
 
+    /// Names the conversation this state belongs to, keeping its answers:
+    /// the flow's steps read the chatSessionId and botId from the record
+    /// for the events they send (initiate-handover, response-record) (#62).
+    public func setSession(sessionId: String, botId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        var r = record
+        r["sessionId"] = sessionId
+        r["botId"] = botId
+        if r["createdAt"] == nil { r["createdAt"] = now }
+        r["updatedAt"] = now
+        if r["answers"] == nil { r["answers"] = [String: Any]() }
+        if r["metadata"] == nil { r["metadata"] = [String: Any]() }
+        record = r
+    }
+
     // MARK: - Reset
 
     /// Resets all state to initial values
