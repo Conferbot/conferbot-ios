@@ -155,6 +155,11 @@ public struct StoredChatState: Codable {
     public let transcript: [TranscriptEntry]
     public let variables: [String: AnyCodable]
     public let lastUpdated: Date
+    /// The conversation's server record (ChatState.serverRecord) as JSON: what
+    /// a restart reads the live chat and the handover from (HandoverState).
+    public let serverRecordJSON: Data?
+    /// The flow's step when it was saved (a restart at the handover step waits there).
+    public let currentNodeId: String?
 
     public init(
         sessionId: String,
@@ -162,7 +167,9 @@ public struct StoredChatState: Codable {
         userMetadata: UserMetadata,
         transcript: [TranscriptEntry],
         variables: [String: AnyCodable],
-        lastUpdated: Date = Date()
+        lastUpdated: Date = Date(),
+        serverRecordJSON: Data? = nil,
+        currentNodeId: String? = nil
     ) {
         self.sessionId = sessionId
         self.answerVariables = answerVariables
@@ -170,6 +177,8 @@ public struct StoredChatState: Codable {
         self.transcript = transcript
         self.variables = variables
         self.lastUpdated = lastUpdated
+        self.serverRecordJSON = serverRecordJSON
+        self.currentNodeId = currentNodeId
     }
 }
 
