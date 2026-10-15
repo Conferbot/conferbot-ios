@@ -447,7 +447,8 @@ public class ConferBot: ObservableObject {
                 debugPrint("[ConferBot] Restored \(storedMessages.count) messages")
             }
 
-            // Restore chat state
+            // Restore chat state, under this conversation's ids (#62)
+            chatState.setSession(sessionId: storedSession.chatSessionId, botId: botId)
             restoreChatState(sessionId: storedSession.chatSessionId)
 
             // Update session activity to extend expiry
@@ -817,6 +818,8 @@ public class ConferBot: ObservableObject {
             self.currentSession = session
             self.messages = session.record.map { $0.value }
             self.hasRestoredSession = false
+            // The flow's steps name the conversation from the chat state (#62).
+            self.chatState.setSession(sessionId: session.chatSessionId, botId: botId)
 
             // Store visitorId on ChatState for response-record payloads
             if let visitorId = session.visitorId {
@@ -1445,6 +1448,7 @@ public class ConferBot: ObservableObject {
         )
         currentSession = newSession
         messages = []
+        chatState.setSession(sessionId: newSessionId, botId: botId ?? newSession.botId)
 
         // Join new chat room
         socketClient?.joinChatRoomVisitor(chatSessionId: newSessionId)
