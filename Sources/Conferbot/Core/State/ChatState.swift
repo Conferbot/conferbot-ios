@@ -65,6 +65,12 @@ public final class ChatState: ObservableObject {
     /// the visible message list. Invoked outside the internal lock.
     public var onBotEntryAppended: (([String: Any]) -> Void)?
 
+    /// Called whenever a visitor entry is appended to the transcript (a
+    /// step's own reply line: "⭐⭐⭐⭐", "Oct 19, 2026", "Signed: ..."). The
+    /// chat shows these for the steps answered in their own views.
+    /// Invoked outside the internal lock.
+    public var onUserEntryAppended: (([String: Any]) -> Void)?
+
     // MARK: - Private Properties
 
     /// Lock for thread-safe access
@@ -405,11 +411,14 @@ public final class ChatState: ObservableObject {
             transcript = Array(transcript.suffix(maxTranscriptEntries))
         }
         let callback = onBotEntryAppended
+        let userCallback = onUserEntryAppended
         lock.unlock()
 
         // Mirror bot entries to the visible message list (outside the lock)
         if (entryWithTimestamp["type"] as? String) == "bot" {
             callback?(entryWithTimestamp)
+        } else if (entryWithTimestamp["type"] as? String) == "user" {
+            userCallback?(entryWithTimestamp)
         }
     }
 
