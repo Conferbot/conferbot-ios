@@ -131,10 +131,6 @@ struct LauncherIconView: View {
         }
         if o.strokeFirst == true { stroke(); fill() } else { fill(); stroke() }
     }
-}
-
-private extension Array {
-    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 
     /// The gradient in a unit box mapped onto the shape's bounds, so a radial
     /// gradient on a wide shape is an ellipse.
@@ -151,4 +147,8 @@ private extension Array {
             : .linearGradient(gradient, startPoint: CGPoint(x: g.x1 ?? 0, y: g.y1 ?? 0), endPoint: CGPoint(x: g.x2 ?? 1, y: g.y2 ?? 0))
         ctx.fill(unit, with: shading, style: style)
     }
+}
+
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
