@@ -144,6 +144,57 @@ public class ConferBot: ObservableObject {
         sendRecord: { [weak self] in self?.sendCurrentRecord() }
     )
     private var liveChatCancellables = Set<AnyCancellable>()
+
+    // MARK: - Handover lifecycle
+    // The "Connecting you with the team…" line and its outcome, the waiting
+    // signals, the AI escalation's max-wait nudge, leaving the queue, and a
+    // live chat picked back up after a restart (Core/LiveChat/HandoverLifecycle).
+    public private(set) lazy var handover: HandoverLifecycle = HandoverLifecycle(hooks: .init(
+        sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        emit: { [weak self] event, data in self?.socketClient?.emit(event: event, data: data) },
+        emitWithAck: { [weak self] event, data, timeout, done in
+            guard let socket = self?.socketClient else { return done(nil) }
+            socket.emitWithAck(event: event, data: data, timeout: timeout, completion: done)
+        },
+        joinRoom: { [weak self] id in self?.socketClient?.joinChatRoomVisitor(chatSessionId: id, deviceInfo: self?.getDeviceInfo()) },
+        chatState: { ChatState.shared },
+        messages: { [weak self] in self?.messages ?? [] },
+        setMessages: { [weak self] list in self?.messages = list },
+        engine: { [weak self] in self?.flowEngine },
+        chatVisible: { [weak self] in self?.isChatVisible ?? false },
+        waitingForPerson: { [weak self] in
+            guard let self = self, !self.isLiveChatMode, case .humanHandover = self.currentUIState else { return false }
+            return true
+        },
+        handoverStepData: { [weak self] in self?.flowEngine?.handoverNodeData ?? self?.agentStepData },
+        setLive: { [weak self] on in
+            self?.isLiveChatMode = on
+            self?.chatState.isLiveChatMode = on
+        },
+        setAgent: { [weak self] agent, details in
+            self?.currentAgent = agent
+            self?.chatState.currentAgent = details
+        },
+        save: { [weak self] in self?.saveSessionState() }
+    ))
+    /// The flow's handover step whose 20s waiting signal has started (once per wait).
+    private var connectingWaitFor: String?
+    /// An agent bot's handover step data (its max wait), for the AI escalation's nudge.
+    private var agentStepData: [String: Any]?
+
+    /// Listen to the web widget's waiting signals: `.waitingForHuman` (also
+    /// 20s into a wait with nobody yet), `.humanJoined`, `.waitOver`.
+    /// Returns the unsubscribe. Called on the main thread.
+    @discardableResult
+    public func onWidgetSignal(_ signal: WidgetSignal, _ listener: @escaping (WidgetSignalDetail) -> Void) -> () -> Void {
+        handover.signals.on(signal, listener)
+    }
+
+    /// Leave the queue (the wait card's Cancel): queue-self-resolve, then the
+    /// flow carries on. `done(false)` when a person already picked the chat up.
+    public func leaveQueue(_ done: @escaping (Bool) -> Void = { _ in }) {
+        DispatchQueue.main.async { self.handover.leaveQueue(done) }
+    }
     /// The chat is on screen (ChatView appears): the agent's latest message counts as seen.
     @Published public private(set) var isChatVisible = false
 
@@ -190,9 +241,16 @@ public class ConferBot: ObservableObject {
 
     private func updateQueuePoll(state: NodeUIState?, live: Bool) {
         if case .humanHandover = state, !live {
+            // Waiting for a person: the 20s signal, once per wait (not when an AI agent takes it first).
+            let node = flowEngine?.currentNodeId
+            if connectingWaitFor != node {
+                connectingWaitFor = node
+                handover.flowWaitStarted(nodeData: flowEngine?.handoverNodeData)
+            }
             liveChat.startQueuePoll()
             liveChat.startWaitTimer(nodeData: flowEngine?.handoverNodeData, workspaceId: chatState.getVariable(name: "_workspaceId") as? String)
         } else {
+            connectingWaitFor = nil
             liveChat.stopQueuePoll()
             liveChat.stopWaitTimer()
         }
@@ -434,6 +492,12 @@ public class ConferBot: ObservableObject {
             chatState.addToTranscript(entry: entry.toDictionary())
         }
 
+        // The server record and the flow's step: a restart reads its live
+        // chat and handover from them (they used not to be saved).
+        if let stored = sessionStorage.loadChatState(sessionId: sessionId) {
+            chatState.restoreServerRecord(stored)
+        }
+
         debugPrint("[ConferBot] Chat state restored")
     }
 
@@ -473,6 +537,9 @@ public class ConferBot: ObservableObject {
             // Save transcript
             let transcript = chatState.getTranscript().map { TranscriptEntry(from: $0) }
             try sessionStorage.saveTranscript(transcript: transcript, sessionId: sessionId)
+
+            // The server record and the flow's step (with the rest of the state).
+            try sessionStorage.saveChatState(state: chatState.toStoredState(sessionId: sessionId))
 
         } catch {
             debugPrint("[ConferBot] Failed to save chat state: \(error)")
@@ -736,6 +803,7 @@ public class ConferBot: ObservableObject {
         await MainActor.run {
             self.flowStarted = false
             self.resetAgentBotChat()
+            self.handover.reset()
         }
 
         // Clear any existing stored session if forcing new
@@ -1354,6 +1422,7 @@ public class ConferBot: ObservableObject {
     /// Reset flow state and start a new session (matching web widget restart behavior)
     public func resetFlow() {
         chatState.reset()
+        handover.reset()
 
         // Reset live chat state on ConferBot level too
         isLiveChatMode = false
@@ -1416,6 +1485,7 @@ public class ConferBot: ObservableObject {
         unreadCount = 0
         hasRestoredSession = false
         flowStarted = false
+        handover.reset()
         Task { @MainActor in self.resetAgentBotChat() }
 
         debugPrint("[ConferBot] Session ended: \(session.chatSessionId)")
@@ -1492,6 +1562,12 @@ public class ConferBot: ObservableObject {
                 self.isConnected = true
                 self.delegate?.conferBot(self, didChangeConnectionStatus: true)
 
+                // A restored session's room: the join sent at start-up went
+                // out before the socket was connected (and was dropped).
+                if let sessionId = self.currentSession?.chatSessionId {
+                    self.socketClient?.joinChatRoomVisitor(chatSessionId: sessionId, deviceInfo: self.getDeviceInfo())
+                }
+
                 // Load bot config (workspaceId, server customizations) like the
                 // web widget does on every connect.
                 self.socketClient?.requestChatbotData()
@@ -1559,8 +1635,8 @@ public class ConferBot: ObservableObject {
         }
 
         // Chat ended
-        socketClient?.on(SocketEvents.chatEnded) { [weak self] _, _ in
-            self?.handleChatEnded()
+        socketClient?.on(SocketEvents.chatEnded) { [weak self] data, _ in
+            self?.handleChatEnded(data: data.first as? [String: Any])
         }
 
         // Fetched chatbot data - extract workspaceId and botName for handover
@@ -1621,6 +1697,7 @@ public class ConferBot: ObservableObject {
 
         setupAgentBotListeners()
         liveChat.setupListeners()
+        if let socket = socketClient { handover.setupListeners(on: socket) }
         watchLiveChat()
 
         // Integration result - apply returned answer variables to chat state
@@ -1849,8 +1926,14 @@ public class ConferBot: ObservableObject {
             startAgentBotChat(sessionId: session.chatSessionId, bot: bot, nodes: nodes)
             return
         }
-        // A restored conversation is not replayed from the first node.
-        if hasRestoredSession && !messages.isEmpty { return }
+        // A restored conversation is not replayed from the first node: the
+        // flow is loaded as it stood, and a live chat (or a handover still in
+        // the queue) is picked back up from the server (live-chat-state).
+        if hasRestoredSession && !messages.isEmpty {
+            flowEngine?.loadFlow(["nodes": nodes, "edges": cachedEdges], keepingState: true)
+            handover.resumeRestored(sessionId: session.chatSessionId, nodes: nodes, agentBot: false)
+            return
+        }
         loadFlow(["nodes": nodes, "edges": cachedEdges])
         startFlow()
     }
@@ -1876,23 +1959,31 @@ public class ConferBot: ObservableObject {
         guard agentStartedFor != sessionId else { return }
         agentStartedFor = sessionId
         let details = AgentDetails(id: bot.agentDetailsId, name: bot.displayName, email: "", avatar: bot.avatar, isAIAgent: true)
-        currentAgent = Agent(id: details.id, name: details.name, email: "", avatar: bot.avatar)
+        let resumed = messages.contains { item in
+            (item as? AgentMessageRecord)?.id.hasPrefix("agent-greeting-") == true || item.type == .userLiveMessage
+        }
+        // A restored chat a person has (the AI handed it on): not the AI.
+        if !(resumed && HandoverState.phase(chatState.getServerRecord()) == .joined) {
+            currentAgent = Agent(id: details.id, name: details.name, email: "", avatar: bot.avatar)
+        }
         // Visitor messages go the live way from the start.
         isLiveChatMode = true
         chatState.isLiveChatMode = true
 
-        let resumed = messages.contains { item in
-            (item as? AgentMessageRecord)?.id.hasPrefix("agent-greeting-") == true || item.type == .userLiveMessage
-        }
+        let shell = AgentBotParser.agentShellNodes(nodes, agentId: bot.agentId)
+        let stepData = AgentBotParser.agentHandoverData(shell.handover?["data"] as? [String: Any], agentId: bot.agentId)
+        agentStepData = stepData
+
         if resumed {
             agentPendingHandover = nil
             agentHandoverPending = false
+            // A person (or the wait for one) is picked back up from the server.
+            if hasRestoredSession { handover.resumeRestored(sessionId: sessionId, nodes: nodes, agentBot: true) }
             return
         }
 
         agentHandoverPending = true
         let greeting = bot.greeting.isEmpty ? AgentBotParser.defaultGreeting : bot.greeting
-        let shell = AgentBotParser.agentShellNodes(nodes, agentId: bot.agentId)
         let welcomeId = shell.welcome?["id"] as? String ?? "agent-welcome"
         var welcomeData = shell.welcome?["data"] as? [String: Any] ?? [:]
         welcomeData["text"] = greeting
@@ -1906,7 +1997,7 @@ public class ConferBot: ObservableObject {
         suggestions = bot.starters
 
         let handoverId = shell.handover?["id"] as? String ?? "agent-handover"
-        agentPendingHandover = (handoverId, AgentBotParser.agentHandoverData(shell.handover?["data"] as? [String: Any], agentId: bot.agentId))
+        agentPendingHandover = (handoverId, stepData)
         saveSessionState()
     }
 
@@ -1951,6 +2042,7 @@ public class ConferBot: ObservableObject {
     @MainActor
     private func resetAgentBotChat() {
         agentStartedFor = nil
+        agentStepData = nil
         agentPendingHandover = nil
         agentHandoverPending = false
         agentStream = nil
@@ -2023,7 +2115,10 @@ public class ConferBot: ObservableObject {
         // Closed for inactivity; the visitor's next message reopens it.
         socketClient?.on(SocketEvents.aiAgentInactiveClose) { [weak self] data, _ in
             guard let self = self, self.isOwnSession(data.first as? [String: Any]) else { return }
+            let json = data.first as? [String: Any]
             Task { @MainActor in
+                // A wait for a person still going ends with the chat.
+                self.handover.onChatEnded(json)
                 self.setAwaitingReply(false)
                 self.suggestions = []
                 self.chatState.pushLiveChatRecord(entryId: "ai-close-\(UUID().uuidString)", type: "ai-agent-inactive-close")
@@ -2114,6 +2209,12 @@ public class ConferBot: ObservableObject {
             )
 
             Task { @MainActor in
+                // The wait is over: the Connecting line settles (joined, or
+                // unavailable when the AI takes the chat back) and the
+                // waiting signal stops (HandoverState.acceptedPlan), before
+                // the agent bot's silent-start check, as the web does.
+                let plan = self.handover.onAccepted(json)
+
                 // An agent bot's own AI agent taking the chat it already
                 // greeted: nothing to announce, the held messages go out.
                 if self.agentBot != nil && agentDetails.isAIAgent {
@@ -2128,23 +2229,15 @@ public class ConferBot: ObservableObject {
                 self.chatState.isLiveChatMode = true
                 self.chatState.currentAgent = agentDetails
 
-                // Add system message: "{agent name} has joined the chat"
-                let joinedMessageId = UUID().uuidString
-                let joinedRecord = AgentJoinedMessageRecord(
-                    id: joinedMessageId,
-                    time: Date(),
-                    agentDetails: agentDetails
-                )
-                self.messages.append(joinedRecord)
-                self.delegate?.conferBot(self, didReceiveMessage: joinedRecord)
-
-                // Push to server record
-                self.chatState.pushLiveChatRecord(
-                    entryId: joinedMessageId,
-                    type: MessageType.agentJoinedMessage.rawValue,
-                    text: "\(agentDetails.name) has joined the chat",
-                    agentDetails: agentData
-                )
+                // "<name> joined the chat" - not again for the same person (a
+                // repeat after a reconnect), with "They can see your
+                // conversation so far" after an AI handover.
+                if plan.announce {
+                    self.handover.addJoin(agentDetails, raw: agentData, plan: plan)
+                    if let joined = self.messages.last as? AgentJoinedMessageRecord {
+                        self.delegate?.conferBot(self, didReceiveMessage: joined)
+                    }
+                }
 
                 self.delegate?.conferBot(self, agentDidJoin: agent)
                 self.saveSessionState()
@@ -2156,55 +2249,30 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleAgentLeft(data: [Any]) {
-        // embed-server sends 'agentDetails' not 'agent'
-        guard let json = data.first as? [String: Any],
-              let agentData = json["agentDetails"] as? [String: Any] else {
-            return
-        }
-
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: agentData)
-            let agentDetails = try JSONDecoder().decode(AgentDetails.self, from: jsonData)
-
-            // Map AgentDetails to Agent
-            let agent = Agent(
-                id: agentDetails.id,
-                name: agentDetails.name,
-                email: agentDetails.email
-            )
-
-            Task { @MainActor in
-                // Add system message: "{agent name} has left the chat"
-                let leftMessageId = UUID().uuidString
-                let leftRecord = AgentLeftMessageRecord(
-                    id: leftMessageId,
-                    time: Date(),
-                    agentDetails: agentDetails
-                )
-                self.messages.append(leftRecord)
-                self.delegate?.conferBot(self, didReceiveMessage: leftRecord)
-
-                // Push to server record with type "agent-left-chat"
-                self.chatState.pushLiveChatRecord(
-                    entryId: leftMessageId,
-                    type: MessageType.agentLeftChat.rawValue,
-                    text: "\(agentDetails.name) has left the chat",
-                    agentDetails: agentData
-                )
-
-                // Clear agent but keep live chat mode
-                // (another agent might join, or chat-ended will clear it)
-                self.currentAgent = nil
-                self.chatState.currentAgent = nil
-                self.isAgentTyping = false
-                self.chatState.isAgentTyping = false
-
-                self.delegate?.conferBot(self, agentDidLeave: agent)
-                self.saveSessionState()
-                self.debugPrint("[ConferBot] Agent left: \(agentDetails.name)")
+        let json = data.first as? [String: Any]
+        guard isOwnSession(json) else { return }
+        Task { @MainActor in
+            // An AI handing the visitor to the team is not leaving them: the
+            // Connecting line, not "<name> left" (HandoverState.agentLeftKind);
+            // an AI pausing an idle visitor draws nothing.
+            let kind = self.handover.onAgentLeft(json)
+            guard kind != .ignore else { return }
+            if let line = self.messages.last as? AgentLeftMessageRecord {
+                self.delegate?.conferBot(self, didReceiveMessage: line)
             }
-        } catch {
-            ConferBotLogger.error("Failed to decode agent left: \(error.localizedDescription)")
+            self.isAgentTyping = false
+            self.chatState.isAgentTyping = false
+            guard kind == .left else { return }
+
+            // A person left: clear the agent but keep live chat mode
+            // (another agent might join, or chat-ended will clear it)
+            let details = (json?["agentDetails"] as? [String: Any]) ?? [:]
+            let agent = Agent(id: details["_id"] as? String ?? "", name: details["name"] as? String ?? "", email: details["email"] as? String)
+            self.currentAgent = nil
+            self.chatState.currentAgent = nil
+            self.delegate?.conferBot(self, agentDidLeave: agent)
+            self.saveSessionState()
+            self.debugPrint("[ConferBot] Agent left: \(agent.name)")
         }
     }
 
@@ -2222,6 +2290,9 @@ public class ConferBot: ObservableObject {
 
     private func handleNoAgentsAvailable(data: [Any]) {
         Task { @MainActor in
+            // The Connecting line settles, the wait is over (cb:wait-over).
+            self.handover.onNoAgentsAvailable()
+
             // A flow at its handover step, as the web widget does it: the
             // owner's fallback as the bot's message, then "Leave a message"
             // (the flow carries on once it is sent or skipped), or straight
@@ -2242,31 +2313,20 @@ public class ConferBot: ObservableObject {
                 return
             }
 
-            // Add system message
-            let messageId = UUID().uuidString
-            let systemMessage = SystemMessageRecord(
-                id: messageId,
-                time: Date(),
-                text: "No agents are currently available. Please try again later."
-            )
-            self.messages.append(systemMessage)
-            self.delegate?.conferBot(self, didReceiveMessage: systemMessage)
-
-            self.chatState.pushLiveChatRecord(
-                entryId: messageId,
-                type: MessageType.systemMessage.rawValue,
-                text: "No agents are currently available. Please try again later."
-            )
-
+            // Outside a flow (an AI escalation) the web draws no line of its
+            // own: the AI already said so, and the Leave a message card shows.
             self.saveSessionState()
             self.debugPrint("[ConferBot] No agents available")
         }
     }
 
-    private func handleChatEnded() {
+    private func handleChatEnded(data: [String: Any]? = nil) {
         Task { @MainActor in
+            // A wait still going ends with the chat: the line says so.
+            self.handover.onChatEnded(data)
+
             // Add system message
-            let messageId = UUID().uuidString
+            let messageId = "chat-ended-\(Int(Date().timeIntervalSince1970 * 1000))"
             let systemMessage = SystemMessageRecord(
                 id: messageId,
                 time: Date(),
@@ -2275,9 +2335,11 @@ public class ConferBot: ObservableObject {
             self.messages.append(systemMessage)
             self.delegate?.conferBot(self, didReceiveMessage: systemMessage)
 
+            // Recorded as the web widget records it (agent-chat-ended): a
+            // restart reads the live chat as over from it.
             self.chatState.pushLiveChatRecord(
                 entryId: messageId,
-                type: MessageType.systemMessage.rawValue,
+                type: "agent-chat-ended",
                 text: "Chat has ended"
             )
 
