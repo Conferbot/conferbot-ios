@@ -172,6 +172,24 @@ final class HandoverLifecycleTests: XCTestCase {
         XCTAssertEqual(over, [WidgetSignalDetail(reason: "cancelled")])
     }
 
+    /// One Cancel is answered twice (the ack and the room's queue-left):
+    /// one line per wait; the next wait can be left again (#63).
+    func testLeavingTheQueueTwiceInOneWaitDrawsOneLine() {
+        acks[SocketEvents.queueSelfResolve] = ["ok": true]
+        var answers: [Bool] = []
+        lifecycle.leaveQueue { answers.append($0) }
+        lifecycle.leaveQueue { answers.append($0) }
+        drain()
+        XCTAssertEqual(answers, [true, true])
+        XCTAssertEqual(messages.filter { ($0 as? SystemMessageRecord)?.text == "You left the queue" }.count, 1)
+        XCTAssertEqual(ChatState.shared.getServerRecord().filter { $0["type"] as? String == "queue-self-resolved" }.count, 1)
+
+        lifecycle.flowWaitStarted(nodeData: [:])
+        lifecycle.leaveQueue { answers.append($0) }
+        drain()
+        XCTAssertEqual(messages.filter { ($0 as? SystemMessageRecord)?.text == "You left the queue" }.count, 2)
+    }
+
     func testAPersonAcceptedJustBeforeNotWaitingThenLiveTheVisitorStays() {
         acks[SocketEvents.queueSelfResolve] = ["ok": false, "reason": "not_waiting"]
         acks[SocketEvents.liveChatState] = ["status": "live", "agentDetails": ["_id": "u1"]]
