@@ -23,19 +23,25 @@ public struct ConferBotUser: Codable {
     public let email: String?
     public let phone: String?
     public let metadata: [String: AnyCodable]?
+    /// Identity verification: HMAC-SHA256 of the user's id (or email when there
+    /// is no id) with your workspace's identity secret, hex, made on your
+    /// server. With it the chat is filed under the verified user.
+    public let hash: String?
 
     public init(
         id: String,
         name: String? = nil,
         email: String? = nil,
         phone: String? = nil,
-        metadata: [String: AnyCodable]? = nil
+        metadata: [String: AnyCodable]? = nil,
+        hash: String? = nil
     ) {
         self.id = id
         self.name = name
         self.email = email
         self.phone = phone
         self.metadata = metadata
+        self.hash = hash
     }
 
     enum CodingKeys: String, CodingKey {
@@ -44,6 +50,18 @@ public struct ConferBotUser: Codable {
         case email
         case phone
         case metadata
+        case hash
+    }
+
+    /// The user as the web widget's visitorContext: the app's own data, then id, name, email, phone, hash.
+    public func toVisitorContext() -> [String: Any] {
+        var ctx: [String: Any] = [:]
+        metadata?.forEach { ctx[$0.key] = $0.value.value }
+        ctx["id"] = id
+        for (key, value) in [("name", name), ("email", email), ("phone", phone), ("hash", hash)] {
+            if let v = value, !v.trimmingCharacters(in: .whitespaces).isEmpty { ctx[key] = v }
+        }
+        return ctx
     }
 }
 
