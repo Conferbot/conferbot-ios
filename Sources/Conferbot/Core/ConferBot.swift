@@ -1234,58 +1234,20 @@ public class ConferBot: ObservableObject {
         handleNodeInput(rating, forNodeId: nodeId)
     }
 
-    /// Handle date/time selection
+    /// Handle date/time selection: the picked moment goes to the step, which
+    /// reads it on the right clock (the bot's for a calendar, the visitor's
+    /// for a date / time step) and records a booked slot itself (#73).
     public func handleDateSelection(date: Date, forNodeId nodeId: String) {
-        let formatter = ISO8601DateFormatter()
-
+        guard let flowEngine = flowEngine else { return }
         // Track date selection interaction
         analytics.trackInteraction(type: .dateSelected, data: [
             "nodeId": nodeId,
-            "date": formatter.string(from: date)
+            "date": ISO8601DateFormatter().string(from: date)
         ])
 
-        // Record calendar-node slot selections on the server
-        emitCalendarSlotSelectionRecord(selectedDate: date, nodeId: nodeId)
-
-        handleNodeInput(formatter.string(from: date), forNodeId: nodeId)
-    }
-
-    /// Emit the calendar-slot-selection-record event after a calendar-node
-    /// slot selection so the server records the booking
-    private func emitCalendarSlotSelectionRecord(selectedDate: Date, nodeId: String) {
-        guard let socketClient = socketClient,
-              socketClient.isConnected,
-              let botId = botId else { return }
-
-        // Only record selections made on a calendar-node
-        let nodeInfo = flowEngine?.getNodeInfo(nodeId)
-        guard (nodeInfo?["type"] as? String) == NodeTypes.Display.calendar else { return }
-
-        let nodeData = nodeInfo?["data"] as? [String: Any] ?? [:]
-        let visitorTimeZone = TimeZone.current.identifier
-        let botTimeZone = nodeData["timeZone"] as? String
-            ?? nodeData["botTimeZone"] as? String
-            ?? visitorTimeZone
-
-        let isoFormatter = ISO8601DateFormatter()
-
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "HH:mm"
-        timeFormatter.timeZone = TimeZone(identifier: botTimeZone) ?? TimeZone.current
-
-        let payload: [String: Any] = [
-            "visitorId": chatState.visitorId ?? currentSession?.visitorId ?? "",
-            "chatbotId": botId,
-            "nodeId": nodeId,
-            "selectedDate": isoFormatter.string(from: selectedDate),
-            "botTimeZone": botTimeZone,
-            "visitorTimeZone": visitorTimeZone,
-            "timeSlotSelected": timeFormatter.string(from: selectedDate),
-            "visitorTime": isoFormatter.string(from: Date())
-        ]
-
-        socketClient.emit(event: SocketEvents.calendarSlotSelectionRecord, data: payload)
-        debugPrint("[ConferBot] Calendar slot selection recorded for node: \(nodeId)")
+        chatState.setAnswer(nodeId: nodeId, value: date)
+        Task { await flowEngine.handleUserInput(date, forNodeId: nodeId) }
+        saveSessionState()
     }
 
     /// A file the visitor picked for a file step (a local copy the app can
