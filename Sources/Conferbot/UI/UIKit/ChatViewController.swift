@@ -100,7 +100,8 @@ public class ChatViewController: UIViewController {
 
     private func applyLook(_ look: ResolvedCustomizations) {
         guard ConferBot.shared.hasServerLook else { return }
-        title = ConferBot.shared.currentAgent?.name ?? look.title
+        // The bot's name, also once an agent joins (web headerPresence.ts).
+        title = look.title
         let bg = UIColor(cbHex: look.headerBg)
         let ink = UIColor(cbHex: look.headerText)
         let appearance = UINavigationBarAppearance()
