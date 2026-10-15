@@ -13,6 +13,8 @@ import WebKit
 public struct ArticleDetailView: View {
     let article: KnowledgeBaseArticle
     let onBack: () -> Void
+    /// Opens another article (a related one); nil leaves them as plain rows.
+    let onOpenArticle: ((KnowledgeBaseArticle) -> Void)?
 
     @ObservedObject private var conferBot = ConferBot.shared
     @State private var scrollOffset: CGFloat = 0
@@ -25,10 +27,12 @@ public struct ArticleDetailView: View {
 
     public init(
         article: KnowledgeBaseArticle,
-        onBack: @escaping () -> Void
+        onBack: @escaping () -> Void,
+        onOpenArticle: ((KnowledgeBaseArticle) -> Void)? = nil
     ) {
         self.article = article
         self.onBack = onBack
+        self.onOpenArticle = onOpenArticle
     }
 
     public var body: some View {
@@ -390,9 +394,9 @@ public struct ArticleDetailView: View {
             VStack(spacing: 12) {
                 ForEach(Array(relatedArticles.enumerated()), id: \.element.id) { index, relatedArticle in
                     RelatedArticleRow(article: relatedArticle)
+                        .contentShape(Rectangle())
                         .onTapGesture {
-                            // Navigate to related article
-                            // This would typically update the parent's selected article
+                            onOpenArticle?(relatedArticle)
                         }
                 }
             }
