@@ -412,6 +412,16 @@ ConferBot.shared.sendKnowledgeBaseEngagement()
 let related = ConferBot.shared.getRelatedKnowledgeBaseArticles(for: article, limit: 3)
 ```
 
+## How bot flows run
+
+The bot's flow runs on the device as the web widget runs it: the SDK passes all 156 cases of the shared flow-node spec (`Tests/FlowFixtureTests.swift`, fixtures from conferbot-react-native `scripts/parity/flows`).
+
+- The chat starts at the first welcome step. A step that doesn't branch leaves by its first edge; a branching one by its exact handle, and with no edge there the chat ends. Unknown step types are passed along their first edge.
+- Answers are saved under each step's answer variable and fill `{name}`, `${name}`, `{{name}}` in later text (an unknown one shows nothing). Card numbers, ids and passwords are masked in what is saved and sent unless the bot's `redactSensitive` is off.
+- GPT, AI route / extract, knowledge-base answers, OTP codes, address search and payments go through the bot server; the owner's keys never reach the app. Integrations (Sheets, HubSpot, Slack...) run on the server.
+- Bot messages written in the rich-text editor are drawn formatted (bold, italic, links, lists).
+- Headless: answer the waiting step with `ConferBot.shared.handleNodeInput(_:forNodeId:)` (text, a rating, a date), `handleButtonClick(buttonId:forNodeId:)` or `handleMultipleChoiceSelection(optionIds:forNodeId:)`. The stock chat doesn't draw every step yet (see `docs/PARITY.md`, #45).
+
 ## Advanced Usage
 
 ### Observing state with Combine / SwiftUI
