@@ -114,7 +114,8 @@ public class MessageCell: UITableViewCell {
         if let userMessage = message as? UserMessageRecord {
             messageLabel.text = userMessage.text
         } else if let botMessage = message as? BotMessageRecord {
-            messageLabel.text = botMessage.text ?? "..."
+            // The owner's HTML as plain text: tags gone, line breaks kept (#64)
+            messageLabel.text = botMessage.text.map { FlowText.bubbleText($0) } ?? "..."
         } else if let agentMessage = message as? AgentMessageRecord {
             messageLabel.text = agentMessage.text
         } else if let fileMessage = message as? AgentMessageFileRecord {
