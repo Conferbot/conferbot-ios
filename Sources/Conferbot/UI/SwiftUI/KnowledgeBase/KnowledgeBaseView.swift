@@ -17,9 +17,12 @@ public struct KnowledgeBaseView: View {
     @State private var selectedCategory: KnowledgeBaseCategory?
     @State private var selectedArticle: KnowledgeBaseArticle?
     @State private var navigationPath: [KnowledgeBaseNavigationDestination] = []
+    /// The article to open first (a source or article card in the chat), by id.
+    private let initialArticleId: String?
 
-    public init() {
+    public init(articleId: String? = nil) {
         _viewModel = StateObject(wrappedValue: KnowledgeBaseViewModel())
+        initialArticleId = articleId
     }
 
     public var body: some View {
@@ -36,6 +39,28 @@ public struct KnowledgeBaseView: View {
         }
         .task {
             await viewModel.loadCategories()
+            if let id = initialArticleId ?? conferBot.helpArticleToOpen { await open(articleId: id) }
+        }
+        // An article the chat asks for while the help centre is showing.
+        .onChange(of: conferBot.helpArticleToOpen) { id in
+            if let id = id { Task { await open(articleId: id) } }
+        }
+    }
+
+    /// Shows an article by id: the known one at once, then with its body.
+    private func open(articleId: String) async {
+        conferBot.helpArticleOpened()
+        searchText = ""
+        if let known = viewModel.knownArticle(id: articleId) { selectedArticle = known }
+        if let full = await viewModel.loadArticle(id: articleId) { selectedArticle = full }
+    }
+
+    /// Shows a tapped article and fetches its body when the list had none.
+    private func select(_ article: KnowledgeBaseArticle) {
+        selectedArticle = article
+        guard !article.hasContent else { return }
+        Task {
+            if let full = await viewModel.loadArticle(id: article.id), selectedArticle?.id == full.id { selectedArticle = full }
         }
     }
 
@@ -67,23 +92,30 @@ public struct KnowledgeBaseView: View {
             .padding(.top, 8)
 
             // Content
+            // The article before its topic: an article opened from a topic
+            // goes back to that topic.
             if !searchText.isEmpty {
                 searchResultsView
-            } else if let category = selectedCategory {
-                ArticleListView(
-                    category: category,
-                    onArticleSelected: { article in
-                        selectedArticle = article
-                    },
-                    onBack: {
-                        selectedCategory = nil
-                    }
-                )
             } else if let article = selectedArticle {
                 ArticleDetailView(
                     article: article,
                     onBack: {
                         selectedArticle = nil
+                    },
+                    onOpenArticle: { related in
+                        select(related)
+                    }
+                )
+                // A fetched body redraws the article (contents, reading time).
+                .id("\(article.id)-\(article.content.count)")
+            } else if let category = selectedCategory {
+                ArticleListView(
+                    category: category,
+                    onArticleSelected: { article in
+                        select(article)
+                    },
+                    onBack: {
+                        selectedCategory = nil
                     }
                 )
             } else {
@@ -91,6 +123,10 @@ public struct KnowledgeBaseView: View {
                     categories: viewModel.categories,
                     onCategorySelected: { category in
                         selectedCategory = category
+                    },
+                    recentArticles: viewModel.showsRecent ? viewModel.recentArticles : [],
+                    onArticleSelected: { article in
+                        select(article)
                     }
                 )
             }
@@ -103,8 +139,8 @@ public struct KnowledgeBaseView: View {
             results: viewModel.searchResults,
             isSearching: viewModel.isSearching,
             onArticleSelected: { article in
-                selectedArticle = article
                 searchText = ""
+                select(article)
             }
         )
     }
@@ -167,6 +203,7 @@ enum KnowledgeBaseNavigationDestination: Hashable {
 @MainActor
 class KnowledgeBaseViewModel: ObservableObject {
     @Published var categories: [KnowledgeBaseCategory] = []
+    @Published var recentArticles: [KnowledgeBaseArticle] = []
     @Published var searchResults: [KnowledgeBaseArticle] = []
     @Published var loadingState: KnowledgeBaseLoadingState = .idle
     @Published var isLoading: Bool = false
@@ -182,17 +219,42 @@ class KnowledgeBaseViewModel: ObservableObject {
             return
         }
 
-        isLoading = true
-        loadingState = .loading
-
-        do {
-            categories = try await service.fetchCategories()
-            loadingState = .loaded
-        } catch {
-            loadingState = .error(error.localizedDescription)
+        // Usually here already: the connect payload (fetched-chatbot-data)
+        // carries the topics and recent articles. Else one REST call that
+        // returns both.
+        if service.categories.isEmpty && service.recentArticles.isEmpty {
+            isLoading = true
+            loadingState = .loading
+            do {
+                _ = try await service.fetchArticles()
+            } catch {
+                do {
+                    _ = try await service.fetchCategories()
+                } catch {
+                    loadingState = .error(error.localizedDescription)
+                    isLoading = false
+                    return
+                }
+            }
+            isLoading = false
         }
+        categories = service.categories
+        recentArticles = service.recentArticles
+        loadingState = .loaded
+    }
 
-        isLoading = false
+    /// Recent articles show unless the owner hid them (hideRecentArticles).
+    var showsRecent: Bool {
+        HelpCentre.showsRecentArticles(ConferBot.shared.serverCustomizations, articleCount: recentArticles.count)
+    }
+
+    func knownArticle(id: String) -> KnowledgeBaseArticle? {
+        knowledgeBaseService?.cachedArticle(id: id)
+    }
+
+    /// The article with its body (fetched once), or nil when it cannot load.
+    func loadArticle(id: String) async -> KnowledgeBaseArticle? {
+        try? await knowledgeBaseService?.getArticle(id: id)
     }
 
     func searchArticles(query: String) async {
