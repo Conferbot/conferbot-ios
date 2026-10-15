@@ -145,7 +145,8 @@ public enum Launcher {
 
         r.label = normalizeLabel(c["launcherLabel"]).isEmpty ? defaultLabel : normalizeLabel(c["launcherLabel"])
         r.iconId = str(c["widgetIconSVG"]).isEmpty ? nil : str(c["widgetIconSVG"])
-        r.glyph = (size * (r.shape == "tab" || r.shape == "peek" ? 0.5 : 0.6)).rounded()
+        // The icon at 70% of the round button (css/liveChat/index.css), 50% of a tab.
+        r.glyph = (size * (r.shape == "tab" || r.shape == "peek" ? 0.5 : 0.7)).rounded()
         if let a = c["launcherAnimation"] as? String, a == "lively" || a == "off" { r.animation = a }
         // Only when the owner turned the greeting on (templates/shared.ts: no chatIconCta, no bubble).
         r.ctaText = (c["chatIconCta"] as? Bool) == true && !str(c["chatIconCtaText"]).isEmpty ? str(c["chatIconCtaText"]) : nil
