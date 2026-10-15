@@ -385,16 +385,21 @@ public struct AgentJoinedMessageRecord: RecordItem, Identifiable, Equatable {
     public let type: MessageType
     public let time: Date
     public let agentDetails: AgentDetails
+    /// A person joining after an AI handed the visitor on: the line carries
+    /// "They can see your conversation so far" (HandoverState.handedOverNote).
+    public let afterAI: Bool?
 
     public init(
         id: String,
         time: Date,
-        agentDetails: AgentDetails
+        agentDetails: AgentDetails,
+        afterAI: Bool? = nil
     ) {
         self.id = id
         self.type = .agentJoinedMessage
         self.time = time
         self.agentDetails = agentDetails
+        self.afterAI = afterAI
     }
 
     enum CodingKeys: String, CodingKey {
@@ -402,29 +407,39 @@ public struct AgentJoinedMessageRecord: RecordItem, Identifiable, Equatable {
         case type
         case time
         case agentDetails
+        case afterAI
     }
 
     public static func == (lhs: AgentJoinedMessageRecord, rhs: AgentJoinedMessageRecord) -> Bool {
-        return lhs.id == rhs.id && lhs.time == rhs.time
+        return lhs.id == rhs.id && lhs.time == rhs.time && lhs.afterAI == rhs.afterAI
     }
 }
 
-/// Agent left chat message record
+/// Agent left chat message record. With `handover`, an AI passing the
+/// visitor to the team: the "Connecting you with the team…" line, and
+/// `settled` once the wait has its outcome (HandoverState).
 public struct AgentLeftMessageRecord: RecordItem, Identifiable, Equatable {
     public let id: String
     public let type: MessageType
     public let time: Date
     public let agentDetails: AgentDetails
+    public let handover: Bool?
+    /// joined, unavailable, cancelled or ended (HandoverOutcome); nil while pending.
+    public let settled: String?
 
     public init(
         id: String,
         time: Date,
-        agentDetails: AgentDetails
+        agentDetails: AgentDetails,
+        handover: Bool? = nil,
+        settled: String? = nil
     ) {
         self.id = id
         self.type = .agentLeftChat
         self.time = time
         self.agentDetails = agentDetails
+        self.handover = handover
+        self.settled = settled
     }
 
     enum CodingKeys: String, CodingKey {
@@ -432,10 +447,27 @@ public struct AgentLeftMessageRecord: RecordItem, Identifiable, Equatable {
         case type
         case time
         case agentDetails
+        case handover
+        case settled
+    }
+
+    /// The Connecting line still waiting for its outcome.
+    public var isPendingHandover: Bool { handover == true && settled == nil }
+
+    /// The line's words: "<name> left the chat", the Connecting line, or how its wait ended.
+    public var text: String {
+        handover == true
+            ? HandoverState.lineText(settled.flatMap(HandoverOutcome.init(rawValue:)))
+            : HandoverState.agentLeftText(agentDetails.name, handover: false)
+    }
+
+    /// The same line with the wait's outcome.
+    public func settling(_ outcome: HandoverOutcome) -> AgentLeftMessageRecord {
+        AgentLeftMessageRecord(id: id, time: time, agentDetails: agentDetails, handover: handover, settled: outcome.rawValue)
     }
 
     public static func == (lhs: AgentLeftMessageRecord, rhs: AgentLeftMessageRecord) -> Bool {
-        return lhs.id == rhs.id && lhs.time == rhs.time
+        return lhs.id == rhs.id && lhs.time == rhs.time && lhs.settled == rhs.settled
     }
 }
 
