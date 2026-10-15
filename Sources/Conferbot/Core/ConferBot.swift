@@ -127,6 +127,8 @@ public class ConferBot: ObservableObject {
 
     // Node Flow Engine
     private var flowEngine: NodeFlowEngine?
+    /// The socket events the flow's steps listen to (one app listener each, fanned out).
+    private let flowEvents = FlowEventHub()
     private var flowEngineCancellables = Set<AnyCancellable>()
 
     // MARK: - Live chat extras
@@ -392,6 +394,8 @@ public class ConferBot: ObservableObject {
         self.botId = botId
         self.config = config
         self.customization = customization
+        // The flow's steps call the bot server (/api/v1/bot/:id/gpt, otp, ai, pay...)
+        flowEngine?.config.apiOrigin = NodeFlowEngine.origin(of: config.apiBaseURL)
 
         // Initialize API client
         self.apiClient = APIClient(
@@ -575,7 +579,9 @@ public class ConferBot: ObservableObject {
     // MARK: - Flow Engine Setup
 
     private func setupFlowEngine() {
-        flowEngine = NodeFlowEngine()
+        var flowConfig = NodeFlowEngine.Config()
+        flowConfig.socket = ConferBotFlowSocket(client: { [weak self] in self?.socketClient }, hub: flowEvents)
+        flowEngine = NodeFlowEngine(state: chatState, registry: .shared, config: flowConfig)
 
         // Mirror flow-engine bot transcript entries (welcome/message text and
         // standalone images) into the visible message list so ChatView renders
@@ -583,7 +589,9 @@ public class ConferBot: ObservableObject {
         chatState.onBotEntryAppended = { [weak self] entry in
             guard let self = self else { return }
 
-            let text = entry["message"] as? String
+            // The owner's HTML when the line has some: the bubble draws it
+            // formatted, as the web does (#64); else the plain text.
+            let text = (entry["html"] as? String) ?? (entry["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let imageUrl = entry["imageUrl"] as? String
             guard text != nil || imageUrl != nil else { return }
 
@@ -682,99 +690,9 @@ public class ConferBot: ObservableObject {
 
     private func registerAllNodeHandlers() {
         let registry = NodeHandlerRegistry.shared
-
-        // Store socket client on registry so integration handlers can emit events
         registry.socketClient = self.socketClient
-
-        // Register Display Node Handlers
-        registry.register(WelcomeNodeHandler())
-        registry.register(SendMessageHandler())
-        registry.register(SendImageHandler())
-        registry.register(SendVideoHandler())
-        registry.register(SendAudioHandler())
-        registry.register(SendFileHandler())
-        registry.register(SendGifHandler())
-
-        // Ask Input Handlers
-        registry.register(AskNameHandler())
-        registry.register(AskEmailHandler())
-        registry.register(AskPhoneHandler())
-        registry.register(AskNumberHandler())
-        registry.register(AskUrlHandler())
-        registry.register(AskAddressHandler())
-        registry.register(AskDateHandler())
-        registry.register(AskTimeHandler())
-        registry.register(AskDateTimeHandler())
-        registry.register(AskDateRangeHandler())
-        registry.register(AskFileUploadHandler())
-        registry.register(AskQuestionHandler())
-
-        // Choice Handlers
-        registry.register(SendButtonsHandler())
-        registry.register(SendQuickRepliesHandler())
-        registry.register(SendCardsHandler())
-
-        // Rating Handlers
-        registry.register(AskRatingHandler())
-        registry.register(OpinionScaleHandler())
-
-        // Special Display Handlers
-        registry.register(LiveChatHandler())
-        registry.register(SendLinkHandler())
-        registry.register(EmbedLinkHandler())
-        registry.register(EmbedCustomCodeHandler())
-
-        // Logic Node Handlers
-        registry.register(RedirectUrlHandler())
-        registry.register(SetVariableHandler())
-        registry.register(JavaScriptFunctionHandler())
-        registry.register(ConditionalHandler())
-        registry.register(ABTestHandler())
-        registry.register(SplitConversationHandler())
-        registry.register(LogicDelayHandler())
-
-        // Integration Node Handlers (inject socketClient for server-side event emission)
-        let integrationHandlers: [BaseIntegrationHandler] = [
-            WebhookHandler(),
-            GoogleSheetsHandler(),
-            SendEmailHandler(),
-            CalendlyHandler(),
-            HubspotHandler(),
-            SalesforceHandler(),
-            ZendeskHandler(),
-            SlackHandler(),
-            DiscordHandler(),
-            ZapierHandler(),
-            DialogflowHandler(),
-            OpenAIHandler(),
-            GeminiHandler(),
-            PerplexityHandler(),
-            ClaudeHandler(),
-            GroqHandler(),
-            CustomLLMHandler(),
-            HumanHandoverHandler(),
-            GoogleCalendarHandler(),
-            GoogleMeetHandler(),
-            GoogleDocsHandler(),
-            GoogleDriveHandler(),
-            NotionHandler(),
-            AirtableHandler(),
-            ZohoCRMHandler(),
-            StripeHandler(),
-        ]
-        for handler in integrationHandlers {
-            handler.socketClient = self.socketClient
-            registry.register(handler)
-        }
-
-        // Legacy display, ask/choice, logic and gpt/gmail handlers
-        // (MissingNodeHandlers.swift)
-        registry.registerMissingHandlers()
-
-        // Special Flow Handlers
-        registry.register(GoalHandler())
-        registry.register(EndConversationHandler())
-
+        // Every step of the flow-node spec, as the web widget runs it
+        registry.reset()
         debugPrint("[ConferBot] Registered \(registry.count) node handlers")
     }
 
@@ -1050,17 +968,9 @@ public class ConferBot: ObservableObject {
             }
         }
 
-        // Store the answer in chat state
+        // Store the answer in chat state (the step itself saves it under its
+        // answer variable and puts the visitor's line on the transcript)
         chatState.setAnswer(nodeId: nodeId, value: input)
-
-        // Add user response to transcript
-        let transcript: [String: Any] = [
-            "type": "user-input",
-            "nodeId": nodeId,
-            "value": input,
-            "time": ISO8601DateFormatter().string(from: Date())
-        ]
-        chatState.addToTranscript(entry: transcript)
 
         // Track node exit with user input for analytics
         let inputString = stringValue(from: input)
@@ -1121,6 +1031,17 @@ public class ConferBot: ObservableObject {
     /// Handle button click from node UI
     public func handleButtonClick(buttonId: String, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
+
+        // A button that opens a page (a navigate link, the payment's
+        // Checkout) opens it; the step keeps waiting, so nothing is frozen.
+        if case .buttons(let buttons, let uiNodeId)? = currentUIState, uiNodeId == nodeId,
+           let link = buttons.first(where: { $0.id == buttonId })?.url, let url = URL(string: link), url.scheme?.hasPrefix("http") == true {
+            #if canImport(UIKit)
+            DispatchQueue.main.async { UIApplication.shared.open(url) }
+            #endif
+            Task { await flowEngine.handleButtonClick(buttonId: buttonId, forNodeId: nodeId) }
+            return
+        }
 
         // Freeze the button pills into the transcript so they persist across
         // view rebuilds: disabled, selected one highlighted - web widget parity
@@ -1283,11 +1204,9 @@ public class ConferBot: ObservableObject {
         // Store selections
         chatState.setAnswer(nodeId: nodeId, value: optionIds)
 
-        // Use first selection for edge routing
-        if let firstOption = optionIds.first {
-            Task {
-                await flowEngine.handleChoiceSelection(optionId: firstOption, forNodeId: nodeId)
-            }
+        // Every ticked option (n-check-options), or a ranking's order
+        Task {
+            await flowEngine.handleMultipleChoice(optionIds: optionIds, forNodeId: nodeId)
         }
 
         // Save session state after multiple choice selection
@@ -1660,6 +1579,8 @@ public class ConferBot: ObservableObject {
             DispatchQueue.main.async {
                 self.rawCustomizations = customizations
                 self.applyLook()
+                // The steps read redactSensitive, chatLeaveMessage...
+                self.flowEngine?.setCustomizations(customizations)
             }
             let botName = (customizations?["botName"] as? String)
                 ?? (customizations?["logoText"] as? String)
@@ -1704,29 +1625,14 @@ public class ConferBot: ObservableObject {
         if let socket = socketClient { handover.setupListeners(on: socket) }
         watchLiveChat()
 
-        // Integration result - apply returned answer variables to chat state
-        // so ${var} references downstream resolve (sheets read, docs, drive,
-        // airtable, hubspot, notion, zohocrm, etc.)
-        socketClient?.on(SocketEvents.integrationResult) { [weak self] data, _ in
-            guard let self = self,
-                  let json = data.first as? [String: Any] else { return }
-
-            let success = json["success"] as? Bool ?? (json["error"] == nil)
-            guard success else {
-                self.debugPrint("[ConferBot] Integration result error: \(json["error"] ?? "unknown")")
-                return
+        // The server's answers the flow's steps wait for: an integration's
+        // result (its values fill the answer variables there), a payment's
+        // status; "no-agents-available" is handed on in handleNoAgentsAvailable.
+        for event in [SocketEvents.integrationResult, "payment-status"] {
+            socketClient?.on(event) { [weak self] data, _ in
+                guard let self = self, let json = data.first as? [String: Any] else { return }
+                DispatchQueue.main.async { self.flowEvents.fire(event, json) }
             }
-
-            if let answerVariable = json["answerVariable"] as? String, !answerVariable.isEmpty,
-               let answerValue = json["answerValue"] {
-                self.chatState.setVariable(name: answerVariable, value: answerValue)
-            }
-
-            if let columnMappedValues = json["columnMappedValues"] as? [String: Any] {
-                self.chatState.setVariables(columnMappedValues)
-            }
-
-            self.debugPrint("[ConferBot] Integration result applied for node: \(json["nodeId"] as? String ?? "unknown")")
         }
     }
 
@@ -2298,22 +2204,13 @@ public class ConferBot: ObservableObject {
             self.handover.onNoAgentsAvailable()
 
             // A flow at its handover step, as the web widget does it: the
-            // owner's fallback as the bot's message, then "Leave a message"
-            // (the flow carries on once it is sent or skipped), or straight
-            // on when the owner turned that off.
-            if let engine = self.flowEngine, engine.isAtHandover, let nodeId = engine.currentNodeId {
-                let nodeData = engine.getNodeInfo(nodeId)?["data"] as? [String: Any] ?? [:]
-                let fallback = LiveChat.plainText(self.chatState.resolveVariables(text: nodeData["fallbackMessage"] as? String ?? ""))
+            // step itself says the owner's fallback and, with "leave a
+            // message" off, carries the flow on (HumanHandoverNodeHandler);
+            // otherwise "Leave a message" carries it on once sent or skipped.
+            if let engine = self.flowEngine, engine.isAtHandover {
                 engine.handoverAccepted()
-                if !fallback.isEmpty {
-                    let id = "agent-declined-\(Int(Date().timeIntervalSince1970 * 1000))"
-                    self.messages.append(BotMessageRecord(id: id, time: Date(), text: fallback))
-                    self.chatState.pushServerEntry(["id": id, "_id": id, "type": "agent-declined-message", "message": fallback, "renderedText": fallback])
-                }
+                self.flowEvents.fire(SocketEvents.noAgentsAvailable, data.first as? [String: Any] ?? [:])
                 self.saveSessionState()
-                if (self.serverCustomizations?["chatLeaveMessage"] as? Bool) == false {
-                    await engine.continueAfterHandover()
-                }
                 return
             }
 
@@ -2533,5 +2430,33 @@ public class ConferBot: ObservableObject {
     /// Clear Knowledge Base cache
     public func clearKnowledgeBaseCache() {
         knowledgeBaseService?.clearCache()
+    }
+}
+
+// MARK: - The flow's socket
+
+/// The app's socket as the flow engine uses it: events out through the
+/// SocketClient, events in from the hub ConferBot fills.
+final class ConferBotFlowSocket: FlowSocket {
+    private let client: () -> SocketClient?
+    private let hub: FlowEventHub
+
+    init(client: @escaping () -> SocketClient?, hub: FlowEventHub) {
+        self.client = client
+        self.hub = hub
+    }
+
+    var isConnected: Bool { client()?.isConnected ?? false }
+
+    func emit(_ event: String, _ payload: [String: Any]) {
+        client()?.emit(event: event, data: payload)
+    }
+
+    func on(_ event: String, _ listener: @escaping ([String: Any]) -> Void) -> () -> Void {
+        hub.on(event, listener)
+    }
+
+    func sendResponseRecord(_ data: [String: Any]) {
+        client()?.emit(event: SocketEvents.responseRecord, data: data)
     }
 }
