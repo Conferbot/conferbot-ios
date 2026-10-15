@@ -76,6 +76,12 @@ public final class NodeFlowEngine: ObservableObject {
     /// Loads a flow definition and prepares the engine for execution
     /// - Parameter flowData: The flow definition dictionary containing nodes and edges
     public func loadFlow(_ flowData: [String: Any]) {
+        loadFlow(flowData, keepingState: false)
+    }
+
+    /// Loads a flow. `keepingState`: a restored conversation - its answers,
+    /// transcript and record stay (the flow is not started again).
+    public func loadFlow(_ flowData: [String: Any], keepingState: Bool) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -108,7 +114,16 @@ public final class NodeFlowEngine: ObservableObject {
         }
 
         // Reset state for new flow
-        resetFlowState()
+        if keepingState {
+            currentUIState = nil
+            isProcessing = false
+            errorMessage = nil
+            isFlowComplete = false
+            currentNodeId = nil
+            visitedNodes.removeAll()
+        } else {
+            resetFlowState()
+        }
 
         // Log flow info for debugging
         ConferBotLogger.info("[NodeFlowEngine] Loaded flow with \(nodes.count) nodes and \(edges.count) edges")
@@ -423,6 +438,29 @@ public final class NodeFlowEngine: ObservableObject {
     @MainActor
     public func handoverAccepted() {
         if case .humanHandover = currentUIState { currentUIState = nil }
+    }
+
+    /// A restored chat that was waiting on a step (a handover still in the
+    /// queue): back on that step showing `uiState`, without running the step
+    /// again - a second run would ask the server for a person a second time.
+    /// False when the step is not in the flow.
+    @MainActor
+    @discardableResult
+    public func waitAt(_ nodeId: String, uiState: NodeUIState) -> Bool {
+        guard findNodeById(nodeId) != nil else { return false }
+        currentNodeId = nodeId
+        state.currentNodeId = nodeId
+        isProcessing = false
+        state.isTyping = false
+        currentUIState = uiState
+        return true
+    }
+
+    /// Run a step again (a restored chat whose handover request never went out).
+    @MainActor
+    public func resumeFrom(_ nodeId: String) async {
+        guard findNodeById(nodeId) != nil else { return }
+        await processNode(nodeId)
     }
 
     /// The handover is over (nobody was available, the visitor left a
