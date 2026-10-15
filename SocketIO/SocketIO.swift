@@ -74,6 +74,7 @@ public class SocketIOClient {
 
     public func emit(_ event: String, _ items: SocketData...) {}
     public func emit(_ event: String, _ items: [Any]) {}
+    public func emit(_ event: String, with items: [SocketData], completion: (() -> ())?) {}
 
     public func on(_ event: String, callback: @escaping NormalCallback) {
         // stub
