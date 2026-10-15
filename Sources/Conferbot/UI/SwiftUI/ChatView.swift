@@ -45,13 +45,23 @@ public struct ChatView: View {
     @State private var inputError: String?
     @State private var isSessionStarted = false
     @State private var selectedTab: ChatViewTab = .chat
-    @State private var showKnowledgeBaseSheet = false
+    /// An article opened from the chat while the Help tab is hidden.
+    @State private var sheetArticle: SheetArticle?
 
-    /// Enable or disable the knowledge base tab
-    public var enableKnowledgeBase: Bool
+    /// The host app's override for the Help tab. The owner's setting
+    /// (`enableKnowledgeBase` in the bot's customizations) decides; `false`
+    /// hides the tab even when the owner turned it on, `nil` (the default)
+    /// and `true` follow the owner. The tab never shows while the owner has
+    /// it off: the server sends no articles then.
+    public var enableKnowledgeBase: Bool?
 
-    public init(enableKnowledgeBase: Bool = true) {
+    public init(enableKnowledgeBase: Bool? = nil) {
         self.enableKnowledgeBase = enableKnowledgeBase
+    }
+
+    /// The Help tab: the owner's switch, then the host's override (Core/Customization/HelpCentre).
+    private var showsHelpCentre: Bool {
+        HelpCentre.isShown(conferBot.serverCustomizations, host: enableKnowledgeBase)
     }
 
     public var body: some View {
@@ -59,15 +69,15 @@ public struct ChatView: View {
             // Header
             headerView
 
-            // Tab bar (if KB is enabled)
-            if enableKnowledgeBase {
+            // Tab bar (if the help centre is on)
+            if showsHelpCentre {
                 tabBarView
             }
 
             Divider()
 
             // Content based on selected tab
-            if enableKnowledgeBase && selectedTab == .knowledgeBase {
+            if showsHelpCentre && selectedTab == .knowledgeBase {
                 KnowledgeBaseView()
             } else {
                 // Chat content
@@ -140,8 +150,20 @@ public struct ChatView: View {
                 try? await conferBot.startSession()
             }
         }
-        .sheet(isPresented: $showKnowledgeBaseSheet) {
-            KnowledgeBaseView()
+        // A source or article card in the chat opens its article in the
+        // help centre (the web's openArticle): the Help tab, or a sheet when
+        // the host hid the tab.
+        .onChange(of: conferBot.helpArticleToOpen) { id in
+            guard let id = id else { return }
+            if showsHelpCentre {
+                withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .knowledgeBase }
+            } else {
+                conferBot.helpArticleOpened()
+                sheetArticle = SheetArticle(id: id)
+            }
+        }
+        .sheet(item: $sheetArticle) { item in
+            KnowledgeBaseView(articleId: item.id)
         }
         // A live chat file: the system picker, uploaded and sent as the web widget sends it
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
@@ -209,12 +231,6 @@ public struct ChatView: View {
                 }
             }
             Spacer()
-            if !enableKnowledgeBase {
-                Button(action: { showKnowledgeBaseSheet = true }) {
-                    Image(systemName: "book").font(.system(size: 18)).foregroundColor(ink)
-                }
-                .padding(.trailing, 4)
-            }
         }
         .padding()
         .background(Color(hex: look.headerBg))
@@ -255,18 +271,6 @@ public struct ChatView: View {
             }
 
             Spacer()
-
-            // Knowledge Base button (alternative to tab)
-            if !enableKnowledgeBase {
-                Button(action: {
-                    showKnowledgeBaseSheet = true
-                }) {
-                    Image(systemName: "book")
-                        .font(.system(size: 18))
-                        .foregroundColor(.accentColor)
-                }
-                .padding(.trailing, 4)
-            }
         }
         .padding()
         .background(Color(UIColor.systemBackground))
@@ -451,6 +455,11 @@ public struct ChatView: View {
     }
 }
 
+/// An article id for `.sheet(item:)`.
+private struct SheetArticle: Identifiable {
+    let id: String
+}
+
 // MARK: - Tab Button
 
 @available(iOS 15.0, *)
@@ -517,6 +526,10 @@ public struct ChatViewWithKBSheet: View {
                 try? await conferBot.startSession()
             }
         }
+        // A source or article card in the chat opens its article here.
+        .onChange(of: conferBot.helpArticleToOpen) { id in
+            if id != nil && conferBot.isHelpCentreOn { showKnowledgeBase = true }
+        }
         .sheet(isPresented: $showKnowledgeBase) {
             NavigationView {
                 KnowledgeBaseView()
@@ -563,20 +576,22 @@ public struct ChatViewWithKBSheet: View {
 
             Spacer()
 
-            // Knowledge Base button
-            Button(action: {
-                showKnowledgeBase = true
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "book")
-                    Text("Help")
-                        .font(.caption)
+            // Knowledge Base button, while the owner has the help centre on
+            if conferBot.isHelpCentreOn {
+                Button(action: {
+                    showKnowledgeBase = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "book")
+                        Text("Help")
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.1))
+                    .foregroundColor(.accentColor)
+                    .cornerRadius(16)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.accentColor.opacity(0.1))
-                .foregroundColor(.accentColor)
-                .cornerRadius(16)
             }
         }
         .padding()
@@ -655,7 +670,7 @@ public struct ChatViewWithKBSheet: View {
     private var inputViewWithKB: some View {
         VStack(spacing: 0) {
             // Quick help suggestion
-            if conferBot.messages.isEmpty {
+            if conferBot.messages.isEmpty && conferBot.isHelpCentreOn {
                 quickHelpSuggestion
             }
 
