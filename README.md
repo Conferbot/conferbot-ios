@@ -137,7 +137,7 @@ struct ContentView: View {
             showChat = true
         }
         .sheet(isPresented: $showChat) {
-            ChatView() // ChatView(enableKnowledgeBase: false) to hide the Help tab
+            ChatView() // the Help tab follows the bot's help centre setting; ChatView(enableKnowledgeBase: false) hides it
         }
     }
 }
@@ -386,7 +386,15 @@ Delegate hooks: `didChangeNetworkStatus` and `didUpdateQueuedMessageCount`.
 
 ## Knowledge Base
 
-`ChatView` includes a knowledge base tab by default (`ChatView(enableKnowledgeBase: true)`), and `KnowledgeBaseView()` can be presented standalone. For custom UIs, the async APIs on `ConferBot.shared`:
+The help centre follows the bot owner's settings, as on the web widget:
+
+- `ChatView` shows the Help tab only while the owner has the help centre on (`enableKnowledgeBase` in the dashboard). The server sends no articles otherwise.
+- `ChatView(enableKnowledgeBase:)` is the host app's override. `nil` (the default) and `true` follow the owner; `false` hides the tab even when the owner turned it on. It cannot turn the help centre on against the owner's setting.
+- Recent articles sit at the top of the help centre unless the owner hid them (`hideRecentArticles`).
+- The topics and recent articles come with the connection (`fetched-chatbot-data`), without their bodies; an article's body is fetched when it opens. Without that payload the help centre loads over REST.
+- A help article an AI answer cites (its sources) or an article card opens in the help centre by its id: the Help tab, or a sheet when the host hid the tab. `ConferBot.shared.openHelpArticle(id:)` does the same from your own UI; `HelpCentre.isOn(ConferBot.shared.serverCustomizations)` (or `ConferBot.shared.isHelpCentreOn`) tells you whether the owner has it on.
+
+`KnowledgeBaseView()` (or `KnowledgeBaseView(articleId:)`) can be presented standalone. For custom UIs, the async APIs on `ConferBot.shared`:
 
 ```swift
 let categories = try await ConferBot.shared.fetchKnowledgeBaseCategories()
@@ -408,7 +416,7 @@ let related = ConferBot.shared.getRelatedKnowledgeBaseArticles(for: article, lim
 
 ### Observing state with Combine / SwiftUI
 
-`ConferBot` is an `ObservableObject`. Published properties include `isConnected`, `currentSession`, `messages`, `unreadCount`, `isAgentTyping`, `isLiveChatMode`, `currentAgent`, `hasRestoredSession`, `serverCustomizations`, `currentUIState`, `isProcessingNode`, `nodeErrorMessage`, `isFlowComplete`, `isOnline`, `queuedMessageCount`, `knowledgeBaseCategories`, and `isLoadingKnowledgeBase`.
+`ConferBot` is an `ObservableObject`. Published properties include `isConnected`, `currentSession`, `messages`, `unreadCount`, `isAgentTyping`, `isLiveChatMode`, `currentAgent`, `hasRestoredSession`, `serverCustomizations`, `currentUIState`, `isProcessingNode`, `nodeErrorMessage`, `isFlowComplete`, `isOnline`, `queuedMessageCount`, `knowledgeBaseCategories`, `isLoadingKnowledgeBase`, and `helpArticleToOpen`.
 
 ```swift
 struct MyChatScreen: View {
@@ -513,14 +521,15 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | `rateKnowledgeBaseArticle(articleId: String, helpful: Bool, completion: ((Bool) -> Void)? = nil)` | Rate an article |
 | `startKnowledgeBaseArticleEngagement(articleId: String)` / `updateKnowledgeBaseScrollDepth(_ scrollDepth: Double)` / `sendKnowledgeBaseEngagement()` | Engagement tracking |
 | `getRelatedKnowledgeBaseArticles(for article: KnowledgeBaseArticle, limit: Int = 3) -> [KnowledgeBaseArticle]` | Related articles |
+| `openHelpArticle(id: String) -> Bool` | Open a help article in the chat's help centre (false while the owner has it off) |
 
 ### UI Components
 
 | Type | Description |
 |------|-------------|
-| `ChatView(enableKnowledgeBase: Bool = true)` | Drop-in SwiftUI chat screen with optional KB tab |
+| `ChatView(enableKnowledgeBase: Bool? = nil)` | Drop-in SwiftUI chat screen; the Help tab follows the owner, `false` hides it |
 | `ChatViewWithKBSheet()` | Chat screen with the KB in a sheet instead of a tab |
-| `KnowledgeBaseView()` | Standalone SwiftUI knowledge base browser |
+| `KnowledgeBaseView(articleId: String? = nil)` | Standalone SwiftUI knowledge base browser, optionally opened on one article |
 | `MessageBubble(message: any RecordItem, customization: ConferBotCustomization?)` | Individual message bubble for custom layouts |
 | `View.conferBotWidget(config: ConferBotFABConfig = ConferBotFABConfig())` | Floating FAB overlay modifier |
 | `ConferBotWidgetOverlay(config:content:)` | The FAB overlay as a container view |
