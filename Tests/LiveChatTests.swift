@@ -112,6 +112,45 @@ final class LiveChatTests: XCTestCase {
         XCTAssertEqual(a?["assignedAgents"] as? [String], ["a2"])
         XCTAssertEqual(LiveChat.waitSeconds("0.5"), 30)
         XCTAssertEqual(LiveChat.waitSeconds(nil), 120)
+        XCTAssertEqual(LiveChat.waitSeconds(0), 120)
+    }
+
+    // MARK: - The max-wait countdown (web queueCard.ts, #35)
+
+    func testTheCountdownsClockNeverBelowZero() {
+        XCTAssertEqual(LiveChat.clock(65), "1:05")
+        XCTAssertEqual(LiveChat.clock(0), "0:00")
+        XCTAssertEqual(LiveChat.clock(-4), "0:00")
+        XCTAssertEqual(LiveChat.clock(600), "10:00")
+        XCTAssertEqual(LiveChat.clock(9.6), "0:10")
+        XCTAssertEqual(LiveChat.clock(.nan), "0:00")
+    }
+
+    func testTheCountdownLineInTheVisitorsLanguage() {
+        XCTAssertEqual(LiveChat.maxWaitText(65), "Max wait 1:05")
+        _ = I18n.setWidgetLanguage("fr", languages: ["fr"])
+        defer { _ = I18n.setWidgetLanguage("en", languages: []) }
+        XCTAssertEqual(LiveChat.maxWaitText(0), I18n.tFor(.fr, "queue.maxWait", ["time": "0:00"]))
+        XCTAssertTrue(LiveChat.maxWaitText(0).hasSuffix("0:00"))
+    }
+
+    func testTheDeadlineFromTheStepsMaxWaitOrTheServersSecondsLeft() {
+        let now = Date(timeIntervalSince1970: 1000)
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: 3, remainingSeconds: nil, now: now), now.addingTimeInterval(180))
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: nil, remainingSeconds: nil, now: now), now.addingTimeInterval(120))
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: "0.5", remainingSeconds: nil, now: now), now.addingTimeInterval(30))
+        // A restored wait goes on from the server's seconds left.
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: 3, remainingSeconds: 42, now: now), now.addingTimeInterval(42))
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: 3, remainingSeconds: 0, now: now), now)
+        XCTAssertEqual(LiveChat.waitDeadline(maxWaitTime: 3, remainingSeconds: -1, now: now), now.addingTimeInterval(180))
+    }
+
+    func testSecondsLeftCountDownToZeroAndStop() {
+        let end = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(LiveChat.secondsLeft(end, now: Date(timeIntervalSince1970: 35)), 65)
+        XCTAssertEqual(LiveChat.secondsLeft(end, now: Date(timeIntervalSince1970: 99.2)), 1)
+        XCTAssertEqual(LiveChat.secondsLeft(end, now: end), 0)
+        XCTAssertEqual(LiveChat.secondsLeft(end, now: Date(timeIntervalSince1970: 500)), 0)
     }
 
     // MARK: - The wait card's lines (web queueCard.ts)
