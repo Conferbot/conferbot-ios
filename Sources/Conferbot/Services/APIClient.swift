@@ -180,6 +180,30 @@ public class APIClient {
         return json?["data"] as? [String: Any] ?? [:]
     }
 
+    /// "Email me this chat": the server sends the conversation to this
+    /// address only (embed-server POST /api/v1/mobile/chat/transcript-email;
+    /// the bot is the X-Bot-ID header's). Never throws: a failure reads as
+    /// not sent (EmailTranscript.result).
+    public func sendTranscriptEmail(chatSessionId: String, email: String) async -> TranscriptEmailResult {
+        guard let url = URL(string: "\(baseURL)\(EmailTranscript.path)"),
+              let body = try? JSONSerialization.data(withJSONObject: EmailTranscript.body(chatSessionId: chatSessionId, email: email)) else {
+            return TranscriptEmailResult(ok: false)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
+        headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        request.httpBody = body
+        do {
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            return EmailTranscript.result(status: status, data: json)
+        } catch {
+            return TranscriptEmailResult(ok: false)
+        }
+    }
+
     /// Register push notification token
     public func registerPushToken(
         token: String,
