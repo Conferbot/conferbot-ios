@@ -46,7 +46,9 @@ public struct MessageBubble: View {
             return (HandoverState.joinedText(joined.agentDetails.name), false, joined.afterAI == true ? HandoverState.handedOverNote : nil)
         }
         if let system = message as? SystemMessageRecord {
-            return (system.text, false, nil)
+            // The AI's inactivity close: "Chat paused" with its note, or "Chat ended" (#32).
+            let line = system.line
+            return (line.text, false, line.note)
         }
         return nil
     }
@@ -237,7 +239,7 @@ public struct MessageBubble: View {
         } else if let joinedMessage = message as? AgentJoinedMessageRecord {
             return HandoverState.joinedText(joinedMessage.agentDetails.name)
         } else if let systemMessage = message as? SystemMessageRecord {
-            return systemMessage.text
+            return systemMessage.line.text
         }
         return ""
     }
