@@ -156,7 +156,7 @@ public final class NavigateNodeHandler: BaseNodeHandler {
 
     private func doneLabel(_ data: [String: Any]) -> String {
         let s = JS.text(data["doneNavigatingText"]).trimmed
-        return s.isEmpty ? "Done" : s
+        return s.isEmpty ? I18n.t("common.done") : s
     }
 
     private func label(_ o: [String: Any], _ state: ChatState) -> String {
