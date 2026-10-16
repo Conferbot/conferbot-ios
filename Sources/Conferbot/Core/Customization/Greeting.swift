@@ -217,7 +217,8 @@ public enum Greeting {
     public static func decide(_ c: [String: Any]?, facts: GreetingFacts) -> ResolvedGreeting? {
         let raw = c ?? [:]
         var on = isTrue(raw["chatIconCta"])
-        var text = trim(str(raw["chatIconCtaText"]))
+        // The stock "Hi👋, how can I help?" in the visitor's language; the owner's own words as written (web core/customizations.ts stockText).
+        var text = I18n.stockText(trim(str(raw["chatIconCtaText"])), "greeting.stock", stockEnglish: ["Hi 👋, how can I help?"])
         var delay = num(raw["greetingDelay"], defaultDelay, 0, 3600)
         var click = ["send", "link"].contains(str(raw["greetingClickAction"])) ? str(raw["greetingClickAction"]) : "open"
         // Smart greetings with the owner's own greeting off: no default message.
@@ -291,7 +292,7 @@ public enum Greeting {
         let x = c ?? [:]
         let avatar = [!isTrue(x["hideAvatar"]) ? str(x["avatar"]) : "", str(x["initialPageAvatar"]), !isTrue(x["hideLogo"]) ? str(x["logo"]) : ""]
             .first { !$0.isEmpty }
-        let name = [str(x["logoText"]), botName].first { !$0.isEmpty } ?? "Support"
+        let name = [str(x["logoText"]), botName].first { !$0.isEmpty } ?? I18n.t("home.support")
         return GreetingHead(avatar: avatar, name: name, online: !isTrue(x["hideOnlineStatus"]))
     }
 
