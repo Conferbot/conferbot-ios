@@ -780,6 +780,9 @@ public class ConferBot: ObservableObject {
             }
             try await self.sendQueuedMessage(queuedMessage)
         }
+        offlineManager.socketStatusProvider = { [weak self] in
+            self?.socketClient?.isConnected ?? false
+        }
 
         debugPrint("[ConferBot] Offline manager setup complete")
     }
@@ -2148,21 +2151,9 @@ public class ConferBot: ObservableObject {
             }
         }
 
-        // Reconnect event - rejoin room and flush queue after reconnection
-        socketClient?.on(SocketEvents.reconnect) { [weak self] _, _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                // Re-join chat room (socket.io drops room membership on disconnect)
-                if let sessionId = self.currentSession?.chatSessionId {
-                    self.socketClient?.joinChatRoomVisitor(
-                        chatSessionId: sessionId,
-                        deviceInfo: self.getDeviceInfo()
-                    )
-                    self.debugPrint("[ConferBot] Rejoined chat room on reconnect: \(sessionId)")
-                }
-                self.offlineManager.handleSocketConnected()
-            }
-        }
+        // Socket.IO's reconnect fires when reconnection starts, the socket
+        // still down: nothing is rejoined or sent here. The connect handler
+        // above rejoins the room, asks for the bot data and flushes the queue.
 
         // Bot response
         socketClient?.on(SocketEvents.botResponse) { [weak self] data, _ in
