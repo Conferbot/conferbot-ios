@@ -99,13 +99,14 @@ public class ChatViewController: UIViewController {
     }
 
     private func setupNavigationBar() {
-        title = ConferBot.shared.customization?.headerTitle ?? "Support Chat"
+        title = ConferBot.shared.customization?.headerTitle ?? ChatText.supportChat
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .close,
             target: self,
             action: #selector(closeTapped)
         )
+        navigationItem.leftBarButtonItem?.accessibilityLabel = I18n.t("common.close")
 
         // Connection status indicator
         updateConnectionStatus()
@@ -344,7 +345,7 @@ public class ChatViewController: UIViewController {
         }
         guard !actions.isEmpty else { return nil }
         let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: actions))
-        item.accessibilityLabel = "Chat menu"
+        item.accessibilityLabel = ChatText.menu
         return item
     }
 
@@ -476,7 +477,7 @@ extension ChatViewController: UIDocumentPickerDelegate {
         ConferBot.shared.sendLiveFile(fileURL: url) { [weak self] error in
             guard let error = error else { return }
             let alert = UIAlertController(title: nil, message: error, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: ChatText.ok, style: .default))
             self?.present(alert, animated: true)
         }
     }
