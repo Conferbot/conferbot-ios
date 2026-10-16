@@ -37,28 +37,36 @@ public enum GameId: String, CaseIterable, Equatable {
 public struct GameMeta: Equatable {
     public let id: GameId
     public let emoji: String
-    public let name: String
-    /// One line for the menu.
-    public let blurb: String
+    /// The game's name in the active language (web ui.ts gameName, games.<id>.name).
+    public var name: String { I18n.t("games.\(id.rawValue).name") }
+    /// One line for the menu, in the active language (games.<id>.blurb).
+    public var blurb: String { I18n.t("games.\(id.rawValue).blurb") }
 }
 
 public enum WaitingGames {
 
     public static let games: [GameMeta] = [
-        GameMeta(id: .rps, emoji: "✊", name: "Rock paper scissors", blurb: "Best of three against the bot"),
-        GameMeta(id: .ttt, emoji: "⭕", name: "Tic-tac-toe", blurb: "Three in a row beats the bot"),
-        GameMeta(id: .quiz, emoji: "🧠", name: "Quick quiz", blurb: "Three quick questions"),
-        GameMeta(id: .memory, emoji: "🃏", name: "Memory match", blurb: "Find the six pairs"),
-        GameMeta(id: .reaction, emoji: "⚡", name: "Reflex test", blurb: "Tap the moment it turns green"),
-        GameMeta(id: .emoji, emoji: "🤔", name: "Emoji riddles", blurb: "Guess the phrase from the emoji"),
-        GameMeta(id: .scramble, emoji: "🔤", name: "Word scramble", blurb: "Unscramble the letters"),
+        GameMeta(id: .rps, emoji: "✊"),
+        GameMeta(id: .ttt, emoji: "⭕"),
+        GameMeta(id: .quiz, emoji: "🧠"),
+        GameMeta(id: .memory, emoji: "🃏"),
+        GameMeta(id: .reaction, emoji: "⚡"),
+        GameMeta(id: .emoji, emoji: "🤔"),
+        GameMeta(id: .scramble, emoji: "🔤"),
     ]
 
     public static let gameIds: [GameId] = games.map(\.id)
 
     public static func meta(_ id: GameId) -> GameMeta? { games.first { $0.id == id } }
 
+    /// The stock offer as stored (English); drawn as `offerLine` (web ui.ts:
+    /// the stock line is t("games.offer")).
     public static let defaultOfferText = "While you wait - fancy a quick game? 🎮"
+
+    /// The offer as drawn: the stock line in the active language, the owner's own as written.
+    public static func offerLine(_ offerText: String) -> String {
+        offerText == defaultOfferText ? I18n.t("games.offer") : offerText
+    }
     public static let offerTextMax = 140
 
     /// The games that work in a language: the emoji riddles are English
