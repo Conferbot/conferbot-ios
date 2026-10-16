@@ -43,48 +43,56 @@ public enum HomeView: String, Equatable {
 
 public enum Home {
 
-    // MARK: - Words (web ts/i18n/en.ts)
+    // MARK: - Words (web ts/i18n home.*, trust.*, requests.*), read in the active language
 
     public enum Text {
-        public static let title = "Hi there 👋"
-        public static let description = "Ask us anything - we're here to help."
-        public static let onlineNow = "Online now"
-        public static let support = "Support"
-        public static let chatWithUs = "Chat with us"
-        public static let ourAssistant = "Our assistant"
-        public static let resume = "Pick up where you left off"
-        public static let continueConversation = "Continue the conversation"
-        public static let askAgain = "Ask it again - we'll answer right away"
-        public static let helpCentre = "Help centre"
-        public static let recentArticles = "Recent articles"
-        public static let seeAll = "See all"
-        public static let searchPlaceholder = "Search for help"
-        public static let searchLabel = "Search help articles"
-        public static func noMatch(_ q: String) -> String { "No articles match \u{201C}\(q)\u{201D}." }
-        public static let askInstead = "Ask us instead"
-        public static let chatInstead = "Chat with us instead"
-        public static let askPlaceholder = "Ask a question\u{2026}"
-        public static func askLabel(_ name: String) -> String { "Ask \(name) a question" }
-        /// "Ask “<query>”": the query is drawn bold.
-        public static let askQuery = "Ask"
-        public static func answersRightAway(_ name: String) -> String { "\(name) answers right away" }
-        public static let wellHelp = "We'll help you with it"
-        public static let articles = "Articles"
-        public static let goodMorning = "Good morning"
-        public static let goodAfternoon = "Good afternoon"
-        public static let goodEvening = "Good evening"
-        public static let hello = "Hello"
-        public static func welcomeBackName(_ name: String) -> String { "Welcome back, \(name)" }
-        public static let welcomeBack = "Welcome back"
-        public static let requestsTitle = "Your requests"
-        public static func requestsSeeAll(_ n: Int) -> String { "See all (\(n))" }
-        public static let review = "review"
-        public static let reviews = "reviews"
-        public static func rated(_ avg: String, _ count: Int, _ reviews: String) -> String { "Rated \(avg) out of 5 from \(count) \(reviews)" }
-        public static let ourTeam = "Our team"
-        public static let customerLogo = "Customer logo"
-        public static let close = "Close"
-        public static let back = "Back"
+        public static var title: String { I18n.t("home.title") }
+        public static var description: String { I18n.t("home.description") }
+        public static var onlineNow: String { I18n.t("home.onlineNow") }
+        public static var support: String { I18n.t("home.support") }
+        public static var chatWithUs: String { I18n.t("home.chatWithUs") }
+        public static var ourAssistant: String { I18n.t("home.ourAssistant") }
+        public static var resume: String { I18n.t("home.resume") }
+        public static var continueConversation: String { I18n.t("home.continueConversation") }
+        public static var askAgain: String { I18n.t("home.askAgain") }
+        public static var helpCentre: String { I18n.t("home.helpCentre") }
+        public static var recentArticles: String { I18n.t("home.recentArticles") }
+        public static var seeAll: String { I18n.t("home.seeAll") }
+        public static var searchPlaceholder: String { I18n.t("home.searchPlaceholder") }
+        public static var searchLabel: String { I18n.t("kb.searchLabel") }
+        public static var askInstead: String { I18n.t("home.askInstead") }
+        public static var chatInstead: String { I18n.t("home.chatInstead") }
+        public static var askPlaceholder: String { I18n.t("home.askPlaceholder") }
+        public static var wellHelp: String { I18n.t("home.wellHelp") }
+        public static var articles: String { I18n.t("tabs.articles") }
+        public static var goodMorning: String { I18n.t("home.goodMorning") }
+        public static var goodAfternoon: String { I18n.t("home.goodAfternoon") }
+        public static var goodEvening: String { I18n.t("home.goodEvening") }
+        public static var hello: String { I18n.t("home.hello") }
+        public static var welcomeBack: String { I18n.t("home.welcomeBack") }
+        public static var requestsTitle: String { I18n.t("requests.title") }
+        public static var review: String { I18n.t("trust.review") }
+        public static var reviews: String { I18n.t("trust.reviews") }
+        public static var ourTeam: String { I18n.t("trust.ourTeam") }
+        public static var customerLogo: String { I18n.t("trust.customerLogo") }
+        public static var close: String { I18n.t("common.close") }
+        public static var back: String { I18n.t("common.back") }
+        public static func noMatch(_ q: String) -> String { I18n.t("kb.noMatch", ["query": q]) }
+        public static func askLabel(_ name: String) -> String { I18n.t("home.askLabel", ["name": name]) }
+        public static func answersRightAway(_ name: String) -> String { I18n.t("home.answersRightAway", ["name": name]) }
+        public static func welcomeBackName(_ name: String) -> String { I18n.t("home.welcomeBackName", ["name": name]) }
+        public static func requestsSeeAll(_ n: Int) -> String { I18n.t("requests.seeAll", ["n": n]) }
+        public static func rated(_ avg: String, _ count: Int, _ reviews: String) -> String {
+            I18n.t("trust.rated", ["avg": avg, "count": count, "reviews": reviews])
+        }
+        /// "Ask" before the bold query (see askQueryParts for languages that put it after).
+        public static var askQuery: String { askQueryParts.0.trimmingCharacters(in: .whitespaces) }
+        /// "Ask “<query>”": the words around the query, which is drawn bold (web
+        /// home.askQuery "Ask {query}"): ("Ask ", "") in English.
+        public static var askQueryParts: (String, String) {
+            let parts = I18n.t("home.askQuery").components(separatedBy: "{query}")
+            return (parts[0], parts.count > 1 ? parts[1] : "")
+        }
     }
 
     // MARK: - Small helpers
@@ -254,12 +262,6 @@ public enum Home {
 
     static func plainText(_ v: String) -> String {
         collapse(v.replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression))
-    }
-
-    /// The owner's words, or the stock ones (web i18n.ts ownerTextOr).
-    static func ownerTextOr(_ value: Any?, _ stock: String) -> String {
-        let v = (value as? String).map(plainText) ?? ""
-        return v.isEmpty || v == plainText(stock) ? stock : str(value)
     }
 
     // MARK: - Colours
@@ -832,7 +834,8 @@ public enum Home {
             status: statusText.isEmpty ? nil : statusText,
             tone: people.tone,
             dot: !hideStatus,
-            button: ownerTextOr(c["initialPageCardButtonText"], Text.chatWithUs),
+            // The owner's words, or the stock ones in the visitor's language (web core/customizations.ts ownerTextOr).
+            button: I18n.ownerTextOr(c["initialPageCardButtonText"], "home.chatWithUs"),
             starters: agent.map { Array($0.starters.filter { !trim($0).isEmpty }.prefix(3)) } ?? [],
             faces: trustImages(c["homeTeamPhotos"], max: 3),
             rating: ratingLine(c["homeRating"])
@@ -905,7 +908,8 @@ public enum Home {
         return Model(
             hello: back?.hello ?? salutation(hour),
             brand: brand(c, fallbackName: [agent?.displayName ?? "", input.botName ?? ""].first { !$0.isEmpty } ?? ""),
-            title: trim(str(c["initialPageTitle"])),
+            // The stock "Hi there 👋" in the visitor's language (web core/customizations.ts stockText).
+            title: I18n.stockText(trim(str(c["initialPageTitle"])), "home.title"),
             description: words.description,
             message: (c["initialPageMessage"] as? String).map(plainText) ?? "",
             band: [a, b],
