@@ -258,10 +258,9 @@ public struct ChatView: View {
                         // The send button in the header colour (or the theme palette's accent), as on the web.
                         primaryColor: conferBot.hasServerLook ? Color(hex: conferBot.customizations.accent)
                             : (conferBot.customization?.primaryColor.map { Color($0) } ?? .blue),
-                        enabled: !repliesOff && conferBot.closedState?.inputOff != true,
+                        enabled: composer.enabled,
                         // Closed (blocked, or ended with nothing going on): the line says why (#40).
-                        placeholder: conferBot.closedState.map { $0.inputOff ? $0.text : ChatText.placeholder }
-                            ?? (repliesOff ? ChatText.repliesOff : ChatText.placeholder),
+                        placeholder: composer.placeholder,
                         onAttach: canAttach ? { showFileImporter = true } : nil,
                         tokens: conferBot.hasServerLook ? conferBot.customizations.theme.tokens : nil,
                         fieldRadius: conferBot.hasServerLook ? conferBot.customizations.fieldRadius : 25,
@@ -574,7 +573,10 @@ public struct ChatView: View {
         }
     }
 
-    private var repliesOff: Bool { live.lockedBy != nil || !live.visitorInputEnabled }
+    /// The message box: off while locked, replies off or the chat closed (#40, #80).
+    private var composer: ComposerState {
+        ComposerState.of(lockedBy: live.lockedBy, visitorInputEnabled: live.visitorInputEnabled, closed: conferBot.closedState)
+    }
 
     private var canAttach: Bool {
         conferBot.isLiveChatMode && (LiveChat.visitorUploadsOn(conferBot.serverCustomizations) || live.fileRequestedBy != nil)
@@ -667,6 +669,7 @@ struct TabButton: View {
 @available(iOS 15.0, *)
 public struct ChatViewWithKBSheet: View {
     @ObservedObject private var conferBot = ConferBot.shared
+    @ObservedObject private var live = ConferBot.shared.liveChat
     @State private var inputText = ""
     @State private var isSessionStarted = false
     @State private var showKnowledgeBase = false
@@ -802,7 +805,8 @@ public struct ChatViewWithKBSheet: View {
                     WaitingCards(anchorIndex: nil)
 
                     // Interactive choice pills for the node awaiting input
-                    if let uiState = conferBot.currentUIState {
+                    // (none for a blocked visitor, #40, #80)
+                    if let uiState = conferBot.currentUIState, live.blocked == nil {
                         interactiveChoicesView(for: uiState)
                             .id("step")
                         StallHintView(accent: Color(hex: conferBot.customizations.accent),
@@ -832,6 +836,11 @@ public struct ChatViewWithKBSheet: View {
                         }
                         .id("suggestions")
                     }
+
+                    // The live chat cards, the post-chat rating and the
+                    // closed chat's line with "Start a new chat" (#80)
+                    LiveChatFooterCards(accent: pillColor, onUpload: nil)
+                        .id("livecards")
                 }
                 .padding()
             }
@@ -856,12 +865,20 @@ public struct ChatViewWithKBSheet: View {
             .onChange(of: conferBot.currentUIState?.stepNodeId) { id in
                 if id != nil { withAnimation { proxy.scrollTo("step", anchor: .bottom) } }
             }
+            .onChange(of: conferBot.closedState?.kind.rawValue ?? "") { kind in
+                if !kind.isEmpty { withAnimation { proxy.scrollTo("livecards", anchor: .bottom) } }
+            }
             .onChange(of: conferBot.isAgentTyping) { _ in
                 withAnimation {
                     proxy.scrollTo("typing", anchor: .bottom)
                 }
             }
         }
+    }
+
+    /// The message box: off while locked, replies off or the chat closed (#40, #80).
+    private var composer: ComposerState {
+        ComposerState.of(lockedBy: live.lockedBy, visitorInputEnabled: live.visitorInputEnabled, closed: conferBot.closedState)
     }
 
     private var inputViewWithKB: some View {
@@ -871,7 +888,7 @@ public struct ChatViewWithKBSheet: View {
                 quickHelpSuggestion
             }
 
-            ChatInput(text: $inputText) { message in
+            ChatInput(text: $inputText, enabled: composer.enabled, placeholder: composer.placeholder) { message in
                 // Route through the flow engine when a text-input node is
                 // awaiting input, otherwise send as a free-form message
                 conferBot.submitText(message)
