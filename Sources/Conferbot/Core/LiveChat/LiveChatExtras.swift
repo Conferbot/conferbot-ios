@@ -42,6 +42,9 @@ public final class LiveChatExtras: ObservableObject {
     /// "Email me this chat": the card is up, and where it went once sent (#39).
     @Published public private(set) var emailTranscriptOpen = false
     @Published public private(set) var emailTranscriptSentTo: String?
+    /// When the handover's max wait runs out, while a flow's handover waits
+    /// for a person: the wait card counts down to it (#35); nil otherwise.
+    @Published public private(set) var waitEndsAt: Date?
     /// The server's transcript email (APIClient.sendTranscriptEmail); ConferBot sets it.
     var postTranscriptEmail: ((_ chatSessionId: String, _ email: String) async -> TranscriptEmailResult)?
     /// Every queue-status as the server sent it, the event or the poll's
@@ -56,6 +59,8 @@ public final class LiveChatExtras: ObservableObject {
 
     private var queueTimer: Timer?
     private var waitTimer: Timer?
+    /// A wait picked back up after a restart: the server's seconds left (once).
+    private var restoredRemaining: Int?
     private var reportedDelivered = ""
     private var reportedSeen = ""
 
@@ -263,11 +268,16 @@ public final class LiveChatExtras: ObservableObject {
 
     /// The handover step's max wait: once it passes with nobody joined, the
     /// server is asked to decide (handover-timeout) and answers with
-    /// no-agents-available. Once per wait.
-    public func startWaitTimer(nodeData: [String: Any]?, workspaceId: String?) {
+    /// no-agents-available. Once per wait. A restored wait goes on from the
+    /// server's seconds left (web special.ts _attachHandoverWait); the wait
+    /// card counts down to the same deadline (`waitEndsAt`, #35).
+    public func startWaitTimer(nodeData: [String: Any]?, workspaceId: String?, now: Date = Date()) {
         main {
             guard self.waitTimer == nil else { return }
-            self.waitTimer = Timer.scheduledTimer(withTimeInterval: LiveChat.waitSeconds(nodeData?["maxWaitTime"]), repeats: false) { [weak self] _ in
+            let deadline = LiveChat.waitDeadline(maxWaitTime: nodeData?["maxWaitTime"], remainingSeconds: self.restoredRemaining, now: now)
+            self.restoredRemaining = nil
+            self.waitEndsAt = deadline
+            self.waitTimer = Timer.scheduledTimer(withTimeInterval: max(0, deadline.timeIntervalSince(now)), repeats: false) { [weak self] _ in
                 guard let self, let id = self.sessionId() else { return }
                 self.socket()?.emit(event: "handover-timeout", data: LiveChat.handoverTimeoutPayload(chatSessionId: id, nodeData: nodeData, workspaceId: workspaceId))
             }
@@ -278,8 +288,18 @@ public final class LiveChatExtras: ObservableObject {
         main {
             self.waitTimer?.invalidate()
             self.waitTimer = nil
+            if self.waitEndsAt != nil { self.waitEndsAt = nil }
         }
     }
+
+    /// A restored wait for a person: the server's seconds left of its max
+    /// wait, before the wait starts again (HandoverLifecycle's restore).
+    func resumeWait(remainingSeconds: Int?) {
+        main { self.restoredRemaining = remainingSeconds }
+    }
+
+    /// When the max-wait timer sends handover-timeout (tests).
+    var waitTimerFiresAt: Date? { waitTimer?.isValid == true ? waitTimer?.fireDate : nil }
 
     private func askQueue() {
         guard let id = sessionId() else { return }
@@ -396,6 +416,7 @@ public final class LiveChatExtras: ObservableObject {
         stopWaitTimer()
         stopQueuePoll()
         main {
+            self.restoredRemaining = nil
             self.queue = nil
             self.handoverWaiting = nil
             self.noAgentsAvailable = false
