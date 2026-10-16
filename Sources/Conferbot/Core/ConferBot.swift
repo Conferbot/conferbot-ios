@@ -416,6 +416,17 @@ public class ConferBot: ObservableObject {
             botId: botId,
             socketURL: config.socketURL
         )
+        // The visitor goes with the handshake: the server refuses one the
+        // workspace blocked, and the chat shows its closed state (#40).
+        socketClient?.visitorId = sessionStorage.loadSession(botId: botId)?.visitorId ?? chatState.visitorId
+        socketClient?.onBlocked = { [weak self] in
+            DispatchQueue.main.async { self?.applyVisitorBlock(nil) }
+        }
+        // "Email me this chat" goes through the mobile API (#39).
+        liveChat.postTranscriptEmail = { [weak self] id, email in
+            guard let api = self?.apiClient else { return TranscriptEmailResult(ok: false) }
+            return await api.sendTranscriptEmail(chatSessionId: id, email: email)
+        }
 
         // Initialize Knowledge Base Service
         self.knowledgeBaseService = KnowledgeBaseService(
@@ -1420,8 +1431,13 @@ public class ConferBot: ObservableObject {
         // Finalize analytics before ending session
         analytics.finalizeChatAnalytics()
 
+        // The server has no visitor end-chat (only an agent ends a live chat;
+        // it answers a visitor's end-chat with forbidden). Still waiting for
+        // a person: leave the queue, as the web does (#59).
+        if isWaitingInQueue {
+            socketClient?.emit(event: SocketEvents.queueSelfResolve, data: HandoverState.queueSelfResolvePayload(session.chatSessionId))
+        }
         socketClient?.leaveChatRoom(chatSessionId: session.chatSessionId)
-        socketClient?.endChat(chatSessionId: session.chatSessionId)
 
         // Clear stored session data if requested
         if clearStorage {
@@ -1436,9 +1452,71 @@ public class ConferBot: ObservableObject {
         hasRestoredSession = false
         flowStarted = false
         handover.reset()
+        liveChat.reset()
         Task { @MainActor in self.resetAgentBotChat() }
 
         debugPrint("[ConferBot] Session ended: \(session.chatSessionId)")
+    }
+
+    /// Waiting for a person: the flow's handover step in the queue, or an AI
+    /// escalation's Connecting line still pending.
+    private var isWaitingInQueue: Bool {
+        if case .humanHandover = currentUIState, !isLiveChatMode { return true }
+        return HandoverState.phase(chatState.getServerRecord()) == .connecting
+    }
+
+    // MARK: - The closed chat (#40)
+
+    /// The chat's closed state, or nil while it is open: blocked (the
+    /// neutral line, no input, no new chat), or ended with nothing going on
+    /// (composer off, "Start a new chat"). LiveEvents.closedState.
+    public var closedState: LiveEvents.ClosedState? {
+        LiveEvents.closedState(chatState.getServerRecord(), blocked: liveChat.blocked,
+                               stepWaiting: currentUIState != nil || isProcessingNode,
+                               live: isLiveChatMode && currentAgent != nil)
+    }
+
+    /// The workspace blocked this visitor (visitor-blocked, or refused at
+    /// the handshake): "This conversation has been closed.", no input, no
+    /// new chat; the wait, the flow and the cards stop. Main thread.
+    func applyVisitorBlock(_ data: [String: Any]?) {
+        guard isOwnSession(data) else { return }
+        liveChat.block(LiveEvents.blockedText(data))
+        handover.onBlocked()
+        isAgentTyping = false
+        chatState.isAgentTyping = false
+        suggestions = []
+        Task { @MainActor in self.setAwaitingReply(false) }
+        debugPrint("[ConferBot] Visitor blocked")
+    }
+
+    /// "Start a new chat" under an ended chat: a fresh conversation (never
+    /// for a blocked visitor, whom the server refuses).
+    public func startNewChat() {
+        guard liveChat.blocked == nil else { return }
+        DispatchQueue.main.async {
+            self.liveChat.reset()
+            self.isLiveChatMode = false
+            self.currentAgent = nil
+            self.isAgentTyping = false
+            self.chatState.isLiveChatMode = false
+            self.chatState.currentAgent = nil
+            self.chatState.isAgentTyping = false
+            Task { try? await self.startSession(forceNew: true) }
+        }
+    }
+
+    // MARK: - Email me this chat (#39)
+
+    /// Show the "Email me this chat" card (the chat menu has it).
+    public func openEmailTranscript() { liveChat.openEmailTranscript() }
+
+    public func closeEmailTranscript() { liveChat.closeEmailTranscript() }
+
+    /// Email the transcript to this address (POST /mobile/chat/transcript-email);
+    /// on success the address is kept as the visitor's. `done` on the main thread.
+    public func emailTranscript(_ email: String, done: @escaping (TranscriptEmailResult) -> Void = { _ in }) {
+        liveChat.emailTranscript(email, done: done)
     }
 
     /// Reset unread message count (e.g. when chat overlay opens)
@@ -1587,6 +1665,12 @@ public class ConferBot: ObservableObject {
         // Chat ended
         socketClient?.on(SocketEvents.chatEnded) { [weak self] data, _ in
             self?.handleChatEnded(data: data.first as? [String: Any])
+        }
+
+        // Blocked by the workspace mid-chat (#40)
+        socketClient?.on(SocketEvents.visitorBlocked) { [weak self] data, _ in
+            let json = data.first as? [String: Any]
+            DispatchQueue.main.async { self?.applyVisitorBlock(json) }
         }
 
         // Fetched chatbot data - extract workspaceId and botName for handover
@@ -1881,9 +1965,12 @@ public class ConferBot: ObservableObject {
         awaitingReply = on
         guard on else { return }
         awaitReplyTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 45_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.awaitingReply = false
+            try? await Task.sleep(nanoseconds: UInt64(AgentBotParser.awaitReplySeconds * 1_000_000_000))
+            guard !Task.isCancelled, let self = self else { return }
+            self.awaitingReply = false
+            // Say so, instead of silently dropping the dots (web
+            // agentListeners.ts): on screen only, not in the record (#49).
+            self.messages.append(AgentBotParser.replyTimeoutNotice())
         }
     }
 
@@ -2074,18 +2161,27 @@ public class ConferBot: ObservableObject {
     /// "Helpful?" on an AI answer: kept on the message, sent to the server.
     @MainActor
     public func sendAnswerFeedback(agentMessageId: String, helpful: Bool, reason: String? = nil) {
-        let feedback = AnswerFeedback(helpful: helpful, reason: helpful ? nil : reason)
+        sendAnswerFeedback(agentMessageId: agentMessageId, feedback: AnswerFeedback(helpful: helpful, reason: helpful ? nil : reason))
+    }
+
+    /// A vote from the "Helpful?" row (HelpfulRow.step): kept on the message
+    /// and on the answer's record entry (a restore draws it rated), sent as
+    /// ai-answer-feedback {chatSessionId, agentMessageId, helpful, reason?,
+    /// comment?} (#43). A changed vote is sent again.
+    @MainActor
+    public func sendAnswerFeedback(agentMessageId: String, feedback: AnswerFeedback) {
         if let index = messages.firstIndex(where: { $0.id == agentMessageId }),
            let message = messages[index] as? AgentMessageRecord {
             messages[index] = message.with(feedback: feedback)
-            saveSessionState()
         }
+        let at = LiveEvents.iso(Date())
+        chatState.updateServerRecord { HelpfulRow.withFeedback($0, agentMessageId: agentMessageId, feedback, at: at) ?? $0 }
+        saveSessionState()
         var payload: [String: Any] = [
             "chatSessionId": currentSession?.chatSessionId ?? "",
             "agentMessageId": agentMessageId,
-            "helpful": helpful
         ]
-        if let reason = feedback.reason { payload["reason"] = reason }
+        for (k, v) in feedback.payload { payload[k] = v }
         socketClient?.emitWithAck(event: SocketEvents.aiAnswerFeedback, data: payload, timeout: 10)
     }
 
@@ -2194,6 +2290,8 @@ public class ConferBot: ObservableObject {
             // an AI pausing an idle visitor draws nothing.
             let kind = self.handover.onAgentLeft(json)
             guard kind != .ignore else { return }
+            // No reply is coming from the one who left: no "took too long" either.
+            self.setAwaitingReply(false)
             if let line = self.messages.last as? AgentLeftMessageRecord {
                 self.delegate?.conferBot(self, didReceiveMessage: line)
             }
@@ -2249,12 +2347,19 @@ public class ConferBot: ObservableObject {
     }
 
     private func handleChatEnded(data: [String: Any]? = nil) {
+        guard isOwnSession(data) else { return }
         Task { @MainActor in
+            // The same end again (an agent's double click, an AI close racing
+            // a person's): one "Chat ended" line and one survey, not two (#40).
+            guard !LiveEvents.endedSinceLastLive(self.chatState.getServerRecord()) else { return }
+
             // A wait still going ends with the chat: the line says so.
             self.handover.onChatEnded(data)
+            self.setAwaitingReply(false)
 
-            // Add system message
-            let messageId = "chat-ended-\(Int(Date().timeIntervalSince1970 * 1000))"
+            // Its own id per end: under one id a second live chat's end
+            // merged into the first one's entry (web agentListeners.ts).
+            let messageId = LiveEvents.eventId("agent-chat-ended")
             let systemMessage = SystemMessageRecord(
                 id: messageId,
                 time: Date(),
@@ -2279,13 +2384,16 @@ public class ConferBot: ObservableObject {
             self.chatState.currentAgent = nil
             self.chatState.isAgentTyping = false
 
+            // The post-chat rating, once per end.
+            self.liveChat.chatEnded()
+
             self.saveSessionState()
             self.debugPrint("[ConferBot] Chat ended by server")
 
-            // As on the web: the conversation stays on screen, the rating
-            // card shows (LiveChatExtras), and the flow carries on from the
-            // handover step. Ending the session here used to wipe the chat.
-            Task { await self.flowEngine?.continueAfterHandover() }
+            // As on the web: the conversation stays on screen and the flow
+            // moves to the handover step's next step - its post-chat survey
+            // questions first when it has them (#66).
+            await self.flowEngine?.handoverEnded()
         }
     }
 
