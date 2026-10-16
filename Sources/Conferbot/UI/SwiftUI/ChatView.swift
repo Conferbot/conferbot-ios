@@ -99,9 +99,22 @@ public struct ChatView: View {
     /// it off: the server sends no articles then.
     public var enableKnowledgeBase: Bool?
 
+    /// The UIKit chat's close (ChatViewController hosts this view, #96): an
+    /// ✕ in the chat header and on the home screen, and the header's colour
+    /// runs up under the status bar (the navigation bar is hidden there).
+    var onClose: (() -> Void)?
+
     public init(enableKnowledgeBase: Bool? = nil) {
         self.enableKnowledgeBase = enableKnowledgeBase
     }
+
+    init(enableKnowledgeBase: Bool?, onClose: (() -> Void)?) {
+        self.enableKnowledgeBase = enableKnowledgeBase
+        self.onClose = onClose
+    }
+
+    /// Hosted in the UIKit chat (ChatViewController).
+    private var hosted: Bool { onClose != nil }
 
     /// The Help tab: the owner's switch, then the host's override (Core/Customization/HelpCentre).
     /// With the owner's home screen the help centre is the home's own view, so no tab.
@@ -176,10 +189,12 @@ public struct ChatView: View {
     private var views: some View {
         if home.isOn {
             ViewSwitch(view: home.view, kind: conferBot.serverCustomizations?["viewTransition"],
-                       sweep: conferBot.serverCustomizations?["viewTransitionDirection"]) { view in
+                       sweep: conferBot.serverCustomizations?["viewTransitionDirection"],
+                       // Hosted in UIKit: the views' colours run up under the status bar.
+                       clips: !hosted) { view in
                 switch view {
                 case .home:
-                    HomeScreenView(onClose: isPresented ? { dismiss() } : nil,
+                    HomeScreenView(onClose: onClose ?? (isPresented ? { dismiss() } : nil),
                                    onArticle: { id in sheetArticle = SheetArticle(id: id) })
                 case .help:
                     KnowledgeBaseView(categoryId: home.helpCategoryId, onBack: { home.showHome() })
@@ -319,9 +334,26 @@ public struct ChatView: View {
             }
             Spacer()
             chatMenu(ink: ink)
+            closeButton(ink: ink)
         }
         .padding()
-        .background(Color(hex: look.headerBg))
+        .background(Color(hex: look.headerBg).ignoresSafeArea(edges: hosted ? .top : []))
+    }
+
+    /// The UIKit chat's ✕ (#96): dismisses or pops ChatViewController.
+    @ViewBuilder
+    private func closeButton(ink: Color) -> some View {
+        if let onClose = onClose {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(ink)
+                    .frame(width: 32, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(I18n.t("common.close"))
+        }
     }
 
     /// The chat menu (web chat menu): "Your requests" once the visitor has
@@ -435,9 +467,10 @@ public struct ChatView: View {
 
             Spacer()
             chatMenu(ink: .primary)
+            closeButton(ink: .primary)
         }
         .padding()
-        .background(Color(UIColor.systemBackground))
+        .background(Color(UIColor.systemBackground).ignoresSafeArea(edges: hosted ? .top : []))
     }
 
     private var tabBarView: some View {
