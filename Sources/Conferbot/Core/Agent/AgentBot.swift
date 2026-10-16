@@ -233,6 +233,37 @@ public enum AgentBotParser {
     // MARK: - Reply extras
 
     /// "https://www.conferbot.com/pricing" -> "conferbot.com"
+    /// Where a source or an article card opens (RN agentBot.ts OpenTarget):
+    /// a help article in the app's help centre, a public page, or nowhere
+    /// (drawn, not tappable).
+    public enum OpenTarget: Equatable {
+        case article(id: String, title: String)
+        case url(String)
+
+        public var isPage: Bool {
+            if case .url = self { return true }
+            return false
+        }
+    }
+
+    /// A source chip (web agentSources.ts): a help article in the app when it
+    /// can open there (the help centre is on and the host can show an
+    /// article), else its public page, else nowhere (#94).
+    public static func sourceTarget(_ source: AgentSource?, canOpenArticles: Bool) -> OpenTarget? {
+        guard let source = source else { return nil }
+        if let id = source.articleId, isObjectId(id), canOpenArticles { return .article(id: id, title: source.title) }
+        if let url = httpURL(source.url) { return .url(url) }
+        return nil
+    }
+
+    /// The agent's article card (web agentRich.ts): its public page when it
+    /// has one, else the article in the app's help centre (#94).
+    public static func richArticleTarget(articleId: String?, title: String, url: String?, canOpenArticles: Bool) -> OpenTarget? {
+        if let url = httpURL(url) { return .url(url) }
+        if let id = articleId, isObjectId(id), canOpenArticles { return .article(id: id, title: title) }
+        return nil
+    }
+
     public static func sourceHost(_ url: String?) -> String {
         guard let url = url, let host = URL(string: url)?.host, matches(url, "^https?://") else { return "" }
         let lower = host.lowercased()
