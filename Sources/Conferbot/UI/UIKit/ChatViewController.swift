@@ -225,6 +225,14 @@ public class ChatViewController: UIViewController {
             }
             .store(in: &cancellables)
 
+        // The menu's "Your requests" (and its "New reply") follows the list (#38).
+        let requests = ConferBot.shared.requests
+        requests.$requests.map { _ in () }
+            .merge(with: requests.$seen.map { _ in () })
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateConnectionStatus() }
+            .store(in: &cancellables)
+
         // Subscribe to connection status
         ConferBot.shared.$isConnected
             .receive(on: DispatchQueue.main)
@@ -317,14 +325,25 @@ public class ChatViewController: UIViewController {
         }
     }
 
-    /// The chat menu: "Email me this chat" while there is a conversation and
-    /// the visitor is not blocked (#39). The card shows in the live strip.
+    /// The chat menu: "Your requests" once the visitor has one ("Your
+    /// requests · New reply" when one is unread, iOS 15, #38), "Email me this
+    /// chat" while there is a conversation (#39; the card shows in the live
+    /// strip); none for a blocked visitor.
     private func chatMenuItem() -> UIBarButtonItem? {
-        guard #available(iOS 14.0, *), ConferBot.shared.currentSession != nil, ConferBot.shared.liveChat.blocked == nil else { return nil }
-        let email = UIAction(title: EmailTranscript.Copy.menu, image: UIImage(systemName: "envelope")) { _ in
-            ConferBot.shared.openEmailTranscript()
+        guard #available(iOS 14.0, *), ConferBot.shared.liveChat.blocked == nil else { return nil }
+        var actions: [UIAction] = []
+        if #available(iOS 15.0, *), ConferBot.shared.requests.hasRequests {
+            actions.append(UIAction(title: ConferBot.shared.requests.menuTitle, image: UIImage(systemName: "tray")) { [weak self] _ in
+                self?.present(RequestsViewController(), animated: true)
+            })
         }
-        let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [email]))
+        if ConferBot.shared.currentSession != nil {
+            actions.append(UIAction(title: EmailTranscript.Copy.menu, image: UIImage(systemName: "envelope")) { _ in
+                ConferBot.shared.openEmailTranscript()
+            })
+        }
+        guard !actions.isEmpty else { return nil }
+        let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: actions))
         item.accessibilityLabel = "Chat menu"
         return item
     }
