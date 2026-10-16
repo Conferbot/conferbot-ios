@@ -86,6 +86,8 @@ public class ConferBot: ObservableObject {
         let widgetTheme = WidgetTheme.resolve(themed, prefersDark: prefersDark)
         serverCustomizations = themed
         customizations = Customizations.resolve(themed, theme: widgetTheme)
+        // The bot's name for a later chat that never gets the settings (#79).
+        ChatHeader.remember(customizations.title, botId: botId)
         // The owner's font over the theme's, fetched once (Core/Fonts, #46).
         Task { @MainActor in self.chatFont.update(ownerFont: themed["font"], themeFont: widgetTheme.font, themeFontRole: widgetTheme.fontRole) }
     }
@@ -1871,6 +1873,21 @@ public class ConferBot: ObservableObject {
     /// The chat's closed state, or nil while it is open: blocked (the
     /// neutral line, no input, no new chat), or ended with nothing going on
     /// (composer off, "Start a new chat"). LiveEvents.closedState.
+    /// The chat header's title (#79): the bot's settings, else the bot's
+    /// name from the last settings this device saw, else the host's
+    /// `headerTitle`, else "Support Chat".
+    var chatHeaderTitle: String {
+        ChatHeader.title(server: serverCustomizations != nil ? customizations.title : nil,
+                         remembered: ChatHeader.remembered(botId: botId),
+                         host: customization?.headerTitle)
+    }
+
+    /// The header's connection line: none for a closed chat, which a visitor
+    /// refused at the handshake has with no connection at all (#79).
+    var headerConnection: ChatHeader.Connection {
+        ChatHeader.connection(connected: isConnected, closed: closedState != nil || liveChat.blocked != nil)
+    }
+
     public var closedState: LiveEvents.ClosedState? {
         LiveEvents.closedState(chatState.getServerRecord(), blocked: liveChat.blocked,
                                stepWaiting: currentUIState != nil || isProcessingNode,
