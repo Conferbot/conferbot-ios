@@ -319,8 +319,9 @@ final class SocketClientTests: XCTestCase {
     func testSocketEvents_integrations() {
         XCTAssertEqual(SocketEvents.emailNodeTrigger, "email-node-trigger")
         XCTAssertEqual(SocketEvents.zapierNodeTrigger, "zapier-node-trigger")
-        XCTAssertEqual(SocketEvents.stripeNodeTrigger, "stripe-node-trigger")
-        XCTAssertEqual(SocketEvents.airtableNodeTrigger, "airtable-node-trigger")
+        // Every other integration goes over the one event the embed-server listens for
+        XCTAssertEqual(SocketEvents.executeIntegration, "execute-integration")
+        XCTAssertEqual(SocketEvents.integrationResult, "integration-result")
     }
 
     func testSocketEvents_connection() {
