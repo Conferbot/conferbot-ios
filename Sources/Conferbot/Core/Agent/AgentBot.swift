@@ -103,19 +103,24 @@ public struct AgentStream: Equatable {
     public let agentDetails: AgentDetails
 }
 
-/// A visitor's vote on one AI answer.
-public struct AnswerFeedback: Codable, Equatable {
-    public let helpful: Bool
-    public let reason: String?
-}
-
 public enum AgentBotParser {
     public static let defaultAgentName = "AI Assistant"
     public static let defaultGreeting = "Hi! How can I help you today?"
     public static let maxSources = 3
-    public static let feedbackReasons: [(key: String, label: String)] = [
-        ("wrong", "Wrong"), ("outdated", "Outdated"), ("unanswered", "Didn't answer"), ("other", "Other")
-    ]
+    /// The "Helpful?" reasons (AnswerFeedback.swift).
+    public static var feedbackReasons: [(key: String, label: String)] { HelpfulRow.reasons }
+
+    /// How long the "writing a reply" dots wait for the AI (web
+    /// agentListeners.ts AWAITING_REPLY_MAX_MS): the AI path stays silent when
+    /// the provider fails twice, so without a ceiling they would run forever.
+    public static let awaitReplySeconds: Double = 45
+    /// Said when that ceiling is hit, so the dots do not just vanish (web chat.replyTimeout).
+    public static let replyTimeoutText = "That took too long. Try again, or ask for a human."
+
+    /// The notice as an on-screen line: not part of the conversation's record, as on the web.
+    public static func replyTimeoutNotice(now: Date = Date()) -> SystemMessageRecord {
+        SystemMessageRecord(id: "reply-timeout-\(Int(now.timeIntervalSince1970 * 1000))", time: now, text: replyTimeoutText)
+    }
 
     // MARK: - Helpers
 
