@@ -29,7 +29,7 @@ public struct ChatInput: View {
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             // Text input: one line, growing with the text up to five (#76)
-            ComposerField(text: $text, placeholder: "Type a message...", placeholderColor: .gray,
+            ComposerField(text: $text, placeholder: ChatText.placeholder, placeholderColor: .gray,
                           horizontalPadding: 14, verticalPadding: 10)
                 .frame(minHeight: 40)
                 .background(Color(UIColor.systemGray6))
@@ -50,6 +50,7 @@ public struct ChatInput: View {
                     .font(.system(size: 32))
                     .foregroundColor(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
             }
+            .accessibilityLabel(ChatText.send)
             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 12)
