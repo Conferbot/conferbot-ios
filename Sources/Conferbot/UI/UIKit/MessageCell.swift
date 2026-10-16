@@ -79,7 +79,8 @@ public class MessageCell: UITableViewCell {
 
     public func configure(with message: any RecordItem, customization: ConferBotCustomization?) {
         // Determine if user or bot/agent message
-        let isUserMessage = message.type == .userMessage
+        // A step's answer (rating, date, typed reply...) is the visitor's too (#74).
+        let isUserMessage = message.type == .userMessage || message.type == .userInputResponse || message.type == .userLiveMessageFile
 
         // Configure bubble position
         leadingConstraint?.isActive = false
@@ -113,6 +114,14 @@ public class MessageCell: UITableViewCell {
         // Configure content based on message type
         if let userMessage = message as? UserMessageRecord {
             messageLabel.text = userMessage.text
+        } else if let response = message as? UserInputResponseRecord {
+            messageLabel.text = response.text
+        } else if let botMessage = message as? BotMessageRecord, botMessage.text == nil,
+                  let choices = botMessage.nodeData?["choices"]?.value as? [String], !choices.isEmpty {
+            // Answered choice pills kept in the transcript: the options, the
+            // picked one ticked (the SwiftUI chat draws them as pills)
+            let picked = botMessage.nodeData?["selectedChoice"]?.value as? String
+            messageLabel.text = choices.map { $0 == picked ? "\u{2713} \($0)" : $0 }.joined(separator: "   ")
         } else if let botMessage = message as? BotMessageRecord {
             // The owner's HTML as plain text: tags gone, line breaks kept (#64)
             messageLabel.text = botMessage.text.map { FlowText.bubbleText($0) } ?? "..."
