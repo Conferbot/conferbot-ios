@@ -12,6 +12,9 @@
 //     The app has no home screen, so they sit at the top of the help centre.
 //  3. An article opens (from the list, a source under an AI answer or an
 //     article card) only while the help centre is on.
+//  4. An article the server picked for a wait (queue-help) opens anyway: in
+//     the help centre while it is on, else fetched by id and shown on its
+//     own (RN / Flutter fetch it by id the same way, #83).
 //
 //  The host app can turn the help centre off for its own screens
 //  (`ChatView(enableKnowledgeBase: false)`); it cannot turn it on against
@@ -40,5 +43,13 @@ public enum HelpCentre {
     /// Rule 3: may an article open?
     public static func canOpenArticle(_ customizations: [String: Any]?, articleId: String?) -> Bool {
         isOn(customizations) && !(articleId ?? "").isEmpty
+    }
+
+    /// Where an article the server picked for a wait opens (rule 4).
+    public enum WaitArticleRoute: Equatable { case helpCentre, byId, nowhere }
+
+    public static func waitArticleRoute(_ customizations: [String: Any]?, articleId: String?) -> WaitArticleRoute {
+        if (articleId ?? "").isEmpty { return .nowhere }
+        return canOpenArticle(customizations, articleId: articleId) ? .helpCentre : .byId
     }
 }
