@@ -178,7 +178,7 @@ struct IdleCallBubble: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(line) Open the chat")
+            .accessibilityLabel("\(line) \(ChatText.openTheChat)")
             .accessibilityAddTraits(.isButton)
     }
 }
