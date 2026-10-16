@@ -33,7 +33,7 @@ public class ChatInputView: UIView {
     public func setRepliesEnabled(_ enabled: Bool, reason: String? = nil) {
         textView.isEditable = enabled
         sendButton.isEnabled = enabled && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        placeholderLabel.text = enabled ? "Type a message..." : (reason ?? "Replies are turned off for now")
+        placeholderLabel.text = enabled ? ChatText.placeholder : (reason ?? ChatText.repliesOff)
         alpha = enabled ? 1 : 0.7
     }
 
@@ -101,7 +101,7 @@ public class ChatInputView: UIView {
         containerView.addSubview(textView)
 
         // Placeholder
-        placeholderLabel.text = "Type a message..."
+        placeholderLabel.text = ChatText.placeholder
         placeholderLabel.font = .systemFont(ofSize: 16)
         placeholderLabel.textColor = .placeholderText
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -112,6 +112,7 @@ public class ChatInputView: UIView {
         let image = UIImage(systemName: "arrow.up.circle.fill", withConfiguration: config)
         sendButton.setImage(image, for: .normal)
         sendButton.tintColor = .systemBlue
+        sendButton.accessibilityLabel = ChatText.send
         sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         sendButton.isEnabled = false
         sendButton.translatesAutoresizingMaskIntoConstraints = false
