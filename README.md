@@ -27,6 +27,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Live agent handover** - the web widget's handover lifecycle: the "Connecting you with the team…" line and how the wait ended, the header's reply time, leaving the queue, waiting signals, and a live chat picked back up after the app restarts
 - **While you wait** - while the visitor waits for a person: help articles for their question, the team's own pick with "That solved it", and seven small games (SwiftUI chat)
 - **AI answers as on the web** - Tables, headings, quotes, code blocks and strikethrough in replies; "Helpful?" under the newest answer (a No is sent at once, then reasons, a comment, "Talk to a person", "Ask another way"; the vote can change); "That took too long" when a reply takes more than 45s; fallback replies muted; the phone's language sent so short messages are answered in it
+- **Your requests** - the visitor's own conversations with your team: where each stands in plain words ("We replied", "We're on it", "Solved"), the conversation, and a reply box (a reply to a solved one opens it again). In the chat menu once the visitor has one ("Your requests · New reply" when a reply is unread), and `ConferBot.shared.requests` for your own screens and badge
 - **Email me this chat** - From the chat menu (the header's ... in SwiftUI, the bar button in UIKit) the visitor gets the whole conversation in their inbox (`POST /api/v1/mobile/chat/transcript-email`)
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
@@ -294,6 +295,32 @@ ConferBot.shared.identify(user: ConferBotUser(id: "user-123", email: "jane@examp
 
 The server checks the hash and drops it before storing. A chat with a matching hash is filed as verified; a wrong hash is rejected, and no hash leaves it unverified.
 
+## Your requests
+
+The visitor's conversations with your team (the web widget's "Your requests"): the list, one request with a banner saying where it stands, the messages, and a reply box. Team replies arrive live while one is open; a reply to a solved request opens it again.
+
+- **Whose:** only the visitor's own. The device remembers, per bot, the last 30 chats the visitor wrote in and when each request was last read (UserDefaults); the server lists a conversation only when its id is one of those and the visitor id matches. A user you sign in with a valid `hash` (see Identity verification) also sees their verified conversations from any device. A chat the AI answered on its own is not a request. A first-time visitor asks nothing.
+- **Stock UI:** the chat menu shows "Your requests" once there is one (`ChatView`'s header menu; `ChatViewController`'s bar button presents `RequestsViewController`, iOS 15). The screens sit over the chat in the bot's colours.
+- **Your own UI or badge:**
+
+```swift
+@ObservedObject var requests = ConferBot.shared.requests   // main actor
+
+requests.requests        // [RequestSummary]?, newest replies first
+requests.unread          // replies not read on this device: your badge
+requests.open()          // the list over a view that has RequestsPortalView()
+requests.open(requestId: id)
+await requests.refresh(force: true)
+
+// SwiftUI: put the screens over your own view (nothing is drawn while closed)
+MyScreen().overlay(RequestsPortalView())
+
+// UIKit (iOS 15)
+present(RequestsViewController(), animated: true)
+```
+
+English only for now; replies are text.
+
 ## Theming and Flow-Builder Customizations
 
 There are two sources of appearance settings, and they apply to different parts of the UI:
@@ -515,7 +542,7 @@ The handover step's own settings (team email on or off, sound, assignment method
 
 While the visitor waits for a person, the SwiftUI chat (`ChatView`, `ChatViewWithKBSheet`) offers something to do, as the web widget does. Nothing to set up; the cards sit in the conversation and are never saved.
 
-- **Help articles.** 6 seconds into the wait, up to two help-centre articles that match the visitor's last real question ("While you wait, this might help"), when the help centre is on. When the server keeps a queue it sends its own pick (`queue-help`) instead, with **That solved it**: the visitor leaves the queue (`queue-self-resolve` with the article) and sees "You left the queue. Glad that helped." Once the wait is over the card stays as "Articles that might help". An article opens in the help centre, a page in the browser.
+- **Help articles.** 6 seconds into the wait, up to two help-centre articles that match the visitor's last real question ("While you wait, this might help"), when the help centre is on. When the server keeps a queue it sends its own pick (`queue-help`) instead, with **That solved it**: the visitor leaves the queue (`queue-self-resolve` with the article) and sees "You left the queue. Glad that helped." Once the wait is over the card stays as "Articles that might help". An article opens in the help centre (with the help centre off, the team's pick is fetched by id and shown on its own), a page in the browser.
 - **Games.** 2.5 seconds after the waiting signal the owner's line ("While you wait - fancy a quick game? 🎮") offers rock paper scissors, tic-tac-toe, a quick quiz, memory match, a reflex test, emoji riddles and a word scramble, set in the dashboard (`waitingGames`). "Not now" or the x stops the offers for the app session; typing "play" or "games" while waiting opens the menu. When a person joins, an unused offer goes and a game under way is saved ("Sam's here!", "Finish my game"). Reduce Motion turns the card's motion off.
 - **In code:** `ConferBot.shared.waiting` publishes `helpCard` and `gamesCard` for a custom UI; `solveWait()`, `openHelpItem(_:)` and `interceptPlay(_:)` are the actions. A custom chat that draws the cards calls `waiting.setDrawing(true)` while it is on screen (without it the games aren't offered). The UIKit chat doesn't draw them yet.
 
