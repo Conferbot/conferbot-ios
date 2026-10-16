@@ -6,9 +6,10 @@
 //  tested on their own. Ported from the React Native SDK
 //  (src/core/gamesLogic.ts), itself from the web widget:
 //  conferbot-widget src/ts/chat/games/logic.ts (every rule as it is) and
-//  src/ts/chat/games/content.ts (the English lists; the other languages come
-//  with i18n). The English strings of the web's i18n/en.ts "games.*" keys are
-//  inlined where logic.ts called t(). Every random choice takes an `rng`
+//  src/ts/chat/games/content.ts (the quiz and scramble per language come
+//  from the bundled i18n table, Core/I18n, generated from it; the emoji
+//  riddles are English wordplay). Words are the web's "games.*" keys, read
+//  with I18n.t as logic.ts does. Every random choice takes an `rng`
 //  (0 ..< 1) so tests can pin it.
 //
 
@@ -36,32 +37,30 @@ public enum GamesLogic {
         items[Int(floor(rng() * Double(items.count))) % items.count]
     }
 
-    // MARK: - Content (web content.ts, English)
+    // MARK: - Content (web content.ts)
 
     public struct Trivia: Equatable { public let q: String; public let a: String; public let wrong: [String] }
     public struct Riddle: Equatable { public let e: String; public let a: String; public let wrong: [String] }
     public struct Word: Equatable { public let w: String; public let hint: String }
 
-    public static let trivia: [Trivia] = [
-        Trivia(q: "Which planet is known as the Red Planet?", a: "Mars", wrong: ["Venus", "Jupiter"]),
-        Trivia(q: "How many legs does a spider have?", a: "8", wrong: ["6", "10"]),
-        Trivia(q: "What is the largest ocean on Earth?", a: "Pacific", wrong: ["Atlantic", "Indian"]),
-        Trivia(q: "Which animal is called the ship of the desert?", a: "Camel", wrong: ["Horse", "Elephant"]),
-        Trivia(q: "How many continents are there?", a: "7", wrong: ["5", "6"]),
-        Trivia(q: "What do bees make?", a: "Honey", wrong: ["Silk", "Butter"]),
-        Trivia(q: "Which instrument has 88 keys?", a: "Piano", wrong: ["Guitar", "Violin"]),
-        Trivia(q: "Mix blue and yellow paint and you get...", a: "Green", wrong: ["Purple", "Orange"]),
-        Trivia(q: "How many minutes are there in a day?", a: "1,440", wrong: ["1,200", "2,400"]),
-        Trivia(q: "Which is the fastest land animal?", a: "Cheetah", wrong: ["Horse", "Greyhound"]),
-        Trivia(q: "What is the hardest natural substance?", a: "Diamond", wrong: ["Gold", "Granite"]),
-        Trivia(q: "Which gas do plants take in from the air?", a: "Carbon dioxide", wrong: ["Oxygen", "Helium"]),
-        Trivia(q: "How many sides does a hexagon have?", a: "6", wrong: ["5", "8"]),
-        Trivia(q: "What is the tallest animal?", a: "Giraffe", wrong: ["Elephant", "Ostrich"]),
-        Trivia(q: "Where does the sun rise?", a: "In the east", wrong: ["In the west", "In the north"]),
-        Trivia(q: "Water boils at sea level at how many degrees Celsius?", a: "100", wrong: ["90", "120"]),
-        Trivia(q: "Which is the smallest prime number?", a: "2", wrong: ["1", "3"]),
-        Trivia(q: "What is a baby kangaroo called?", a: "A joey", wrong: ["A kit", "A cub"]),
-    ]
+    /// The quiz in a language, English for any other (web content.ts triviaFor).
+    public static func triviaFor(_ lang: String) -> [Trivia] {
+        I18n.trivia(lang).compactMap { t in
+            guard let q = t["q"] as? String, let a = t["a"] as? String else { return nil }
+            return Trivia(q: q, a: a, wrong: (t["wrong"] as? [String]) ?? [])
+        }
+    }
+
+    /// The scramble words in a language (web content.ts wordsFor).
+    public static func wordsFor(_ lang: String) -> [Word] {
+        I18n.words(lang).compactMap { w in
+            guard let word = w["w"] as? String else { return nil }
+            return Word(w: word, hint: (w["hint"] as? String) ?? "")
+        }
+    }
+
+    /// The English quiz (web content.ts TRIVIA; every language in the i18n table).
+    public static var trivia: [Trivia] { triviaFor("en") }
 
     public static let riddles: [Riddle] = [
         Riddle(e: "☀️🌻", a: "Sunflower", wrong: ["Daisy", "Sunrise", "Sunscreen"]),
@@ -82,13 +81,8 @@ public enum GamesLogic {
         Riddle(e: "🌊🏄", a: "Surfing", wrong: ["Swimming", "Sailing", "Beach day"]),
     ]
 
-    public static let words: [Word] = [
-        Word(w: "PLANET", hint: "🪐"), Word(w: "BANANA", hint: "🍌"), Word(w: "ROCKET", hint: "🚀"),
-        Word(w: "MUFFIN", hint: "🧁"), Word(w: "TURTLE", hint: "🐢"), Word(w: "PENCIL", hint: "✏️"),
-        Word(w: "PICNIC", hint: "🧺"), Word(w: "DRAGON", hint: "🐉"), Word(w: "COOKIE", hint: "🍪"),
-        Word(w: "GALAXY", hint: "🌌"), Word(w: "JUNGLE", hint: "🌴"), Word(w: "KITTEN", hint: "🐱"),
-        Word(w: "WAFFLE", hint: "🧇"), Word(w: "BRIDGE", hint: "🌉"), Word(w: "PUZZLE", hint: "🧩"),
-    ]
+    /// The English scramble words (web content.ts WORDS).
+    public static var words: [Word] { wordsFor("en") }
 
     public static let memoryFaces = ["🍕", "🚀", "🌵", "🐙", "🎈", "🍩", "🦊", "🌈", "⚽", "🎧", "🍉", "🐢", "🦄", "🍦"]
 
@@ -97,7 +91,8 @@ public enum GamesLogic {
     public enum Hand: String, CaseIterable, Equatable { case rock, paper, scissors }
     public static let hands: [Hand] = [.rock, .paper, .scissors]
     public static func emoji(_ h: Hand) -> String { h == .rock ? "✊" : h == .paper ? "✋" : "✌️" }
-    public static func name(_ h: Hand) -> String { h == .rock ? "Rock" : h == .paper ? "Paper" : "Scissors" }
+    /// Each hand's name in the active language (web ui.ts handName, games.rps.*).
+    public static func name(_ h: Hand) -> String { I18n.t("games.rps.\(h.rawValue)") }
     private static func beats(_ h: Hand) -> Hand { h == .rock ? .scissors : h == .paper ? .rock : .paper }
 
     public enum Outcome: String, Equatable { case win, lose, draw }
@@ -282,10 +277,10 @@ public enum GamesLogic {
             if out.count >= count { break }
             let others = Array(shuffle(items.filter { $0 != it }, rng).map(\.title).prefix(2))
             if !it.desc.isEmpty && it.desc.lowercased() != it.title.lowercased() && others.count == 2 {
-                out.append(asQuestion("Which of our articles helps with: \"\(it.desc)\"", it.title, others, .kb, rng))
+                out.append(asQuestion(I18n.t("games.quiz.kbWhich", ["desc": it.desc]), it.title, others, .kb, rng))
             } else if !it.cat.isEmpty && cats.count >= 3 {
                 let wrong = Array(shuffle(cats.filter { $0 != it.cat }, rng).prefix(2))
-                out.append(asQuestion("Where in our help centre would you find \"\(it.title)\"?", it.cat, wrong, .kb, rng))
+                out.append(asQuestion(I18n.t("games.quiz.kbWhere", ["title": it.title]), it.cat, wrong, .kb, rng))
             }
         }
         return out
@@ -306,12 +301,13 @@ public enum GamesLogic {
         questions.enumerated().reduce(0) { n, e in n + (e.offset < picks.count && picks[e.offset] == e.element.answer ? 1 : 0) }
     }
 
+    /// The verdicts in the active language (web logic.ts, games.verdict.*).
     public enum Verdict {
-        public static let perfect = "Perfect score! 🏆"
-        public static let tough = "Tough round - have another go? 🙈"
-        public static let close = "So close! 🌟"
-        public static let notBad = "Not bad at all 👍"
-        public static let nice = "Nicely done 👍"
+        public static var perfect: String { I18n.t("games.verdict.perfect") }
+        public static var tough: String { I18n.t("games.verdict.tough") }
+        public static var close: String { I18n.t("games.verdict.close") }
+        public static var notBad: String { I18n.t("games.verdict.notBad") }
+        public static var nice: String { I18n.t("games.verdict.nice") }
     }
 
     public static func quizVerdict(_ score: Int, _ total: Int) -> String {
@@ -328,7 +324,7 @@ public enum GamesLogic {
     public static func reactionCounts(_ ms: Int) -> Bool { ms >= reactionMinMs }
 
     public static func reactionVerdict(_ ms: Int) -> String {
-        ms < 250 ? "Lightning fast ⚡" : ms < 350 ? "Sharp reflexes 🎯" : ms < 500 ? Verdict.nice : "Slow and steady 🐢"
+        I18n.t(ms < 250 ? "games.reaction.fast" : ms < 350 ? "games.reaction.sharp" : ms < 500 ? "games.verdict.nice" : "games.reaction.steady")
     }
 
     public static func average(_ xs: [Int]) -> Int {
