@@ -89,6 +89,34 @@ final class AgentBotParserTests: XCTestCase {
         XCTAssertEqual(AgentBotParser.followUps(["a", "", 3, "b", "c", "d"]), ["a", "b", "c"])
     }
 
+    // MARK: - Where a help article opens (RN articleTargets.test.ts, #94)
+
+    func testASourceOpensTheArticleInTheAppElseItsPageElseNowhere() {
+        let id = "0123456789abcdef01234567"
+        let both = AgentSource(title: "Refunds", url: "https://help.acme.com/refunds", articleId: id, snippet: nil)
+        XCTAssertEqual(AgentBotParser.sourceTarget(both, canOpenArticles: true), .article(id: id, title: "Refunds"))
+        // The help centre is off: its public page.
+        XCTAssertEqual(AgentBotParser.sourceTarget(both, canOpenArticles: false), .url("https://help.acme.com/refunds"))
+        // An article with no page and no help centre: drawn, not tappable.
+        let bare = AgentSource(title: "Refunds", url: nil, articleId: id, snippet: nil)
+        XCTAssertNil(AgentBotParser.sourceTarget(bare, canOpenArticles: false))
+        // Not an article id: never opened in the app.
+        let odd = AgentSource(title: "X", url: "javascript:alert(1)", articleId: "nope", snippet: nil)
+        XCTAssertNil(AgentBotParser.sourceTarget(odd, canOpenArticles: true))
+        XCTAssertEqual(AgentBotParser.sourceTarget(AgentSource(title: "P", url: "http://a.co/p", articleId: nil, snippet: nil), canOpenArticles: true), .url("http://a.co/p"))
+        XCTAssertNil(AgentBotParser.sourceTarget(nil, canOpenArticles: true))
+        XCTAssertTrue(AgentBotParser.OpenTarget.url("https://a.co").isPage)
+        XCTAssertFalse(AgentBotParser.OpenTarget.article(id: id, title: "").isPage)
+    }
+
+    func testAnArticleCardOpensItsPublicPageFirstElseTheArticleInTheApp() {
+        let id = "0123456789ABCDEF01234567"
+        XCTAssertEqual(AgentBotParser.richArticleTarget(articleId: id, title: "T", url: "https://help.acme.com/t", canOpenArticles: true), .url("https://help.acme.com/t"))
+        XCTAssertEqual(AgentBotParser.richArticleTarget(articleId: id, title: "T", url: nil, canOpenArticles: true), .article(id: id, title: "T"))
+        XCTAssertNil(AgentBotParser.richArticleTarget(articleId: id, title: "T", url: nil, canOpenArticles: false))
+        XCTAssertNil(AgentBotParser.richArticleTarget(articleId: "", title: "T", url: "ftp://x", canOpenArticles: true))
+    }
+
     func testKeepsOnlyDrawableRichMessages() {
         XCTAssertNil(AgentBotParser.safeRich(["kind": "quick_replies", "options": ["Yes"]]))
         XCTAssertEqual(AgentBotParser.safeRich(["kind": "quick_replies", "text": "Pick", "options": ["Yes", "No"]]), .quickReplies(text: "Pick", options: ["Yes", "No"]))
