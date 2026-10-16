@@ -72,7 +72,7 @@ public struct AgentDetails: Codable, Equatable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? c.decode(String.self, forKey: .id)) ?? ""
-        name = (try? c.decode(String.self, forKey: .name)) ?? "Agent"
+        name = (try? c.decode(String.self, forKey: .name)) ?? I18n.t("agent.agent")
         email = (try? c.decode(String.self, forKey: .email)) ?? ""
         let rawAvatar = try? c.decode(String.self, forKey: .avatar)
         avatar = (rawAvatar?.isEmpty ?? true) ? nil : rawAvatar
