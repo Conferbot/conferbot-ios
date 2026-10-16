@@ -12,8 +12,9 @@
 //      UserDefaults (Requests.swift);
 //    - the list as the home card has it, for the menu item and the app's
 //      badge: read when the socket connects, when the chat opens or closes
-//      (at most every 15s), when the portal closes, when a signed-in user
-//      is identified, and when a request changes while the portal is closed;
+//      (at most every 15s), when the portal closes, when a user signs in
+//      or out (the last user's list dropped), and when a request changes
+//      while the portal is closed;
 //    - the portal's screens (RequestsPortal.swift).
 //
 //  Nothing is asked for a visitor with no chat on this device and no
@@ -70,6 +71,8 @@ public final class YourRequests: ObservableObject {
     private var memory = RequestMemory()
     private var lastLoad: Double = 0
     private var loading = false
+    /// Bumped on each sign-in or sign-out, so a list read for the last user is dropped (#86).
+    private var who = 0
     private var offUpdate: (() -> Void)?
     private var portalSub: AnyCancellable?
 
@@ -143,8 +146,25 @@ public final class YourRequests: ObservableObject {
         guard Requests.canAsk(memory: memory, user: hooks.user()), hooks.isConnected() else { return }
         loading = true
         lastLoad = hooks.now()
-        defer { loading = false }
-        if let list = await api.list() { requests = Requests.ordered(list, seen: memory.seen) }
+        let asked = who
+        let list = await api.list()
+        loading = false
+        // A list asked for the user before a sign-in or sign-out is not shown.
+        if asked == who, let list = list { requests = Requests.ordered(list, seen: memory.seen) }
+        // Someone else now: ask again for them.
+        if asked != who { await refresh(force: true) }
+    }
+
+    /// Someone signed in or out (identify): the list read for the last user
+    /// is dropped at once (with the screens and drafts), and read again for
+    /// this one; an answer still on its way for the last user is ignored.
+    public func userChanged() async {
+        who += 1
+        requests = nil
+        lastLoad = 0
+        portal.close()
+        portal.reset()
+        await refresh(force: true)
     }
 
     // MARK: - The portal
