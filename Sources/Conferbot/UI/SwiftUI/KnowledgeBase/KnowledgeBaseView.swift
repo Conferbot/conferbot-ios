@@ -40,7 +40,7 @@ public struct KnowledgeBaseView: View {
                     loadingOverlay
                 }
             }
-            .navigationTitle("Help Center")
+            .navigationTitle(I18n.t("home.helpCentre"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -183,21 +183,24 @@ public struct KnowledgeBaseView: View {
                 .font(.system(size: 48))
                 .foregroundColor(.orange)
 
-            Text("Something went wrong")
+            Text(I18n.t("common.somethingWrong"))
                 .font(.headline)
 
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+            // The error's detail is English; other languages get the headline only.
+            if I18n.isEnglish {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
 
             Button(action: {
                 Task {
                     await viewModel.loadCategories()
                 }
             }) {
-                Text("Try Again")
+                Text(I18n.t("common.tryAgain"))
                     .fontWeight(.semibold)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
@@ -237,7 +240,7 @@ class KnowledgeBaseViewModel: ObservableObject {
 
     func loadCategories() async {
         guard let service = knowledgeBaseService else {
-            loadingState = .error("Knowledge base service not initialized")
+            loadingState = .error(I18n.t("sdk.kb.loadFailed"))
             return
         }
 
@@ -320,7 +323,7 @@ struct ArticleSearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.gray)
 
-                TextField("Search for articles...", text: $text, onCommit: {
+                TextField(I18n.t("kb.searchPlaceholder"), text: $text, onCommit: {
                     onSearch(text)
                 })
                 .textFieldStyle(PlainTextFieldStyle())
@@ -345,7 +348,7 @@ struct ArticleSearchBar: View {
             .cornerRadius(10)
 
             if isEditing {
-                Button("Cancel") {
+                Button(I18n.t("common.cancel")) {
                     text = ""
                     isEditing = false
                     onClear()
@@ -376,7 +379,7 @@ struct ArticleSearchResultsView: View {
                 VStack {
                     ProgressView()
                         .padding(.top, 40)
-                    Text("Searching...")
+                    Text(I18n.t("address.searching"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.top, 8)
@@ -395,10 +398,10 @@ struct ArticleSearchResultsView: View {
                 .font(.system(size: 48))
                 .foregroundColor(.gray)
 
-            Text("No articles found")
+            Text(I18n.t("kb.noResults"))
                 .font(.headline)
 
-            Text("Try searching with different keywords")
+            Text(I18n.t("kb.noResultsSub"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
