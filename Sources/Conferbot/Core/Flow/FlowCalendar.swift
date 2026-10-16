@@ -51,6 +51,37 @@ public enum FlowCalendar {
 
     public static func slotLabel(_ slot: Slot) -> String { "\(slot.start) - \(slot.end)" }
 
+    /// The slots already taken on a day, as "HH:MM - HH:MM" on the bot's
+    /// clock (web displayStep.ts daySlotsFor `booked`; RN flow/calendar.ts
+    /// bookedLabels): the bot's bookings (the bot data's calendarBookings,
+    /// populated by the server) plus any the node carries itself
+    /// (data.bookings), for this node only (a booking with no nodeId counts
+    /// for every calendar), on this day in the bot's zone.
+    public static func bookedLabels(_ calendarBookings: Any?, nodeId: String?, nodeData: [String: Any]?, dayKey: String, timeZone: String) -> [String] {
+        let own = JS.dicts(nodeData?["bookings"]).filter { JS.truthy($0["date"]) }
+        return (JS.dicts(calendarBookings) + own)
+            .filter { b in JS.text(b["nodeId"]).isEmpty || JS.text(b["nodeId"]) == (nodeId ?? "") }
+            .filter { b in
+                guard let d = bookingDate(b["date"]) else { return false }
+                return dayKeyInZone(d, timeZone) == dayKey
+            }
+            .map { JS.text($0["timeSlotSelected"]).trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private static func bookingDate(_ v: Any?) -> Date? {
+        if let d = v as? Date { return d }
+        if let s = v as? String { return Flow.parseISO(s) }
+        if let n = v as? NSNumber { return Date(timeIntervalSince1970: n.doubleValue / 1000) }
+        return nil
+    }
+
+    /// Every slot of the day taken (web nodeLogic.ts isDayFullyBooked): the day is not offered.
+    public static func isDayFullyBooked(_ slots: [Slot], _ booked: [String]) -> Bool {
+        guard !slots.isEmpty else { return false }
+        let taken = Set(booked.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        return slots.allSatisfy { taken.contains(slotLabel($0)) }
+    }
+
     static func zone(_ id: String) -> TimeZone { TimeZone(identifier: id) ?? TimeZone(identifier: "UTC")! }
 
     static func calendar(_ id: String) -> Calendar {
