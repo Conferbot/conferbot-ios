@@ -54,7 +54,7 @@ public struct ArticleListView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Back")
+                    Text(I18n.t("common.back"))
                         .font(.subheadline)
                 }
                 .foregroundColor(.accentColor)
@@ -99,7 +99,7 @@ public struct ArticleListView: View {
 
     private var articleCountText: String {
         let count = category.articles?.count ?? category.articleCount
-        return count == 1 ? "1 article" : "\(count) articles"
+        return I18n.tPlural("kb.articles", count)
     }
 
     private func articlesScrollView(articles: [KnowledgeBaseArticle]) -> some View {
@@ -128,10 +128,10 @@ public struct ArticleListView: View {
                 .font(.system(size: 48))
                 .foregroundColor(.gray)
 
-            Text("No articles yet")
+            Text(I18n.t("kb.noArticles"))
                 .font(.headline)
 
-            Text("Check back later for new content")
+            Text(I18n.t("sdk.kb.emptyCategory"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
