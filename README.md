@@ -27,6 +27,8 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Live agent handover** - the web widget's handover lifecycle: the "Connecting you with the team…" line and how the wait ended, the header's reply time, leaving the queue, waiting signals, and a live chat picked back up after the app restarts
 - **While you wait** - while the visitor waits for a person: help articles for their question, the team's own pick with "That solved it", and seven small games (SwiftUI chat)
 - **AI answers as on the web** - Tables, headings, quotes, code blocks and strikethrough in replies; "Helpful?" under the newest answer (a No is sent at once, then reasons, a comment, "Talk to a person", "Ask another way"; the vote can change); "That took too long" when a reply takes more than 45s; fallback replies muted; the phone's language sent so short messages are answered in it
+- **Home screen** - with the home screen on in the dashboard, `ChatView` opens on it: a greeting by the time of day (or "Welcome back, Jamie"), "Ask anything" (your AI agent or your help articles), "Pick up where you left off", "Your requests", "Talk to us" with the reply time and your team, recent articles and topics, and your customer logos. Moves between home, chat and help centre in your chosen transition
+- **Greet by name** - `{{first_name|there}}` in your greeting and home texts is filled from the signed-in user
 - **Your requests** - the visitor's own conversations with your team: where each stands in plain words ("We replied", "We're on it", "Solved"), the conversation, and a reply box (a reply to a solved one opens it again). In the chat menu once the visitor has one ("Your requests · New reply" when a reply is unread), and `ConferBot.shared.requests` for your own screens and badge
 - **Email me this chat** - From the chat menu (the header's ... in SwiftUI, the bar button in UIKit) the visitor gets the whole conversation in their inbox (`POST /api/v1/mobile/chat/transcript-email`)
 - **Offline support** - Automatic message queuing and replay when connectivity returns
@@ -295,6 +297,16 @@ ConferBot.shared.identify(user: ConferBotUser(id: "user-123", email: "jane@examp
 
 The server checks the hash and drops it before storing. A chat with a matching hash is filed as verified; a wrong hash is rejected, and no hash leaves it unverified.
 
+### Signing out
+
+On a shared device, sign the user out so the next person doesn't see their requests or name:
+
+```swift
+ConferBot.shared.identify(user: nil)
+```
+
+The last user's "Your requests" list is dropped at once (a list still on its way for them is ignored) and read again for whoever is next. Texts that greet by name (`{{first_name|there}}`, `{{name}}`, `{{company}}` in the greeting and home screen texts) follow the user, else their fallback.
+
 ## Your requests
 
 The visitor's conversations with your team (the web widget's "Your requests"): the list, one request with a banner saying where it stands, the messages, and a reply box. Team replies arrive live while one is open; a reply to a solved request opens it again.
@@ -320,6 +332,19 @@ present(RequestsViewController(), animated: true)
 ```
 
 English only for now; replies are text.
+
+## Home screen
+
+When the owner turns the home screen on (Customize > Home, `enableInitialPage`), the SwiftUI `ChatView` opens on it, as the web widget does:
+
+- the greeting by the visitor's clock ("Good morning") or "Welcome back, Jamie" once they've chatted before, the logo and name, the title and description (`{{first_name|there}}` filled in);
+- **Ask anything** (`homeAskBox`): with an AI agent, "Ask “…”" opens the chat and asks it; the help articles that answer it are listed too (also matches inside article text from the server); a flow bot with nothing found offers "Chat with us";
+- **Pick up where you left off** (AI agent bots): the conversation on the device, or the question asked again;
+- **Your requests**: two rows and "See all (n)", above "Talk to us" when a reply is new;
+- **Talk to us**: who answers, Online and the reply time (`hideOnlineStatus` hides both), your team's photos, up to three of your agent's questions, the rating;
+- the **help card** (recent articles unless `hideRecentArticles`, topics, See all; its own search when the ask box is off), and your customer logos with their line.
+
+The chat header's ‹ goes back home, and so does the help centre's Back; articles and "Your requests" open over the home. Views move in the owner's `viewTransition` (fade; slide; the other styles slide), a short fade with Reduce Motion. Your own screens can use `ConferBot.shared.home` (`view`, `model()`, `showHome()`, `showChat(_:)`, `showHelp(categoryId:)`) and draw `HomeScreenView`. `ChatViewWithKBSheet` and the UIKit `ChatViewController` open straight on the chat. English only.
 
 ## Theming and Flow-Builder Customizations
 
@@ -574,7 +599,7 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | Method | Description |
 |--------|-------------|
 | `initialize(apiKey: String, botId: String, config: ConferBotConfig = ConferBotConfig(), customization: ConferBotCustomization? = nil)` | Initialize the SDK, connect the socket, restore any stored session |
-| `identify(user: ConferBotUser)` | Set the current user identity |
+| `identify(user: ConferBotUser?)` | Set the current user identity; `nil` signs out |
 | `startSession(forceNew: Bool = false) async throws` | Start (or reuse a restored) chat session |
 | `sendMessage(_ text: String, metadata: [String: AnyCodable]? = nil) async throws` | Send a text message (auto-queued offline) |
 | `sendTypingIndicator(isTyping: Bool)` | Send visitor typing status |
