@@ -80,6 +80,7 @@ public struct ChatView: View {
     @ObservedObject private var waiting = ConferBot.shared.waiting
     @ObservedObject private var requests = ConferBot.shared.requests
     @ObservedObject private var home = ConferBot.shared.home
+    @ObservedObject private var sounds = ConferBot.shared.sounds
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isPresented) private var isPresented
     @State private var showFileImporter = false
@@ -156,12 +157,17 @@ public struct ChatView: View {
         .onAppear {
             conferBot.setChatVisible(chatShown)
             waiting.setDrawing(true)
+            // The launcher sound, or the sound pack's open (Core/Sounds)
+            conferBot.chatOpened(true)
         }
         .onChange(of: chatShown) { conferBot.setChatVisible($0) }
         .onDisappear {
             conferBot.setChatVisible(false)
             waiting.setDrawing(false)
+            conferBot.chatOpened(false)
         }
+        // The composer's text: the waiting nudge waits, a person in the chat sees the draft.
+        .onChange(of: inputText) { conferBot.composerChanged($0) }
     }
 
     /// The owner's home screen, the conversation and the help centre, moving
@@ -291,7 +297,7 @@ public struct ChatView: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(look.title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .chatFont(.display, size: 16, weight: .semibold, relativeTo: .headline, fallback: .system(size: 16, weight: .semibold))
                     .foregroundColor(ink)
                     .lineLimit(1)
                 if !conferBot.isConnected {
@@ -318,10 +324,11 @@ public struct ChatView: View {
 
     /// The chat menu (web chat menu): "Your requests" once the visitor has
     /// one ("Your requests · New reply" when one is unread, #38), "Email me
-    /// this chat" while there is a conversation (#39); none for a blocked visitor.
+    /// this chat" while there is a conversation (#39), Sound on / off when
+    /// the bot has a sound (#90); none for a blocked visitor.
     @ViewBuilder
     private func chatMenu(ink: Color) -> some View {
-        if live.blocked == nil && (conferBot.currentSession != nil || requests.hasRequests) {
+        if live.blocked == nil && (conferBot.currentSession != nil || requests.hasRequests || sounds.hasSounds) {
             Menu {
                 if requests.hasRequests {
                     Button {
@@ -335,6 +342,15 @@ public struct ChatView: View {
                         conferBot.openEmailTranscript()
                     } label: {
                         Label(EmailTranscript.Copy.menu, systemImage: "envelope")
+                    }
+                }
+                // The visitor's Sound on / off, when the bot has a sound (web chat menu option-sound-toggle).
+                if sounds.hasSounds {
+                    Button {
+                        sounds.toggle()
+                    } label: {
+                        Label(sounds.soundOn ? I18n.t("chat.menu.soundOn") : I18n.t("chat.menu.soundOff"),
+                              systemImage: sounds.soundOn ? "speaker.wave.2" : "speaker.slash")
                     }
                 }
             } label: {
@@ -468,6 +484,9 @@ public struct ChatView: View {
                     if let uiState = conferBot.currentUIState, live.blocked == nil {
                         interactiveChoicesView(for: uiState)
                             .id("step")
+                        // "No rush - ..." under a question that has waited (Core/Delight)
+                        StallHintView(accent: Color(hex: conferBot.customizations.accent),
+                                      muted: conferBot.customizations.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
                     }
 
                     // The AI reply as it is written (agent bots)
@@ -500,6 +519,8 @@ public struct ChatView: View {
                 }
                 .padding()
             }
+            // Any touch in the chat: the visitor is busy here (the waiting nudge waits).
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in conferBot.noteChatActivity() })
             .onChange(of: conferBot.agentStream?.text.count ?? 0) { _ in
                 proxy.scrollTo("stream", anchor: .bottom)
             }
@@ -674,8 +695,17 @@ public struct ChatViewWithKBSheet: View {
                 try? await conferBot.startSession()
             }
         }
-        .onAppear { conferBot.waiting.setDrawing(true) }
-        .onDisappear { conferBot.waiting.setDrawing(false) }
+        .onAppear {
+            conferBot.waiting.setDrawing(true)
+            conferBot.setChatVisible(true)
+            conferBot.chatOpened(true)
+        }
+        .onDisappear {
+            conferBot.waiting.setDrawing(false)
+            conferBot.setChatVisible(false)
+            conferBot.chatOpened(false)
+        }
+        .onChange(of: inputText) { conferBot.composerChanged($0) }
         // A source or article card in the chat opens its article here.
         .onChange(of: conferBot.helpArticleToOpen) { id in
             if id != nil && conferBot.isHelpCentreOn { showKnowledgeBase = true }
@@ -775,6 +805,8 @@ public struct ChatViewWithKBSheet: View {
                     if let uiState = conferBot.currentUIState {
                         interactiveChoicesView(for: uiState)
                             .id("step")
+                        StallHintView(accent: Color(hex: conferBot.customizations.accent),
+                                      muted: conferBot.customizations.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
                     }
 
                     // The AI reply as it is written (agent bots)
@@ -803,6 +835,8 @@ public struct ChatViewWithKBSheet: View {
                 }
                 .padding()
             }
+            // Any touch in the chat: the visitor is busy here (the waiting nudge waits).
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in conferBot.noteChatActivity() })
             .onChange(of: conferBot.agentStream?.text.count ?? 0) { _ in
                 proxy.scrollTo("stream", anchor: .bottom)
             }
