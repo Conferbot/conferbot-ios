@@ -179,21 +179,22 @@ public enum InputValidation: Equatable {
         }
     }
 
-    /// Get error message for this validation type
+    /// Get error message for this validation type, in the visitor's language
+    /// (web i18n validation.*).
     public var errorMessage: String {
         switch self {
         case .email:
-            return "Please enter a valid email address"
+            return I18n.t("validation.email")
         case .phone:
-            return "Please enter a valid phone number"
+            return I18n.t("validation.phone")
         case .url:
-            return "Please enter a valid URL"
+            return I18n.t("validation.url")
         case .number:
-            return "Please enter a valid number"
+            return I18n.t("validation.number")
         case .date:
-            return "Please enter a valid date"
+            return I18n.t("sdk.validation.date")
         case .custom:
-            return "Please enter a valid value"
+            return I18n.t("sdk.validation.format")
         }
     }
 }
