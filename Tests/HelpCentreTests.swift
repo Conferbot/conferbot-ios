@@ -150,6 +150,131 @@ final class HelpCentreTests: XCTestCase {
         XCTAssertEqual(MockURLProtocol.capturedRequests.count, 1)
     }
 
+    // MARK: - Socket (web kbContent.ts: search-kb-articles, get-kb-article)
+
+    /// The socket as the server answers it, recording what was sent.
+    private func socket(_ answer: @escaping (String, [String: Any]) -> Any?) -> () -> [(String, [String: Any])] {
+        var sent: [(String, [String: Any])] = []
+        sut.emitWithAck = { event, data, _, done in
+            sent.append((event, data))
+            done(answer(event, data))
+        }
+        return { sent }
+    }
+
+    @MainActor
+    func testSearch_overTheSocket_localTitleMatchesFirstThenServerSnippets() async throws {
+        sut.apply(socketData())
+        let sent = socket { _, _ in
+            ["success": true, "query": "openai", "articles": [
+                ["_id": "6ab7ac01b03f13ff22412c4e", "title": "How to Integrate OpenAI with Conferbot", "snippet": "connect your OpenAI key"],
+                ["_id": "6ab7ac0cb03f13ff22412c8d", "title": "How to Use Rich Media in Your Conferbot Chatbot", "snippet": "images made with OpenAI"],
+                ["_id": "6ab7ffffb03f13ff22419999", "title": "Not in the list yet", "snippet": "OpenAI in the body",
+                 "category": ["_id": "6ab7abfcb03f13ff22412c3c", "name": "AI Chatbot Features"]],
+                ["_id": "6ab7eeeeb03f13ff22418888", "title": "A draft", "reviewStatus": "draft"]
+            ]]
+        }
+
+        let results = try await sut.searchArticles(query: "OpenAI ")
+
+        // The title match from the help centre first, then the server's others, each once; no draft
+        XCTAssertEqual(results.map(\.id), ["6ab7ac01b03f13ff22412c4e", "6ab7ac0cb03f13ff22412c8d", "6ab7ffffb03f13ff22419999"])
+        XCTAssertEqual(results[1].snippet, "images made with OpenAI")
+        XCTAssertEqual(results[1].categoryName, "Chatbot Creation") // the list's own fields kept
+        XCTAssertEqual(results[2].snippet, "OpenAI in the body")
+        XCTAssertEqual(results[2].categoryName, "AI Chatbot Features")
+        XCTAssertEqual(sent().count, 1)
+        XCTAssertEqual(sent()[0].0, "search-kb-articles")
+        XCTAssertEqual(sent()[0].1["chatbotId"] as? String, "6ab686f8d47ff029b76892f7")
+        XCTAssertEqual(sent()[0].1["query"] as? String, "openai")
+        XCTAssertEqual(sent()[0].1["limit"] as? Int, 10)
+        XCTAssertTrue(MockURLProtocol.capturedRequests.isEmpty)
+
+        // Kept per query: the same search does not ask again
+        _ = try await sut.searchArticles(query: "openai")
+        XCTAssertEqual(sent().count, 1)
+    }
+
+    @MainActor
+    func testSearch_socketFails_fallsBackToREST() async throws {
+        let sent = socket { _, _ in ["success": false] }
+        respond(KnowledgeBaseFixtures.restSearch)
+
+        let results = try await sut.searchArticles(query: "set up & go")
+
+        XCTAssertEqual(sent().count, 1)
+        XCTAssertEqual(MockURLProtocol.capturedRequests.first?.url?.path, "/api/v1/mobile/knowledge-base/search")
+        XCTAssertEqual(results.map(\.id), ["6ab7ac19b03f13ff22412cd5", "6ab7ac01b03f13ff22412c4e"])
+    }
+
+    @MainActor
+    func testSearch_oneLetterSkipsTheSocket() async throws {
+        let sent = socket { _, _ in ["success": true, "articles": []] }
+        respond(#"{"success":true,"data":[]}"#)
+
+        _ = try await sut.searchArticles(query: "a")
+
+        XCTAssertTrue(sent().isEmpty)
+    }
+
+    @MainActor
+    func testGetArticle_overTheSocket() async throws {
+        sut.apply(socketData())
+        let sent = socket { _, data in
+            ["success": true, "articleId": data["articleId"] ?? "", "article": [
+                "_id": "6ab7ac0bb03f13ff22412c87", "title": "How to Use Conferbot's AI Chatbot Builder",
+                "content": "<p>Open the builder.</p>", "readingTime": 3
+            ]]
+        }
+
+        let article = try await sut.getArticle(id: "6ab7ac0bb03f13ff22412c87")
+
+        XCTAssertEqual(article.content, "<p>Open the builder.</p>")
+        XCTAssertEqual(article.categoryName, "Chatbot Creation")
+        XCTAssertEqual(sent().map(\.0), ["get-kb-article"])
+        XCTAssertEqual(sent()[0].1["chatbotId"] as? String, "6ab686f8d47ff029b76892f7")
+        XCTAssertEqual(sent()[0].1["articleId"] as? String, "6ab7ac0bb03f13ff22412c87")
+        XCTAssertTrue(MockURLProtocol.capturedRequests.isEmpty)
+
+        // The body is kept: opened again, nothing is asked
+        _ = try await sut.getArticle(id: "6ab7ac0bb03f13ff22412c87")
+        XCTAssertEqual(sent().count, 1)
+    }
+
+    @MainActor
+    func testGetArticle_socketWithoutABody_fallsBackToREST() async throws {
+        sut.apply(socketData())
+        let sent = socket { _, _ in ["success": true, "article": ["_id": "6ab7ac0bb03f13ff22412c87", "title": "No body"]] }
+        respond(KnowledgeBaseFixtures.restArticle)
+
+        let article = try await sut.getArticle(id: "6ab7ac0bb03f13ff22412c87")
+
+        XCTAssertEqual(sent().count, 1)
+        XCTAssertEqual(MockURLProtocol.capturedRequests.first?.url?.path, "/api/v1/mobile/knowledge-base/articles/6ab7ac0bb03f13ff22412c87")
+        XCTAssertTrue(article.hasContent)
+    }
+
+    @MainActor
+    func testGetArticle_noAnswer_fallsBackToREST() async throws {
+        _ = socket { _, _ in nil } // timed out
+        respond(KnowledgeBaseFixtures.restArticle)
+
+        let article = try await sut.getArticle(id: "6ab7ac0bb03f13ff22412c87")
+
+        XCTAssertEqual(MockURLProtocol.capturedRequests.count, 1)
+        XCTAssertTrue(article.hasContent)
+    }
+
+    @MainActor
+    func testSocketAnswerTwice_resumesOnce() async throws {
+        sut.emitWithAck = { _, _, _, done in
+            done(["success": true, "articles": []])
+            done(["success": true, "articles": []])
+        }
+        let results = try await sut.searchArticles(query: "zz")
+        XCTAssertTrue(results.isEmpty)
+    }
+
     // MARK: - On / off (web core/helpCentre.ts)
 
     func testHelpCentre_followsTheOwnersSwitch() {
