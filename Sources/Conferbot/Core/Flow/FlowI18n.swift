@@ -2,90 +2,16 @@
 //  FlowI18n.swift
 //  Conferbot
 //
-//  The English texts the rich steps say (conferbot-widget/src/ts/i18n/en.ts,
-//  as the React Native SDK's src/core/flow/i18nEn.ts).
+//  The rich steps' words: the SDK's i18n (Core/I18n, the web's
+//  conferbot-widget/src/ts/i18n tables). Kept so the step handlers and
+//  views that call FlowI18n.t read the active language, as the React Native
+//  SDK's src/core/flow/i18nEn.ts; `key` is loose because they build keys at
+//  run time.
 //
 
 import Foundation
 
 enum FlowI18n {
-    static let en: [String: String] = [
-        "address.busy": "Address search is busy right now. Try again in a moment, or enter it manually.",
-        "address.denied": "We couldn't get your location - location access is turned off. Type your address instead.",
-        "address.failed": "Address search isn't working right now. You can enter it manually.",
-        "address.noResults": "No matches. Try adding the city, or enter it manually.",
-        "address.unavailable": "We couldn't find your location. Type your address instead.",
-        "common.and": "and",
-        "common.cancel": "Cancel",
-        "common.continue": "Continue",
-        "common.opensNewTab": "(opens in a new tab)",
-        "common.send": "Send",
-        "common.skip": "Skip",
-        "common.somethingWrong": "Something went wrong. Please try again.",
-        "common.submit": "Submit",
-        "consent.agreed": "Agreed",
-        "consent.agreedTo": "Agreed to {docs}",
-        "consent.declined": "Didn't agree",
-        "consent.tickBox": "Please tick the box to continue.",
-        "dates.closedOn": "Closed on {days}",
-        "dates.dayUnavailable": "{day} aren't available. Please pick another day.",
-        "dates.onOrAfter": "Please pick a date on or after {date}.",
-        "dates.onOrBefore": "Please pick a date on or before {date}.",
-        "dates.pickDate": "Please pick a date.",
-        "dates.pickTime": "Please pick a time.",
-        "dates.timeFrom": "Please pick a time from {time}.",
-        "dates.timeUntil": "Please pick a time until {time}.",
-        "kb.askPrompt": "What would you like to know?",
-        "kb.helpArticle": "Help article",
-        "kb.notFound": "I couldn't find that in our help articles.",
-        "matrix.everyRow": "Answer every row - {n} left",
-        "matrix.oneRow": "Answer at least one row",
-        "matrix.progress": "{n} of {total} answered",
-        "otp.allDigits": "Enter all {n} digits.",
-        "otp.expired": "That code has expired. Send a new one.",
-        "otp.invalidEmail": "Please enter a valid email address.",
-        "otp.locked": "Too many wrong codes.",
-        "otp.noCode": "Send a code first.",
-        "otp.notVerified": "Not verified",
-        "otp.reason.expired": "The code expired",
-        "otp.reason.locked": "Too many wrong codes",
-        "otp.reason.sendFailed": "The code couldn't be sent",
-        "otp.reason.sms": "Text-message codes aren't available",
-        "otp.resend": "Resend code",
-        "otp.resendIn": "Resend in {time}",
-        "otp.resendWait": "Please wait {n} seconds before asking for a new code.",
-        "otp.smsUnavailable": "Codes by text message aren't available yet.",
-        "otp.tooMany": "Too many codes were asked for. Please try again later.",
-        "otp.verifiedAs": "Verified: {email}",
-        "otp.wrong": "That code isn't right.",
-        "otp.wrongLeft.one": "That code isn't right. {n} try left.",
-        "otp.wrongLeft.other": "That code isn't right. {n} tries left.",
-        "pay.cancelled": "Payment cancelled",
-        "pay.failed": "Payment couldn't be started. Please try again.",
-        "pay.invalidAmount": "The amount to pay isn't valid.",
-        "pay.ivePaid": "I've paid",
-        "pay.network": "We couldn't reach the payment service. Check your connection and try again.",
-        "pay.notConfigured": "Payments aren't set up for this chat yet.",
-        "pay.notYet": "We haven't received the payment yet. Finish it in the Stripe tab, then check again.",
-        "pay.paid": "Paid",
-        "pay.paidAmount": "Paid {amount}",
-        "pay.payNow": "Pay now",
-        "pay.rateLimited": "Too many tries. Please wait a moment.",
-        "pay.timedOut": "Payment timed out",
-        "ranking.moved": "{item}, moved to position {n} of {total}",
-        "rich.nothingToChoose": "There's nothing to choose from right now.",
-        "signature.sign": "Sign",
-        "signature.typeToSign": "Type your full name to sign",
-        "signature.uploadFailed": "Upload failed. Your signature is still here - press Sign to try again.",
-    ]
-
-    /// A text by key, {name} placeholders filled (web i18n t).
-    static func t(_ key: String, _ vars: [String: Any]? = nil) -> String {
-        let text = en[key] ?? key
-        guard let vars = vars else { return text }
-        return Re("\\{([A-Za-z0-9_]+)\\}").replace(text) { g in
-            guard let v = vars[g[1] ?? ""], !JS.isNullish(v) else { return g[0] ?? "" }
-            return JS.str(v)
-        }
-    }
+    /// A text by key in the active language, {name} placeholders filled (web i18n t).
+    static func t(_ key: String, _ vars: [String: Any]? = nil) -> String { I18n.t(key, vars) }
 }
