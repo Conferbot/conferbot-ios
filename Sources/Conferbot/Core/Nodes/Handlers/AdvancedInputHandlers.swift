@@ -40,6 +40,18 @@ public final class CalendarNodeHandler: BaseNodeHandler {
         return FlowCalendar.futureSlots(FlowCalendar.expandSlots(schedule["slots"], data["slotDuration"], data["bufferMinutes"]), dayKey, z, now: now)
     }
 
+    /// The day's taken slots ("HH:MM - HH:MM", bot's clock): the bot's
+    /// bookings and the node's own (web displayStep.ts daySlotsFor). The
+    /// chat's calendar view greys them out.
+    static func booked(_ data: [String: Any], nodeId: String?, bookings: Any?, _ dayKey: String) -> [String] {
+        FlowCalendar.bookedLabels(bookings, nodeId: nodeId, nodeData: data, dayKey: dayKey, timeZone: zone(data))
+    }
+
+    /// A day with every slot taken (not offered).
+    static func isFullyBooked(_ data: [String: Any], nodeId: String?, bookings: Any?, _ dayKey: String, now: Date) -> Bool {
+        FlowCalendar.isDayFullyBooked(slots(data, dayKey, now: now), booked(data, nodeId: nodeId, bookings: bookings, dayKey))
+    }
+
     private func ui(_ node: [String: Any]) -> NodeUIState {
         .calendar(mode: JS.truthy(FlowKit.data(node)["showTimeSelection"]) ? .dateTime : .date, nodeId: FlowKit.id(node))
     }
@@ -85,7 +97,10 @@ public final class CalendarNodeHandler: BaseNodeHandler {
             value = shown
             FlowKit.userSay(state, value, nodeId)
         } else {
-            guard let slot = slotsFor(data, dateString, ctx.now()).first(where: { $0.start == slotStart }) else { return .displayUI(ui(node)) }
+            // A taken slot cannot be booked again (web: its button is disabled).
+            guard let slot = slotsFor(data, dateString, ctx.now()).first(where: { $0.start == slotStart }),
+                  !Self.booked(data, nodeId: nodeId, bookings: ctx.calendarBookings, dateString).contains(FlowCalendar.slotLabel(slot))
+            else { return .displayUI(ui(node)) }
             let botDate = FlowCalendar.noonInZone(dateString, botZone)
             let visitorDate = FlowCalendar.noonInZone(FlowCalendar.dayKeyInZone(botDate, botZone), visitorZone)
             let date = FlowCalendar.longDate(botDate, botZone)
