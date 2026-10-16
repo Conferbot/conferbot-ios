@@ -98,6 +98,11 @@ public class OfflineManager: ObservableObject {
     /// Callback for sending messages (set by ConferBot)
     internal var sendMessageHandler: ((QueuedMessage) async throws -> Void)?
 
+    /// The socket's own connected state (set by ConferBot). A socket that is
+    /// reconnecting is down whatever the last connect said: a message sent
+    /// then is queued, not handed to an emit that skips it (nil: not checked).
+    internal var socketStatusProvider: (() -> Bool)?
+
     // MARK: - Initialization
 
     private init() {
@@ -199,6 +204,7 @@ public class OfflineManager: ObservableObject {
     /// Check if we can send messages (online and socket connected)
     public var canSendMessages: Bool {
         return (networkStatusOverride ?? isOnline) && socketConnected
+            && (socketStatusProvider?() ?? true)
     }
 
     /// The queue's count, published at once on the main thread (a reader
@@ -276,6 +282,12 @@ public class OfflineManager: ObservableObject {
 
                 debugPrint("[ConferBot OfflineManager] Successfully sent queued message: \(message.id)")
 
+            } catch OfflineManagerError.socketNotConnected {
+                // The socket went down: the emit would be skipped. The message
+                // stays queued with its retries untouched, sent on the next connect.
+                socketConnected = false
+                debugPrint("[ConferBot OfflineManager] Socket not connected, kept queued: \(message.id)")
+                break
             } catch {
                 // Increment retry count
                 let newRetryCount = message.retryCount + 1
