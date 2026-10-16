@@ -245,15 +245,97 @@ public final class GPTNodeHandler: BaseNodeHandler {
 /// waits on the step: a person or the AI takes the chat (agent-accepted),
 /// or nobody is free - the owner's fallbackMessage, then the flow carries
 /// on (with "leave a message" off; otherwise once it is sent or skipped).
-/// Answers: typed pre-chat answers, ["action": "continue" | "cancel" |
-/// "endChat" | "surveySubmit" | "surveySkip"].
+/// When the live chat ends (["action": "ended"], the chat-ended event) the
+/// step's post-chat survey questions are asked, as typed questions, when it
+/// has them, then the flow carries on (web agentListeners.ts onChatEnded).
+/// Answers: typed pre-chat and post-chat answers, ["action": "continue" |
+/// "cancel" | "endChat" | "ended" | "surveySubmit" | "surveySkip"].
 public final class HumanHandoverNodeHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Special.humanHandover }
 
     private func preKey(_ nodeId: String) -> String { "_preChat_\(nodeId)" }
+    private func postKey(_ nodeId: String) -> String { "_postChat_\(nodeId)" }
 
     private func preChat(_ data: [String: Any]) -> [[String: Any]] {
         JS.truthy(data["enablePreChatQuestions"]) ? JS.dicts(data["preChatQuestions"]) : []
+    }
+
+    /// The step's post-chat survey questions, when it has them on (web
+    /// enablePostChatSurveyQuestions + postChatSurveyQuestions).
+    private func postChat(_ data: [String: Any]) -> [[String: Any]] {
+        JS.truthy(data["enablePostChatSurveyQuestions"]) ? JS.dicts(data["postChatSurveyQuestions"]) : []
+    }
+
+    /// Post-chat question `index`, after 2000 ms of typing (web
+    /// _handlePostChatSurveyQuestionsLooper): its line, its record entry.
+    @MainActor
+    private func askPostChat(_ node: [String: Any], _ state: ChatState, _ index: Int) async -> NodeResult {
+        let data = FlowKit.data(node)
+        let nodeId = FlowKit.id(node)
+        let qs = postChat(data)
+        guard index < qs.count else {
+            state.setVariable(name: postKey(nodeId), value: "done")
+            return .next
+        }
+        let q = qs[index]
+        let ctx = ctxOf(node, state)
+        await ctx.typing(2000)
+        if ctx.isStale() { return .displayUI(.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)) }
+        state.setVariable(name: postKey(nodeId), value: index)
+        let raw = JS.text(q["questionText"])
+        let question = FlowText.bubbleText(state.resolveVariables(html: raw))
+        if !question.isEmpty { FlowKit.botSay(state, text: question, nodeId: nodeId, nodeType: nodeType) }
+        let qid = JS.str(q["id"])
+        state.addRecord(["_id": qid, "id": qid, "shape": "post-chat-survey-question", "type": "post-chat-survey-question",
+                         "text": raw, "time": Flow.iso(Date())])
+        return .displayUI(.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId))
+    }
+
+    /// An answer to a post-chat question: checked, saved, then the next one or on.
+    @MainActor
+    private func answerPostChat(_ response: Any, _ node: [String: Any], _ state: ChatState, _ index: Int) async -> NodeResult {
+        let data = FlowKit.data(node)
+        let nodeId = FlowKit.id(node)
+        let qs = postChat(data)
+        let q = index < qs.count ? qs[index] : [:]
+        let value = FlowKit.typedText(response)
+        let ui = NodeUIState.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)
+        if value.isEmpty { return .displayUI(ui) }
+        let variable = JS.text(q["answerVariable"])
+        if variable == "email" && !FlowInputs.isValidEmail(value) {
+            return .invalid(FlowInputs.ownerTextOr(q["incorrectEmailResponse"], FlowInputs.EN.emailInvalid, ["Please enter a valid email"]), uiState: ui, inCard: false)
+        }
+        if (variable == "mobile" || variable == "phone") && !FlowInputs.isValidPhone(value) {
+            return .invalid(FlowInputs.ownerTextOr(q["incorrectPhoneNumberResponse"], FlowInputs.EN.phoneInvalid), uiState: ui, inCard: false)
+        }
+        if variable == "name" { state.updateMetadata(key: "name", value: value) }
+        if variable == "email" { state.updateMetadata(key: "email", value: value) }
+        if variable == "mobile" || variable == "phone" { state.updateMetadata(key: "phone", value: FlowInputs.normalizePhone(value)) }
+        let entryId = "post-chat-answer-\(nodeId)-\(index)"
+        var entry: [String: Any] = [
+            "_id": entryId, "id": entryId,
+            "shape": "post-chat-survey-question-response", "type": "post-chat-survey-question-response", "text": value, "time": Flow.iso(Date()),
+        ]
+        if let qid = q["id"] { entry["questionId"] = qid }
+        state.addRecord(entry)
+        FlowKit.userSay(state, value, nodeId)
+        state.setAnswerVariable(nodeId: JS.str(q["id"]), value: value)
+        return await askPostChat(node, state, index + 1)
+    }
+
+    /// The live chat ended: the post-chat survey when the step has one, else on.
+    @MainActor
+    private func ended(_ node: [String: Any], _ state: ChatState) async -> NodeResult {
+        let data = FlowKit.data(node)
+        let nodeId = FlowKit.id(node)
+        state.setVariable(name: "_handoverEnded", value: true)
+        let qs = postChat(data)
+        guard !qs.isEmpty, state.getVariable(name: postKey(nodeId)) == nil else { return .next }
+        for q in qs {
+            let key = JS.text(q["answerVariable"])
+            if !key.isEmpty { state.registerAnswerVariable(nodeId: JS.str(q["id"]), key: key) }
+        }
+        return await askPostChat(node, state, 0)
     }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
@@ -362,6 +444,9 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         if let index = state.getVariable(name: preKey(nodeId)) as? Int, action.isEmpty, JS.isNullish(r["status"]) {
             return await answerPreChat(response, node, state, index)
         }
+        if let index = state.getVariable(name: postKey(nodeId)) as? Int, action.isEmpty, JS.isNullish(r["status"]) {
+            return await answerPostChat(response, node, state, index)
+        }
         let ctx = ctxOf(node, state)
         switch action.isEmpty ? JS.text(r["status"]) : action {
         case "cancel":
@@ -375,7 +460,18 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
             state.setVariable(name: "_handoverEnded", value: true)
             ctx.emit(SocketEvents.queueSelfResolve, HandoverState.queueSelfResolvePayload(state.sessionId))
             return .next
-        case "continue", "surveySubmit", "surveySkip", "ended", "noAgents", "no_agents", "timeout":
+        case "ended":
+            return await ended(node, state)
+        case "surveySubmit":
+            // The rating as the web widget sends it: submit-chat-rating (the
+            // server has no handover:survey) (#59).
+            let survey = JS.dict(r["surveyResponse"])
+            state.setVariable(name: "_surveySubmitted", value: true)
+            if let rating = LiveChat.surveyRatingPayload(chatSessionId: state.sessionId, style: JS.text(JS.dict(FlowKit.data(node)["surveyConfig"])["ratingStyle"]), response: survey) {
+                ctx.emit(SocketEvents.submitChatRating, rating)
+            }
+            return .next
+        case "continue", "surveySkip", "noAgents", "no_agents", "timeout":
             return .next
         default:
             return .displayUI(.humanHandover(message: nil))
