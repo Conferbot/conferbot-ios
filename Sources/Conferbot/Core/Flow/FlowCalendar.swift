@@ -92,13 +92,27 @@ public enum FlowCalendar {
 
     static let monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
-    /// "Tuesday, October 20, 2026" (en-US).
-    public static func longDate(_ date: Date, _ timeZone: String) -> String {
+    /// "Tuesday, October 20, 2026" (en-US), or the date in another locale
+    /// ("Dienstag, 20. Oktober 2026").
+    public static func longDate(_ date: Date, _ timeZone: String, _ locale: String = "en-US") -> String {
+        if locale != "en-US" {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: locale)
+            f.timeZone = zone(timeZone)
+            f.setLocalizedDateFormatFromTemplate("EEEEyMMMMd")
+            return f.string(from: date)
+        }
         let c = calendar(timeZone).dateComponents([.year, .month, .day, .weekday], from: date)
         return "\(FlowLogic.dayNames[(c.weekday ?? 1) - 1]), \(monthNames[(c.month ?? 1) - 1]) \(c.day ?? 1), \(c.year ?? 1970)"
     }
 
-    /// The weekday name of a day on the bot's clock.
+    /// The locale a visitor's own date is written in: the widget's (web
+    /// displayStep.ts formattedVisitorDate uses widgetLocale()), "en-US" for
+    /// English. The bot's date stays en-US, as the web keeps it.
+    public static func visitorLocale() -> String { I18n.isEnglish ? "en-US" : I18n.localeTag }
+
+    /// The weekday name of a day on the bot's clock. The owner's day names
+    /// (weeklyHours.dayName, excludeDays) are English: kept so here.
     public static func dayNameInZone(_ date: Date, _ timeZone: String) -> String {
         FlowLogic.dayNames[(calendar(timeZone).component(.weekday, from: date)) - 1]
     }
