@@ -36,6 +36,12 @@ public struct ResolvedLauncher: Equatable {
     public var style = "icon"
     public var label = Launcher.defaultLabel
     public var avatar: String?
+    /// The "mascot" style (launcherStyle.ts): the owner's mascot, its bust at
+    /// `scale`% of the button, centred and lifted 6% so its ears and hat peek
+    /// over the rim, in `accent` (widgetIconBgColor, else the header's), on a
+    /// soft light button (`light`: a radial white to the launcher colour at
+    /// 14% from 35% 30%). Open, the button is the brand colour with its cross.
+    public var mascot = LauncherMascotLook()
     public var imageUrl: String?
     public var iconId: String?
     /// Icon size inside the button.
@@ -52,6 +58,16 @@ public struct ResolvedLauncher: Equatable {
     /// Seconds before the idle call (5-120), and its bubble's line.
     public var idleCallDelay = LauncherIdleCall.defaultDelay
     public var idleCallText = ""
+
+    public init() {}
+}
+
+/// The launcher's mascot style: the look, its size (% of the button), its colour and the light button's outer colour.
+public struct LauncherMascotLook: Equatable {
+    public var look = MascotArt.Look()
+    public var scale = MascotArt.scaleDefault
+    public var accent = "#4f46e5"
+    public var light = "#ffffff"
 
     public init() {}
 }
@@ -151,6 +167,11 @@ public enum Launcher {
             let radius = num(c["widgetBorderRadius"]).map { min(half, max(0, $0)) } ?? half
             r.corners = .all(radius)
         }
+
+        r.mascot.look = MascotArt.lookOf(c)
+        r.mascot.scale = MascotArt.scaleOf(c)
+        r.mascot.accent = [str(c["widgetIconBgColor"]), str(c["headerBgColor"])].first { !$0.isEmpty } ?? "#4f46e5"
+        r.mascot.light = MascotArt.mixColor(r.solid, 14, "#ffffff")
 
         r.label = normalizeLabel(c["launcherLabel"]).isEmpty ? defaultLabel : normalizeLabel(c["launcherLabel"])
         r.iconId = str(c["widgetIconSVG"]).isEmpty ? nil : str(c["widgetIconSVG"])
