@@ -214,14 +214,15 @@ struct AgentReplyExtrasView: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array((extras?.sources ?? []).enumerated()), id: \.offset) { _, source in
-                    // A help article opens in the help centre (the web's
-                    // agentSources openArticle); a page in the browser.
-                    let inApp = source.articleId != nil && conferBot.isHelpCentreOn
+                    // A help article opens in the help centre while it is on
+                    // (the web's agentSources openArticle), else its public
+                    // page, else nowhere (AgentBotParser.sourceTarget, #94).
+                    let target = AgentBotParser.sourceTarget(source, canOpenArticles: conferBot.isHelpCentreOn)
                     Button {
-                        if inApp, let id = source.articleId {
-                            conferBot.openHelpArticle(id: id)
-                        } else if let url = source.url.flatMap(URL.init(string:)) {
-                            openURL(url)
+                        switch target {
+                        case .article(let id, _)?: conferBot.openHelpArticle(id: id)
+                        case .url(let link)?: if let url = URL(string: link) { openURL(url) }
+                        case nil: break
                         }
                     } label: {
                         HStack(spacing: 6) {
@@ -229,10 +230,15 @@ struct AgentReplyExtrasView: View {
                                 Image(systemName: "doc.text").font(.caption2).foregroundColor(.secondary)
                             }
                             Text(source.title).font(.footnote.weight(.medium)).lineLimit(1).foregroundColor(.primary)
-                            if inApp {
+                            switch target {
+                            case .article?:
                                 Text(I18n.t("kb.helpArticle") + " \u{203A}").font(.caption2).foregroundColor(.secondary)
-                            } else if let url = source.url {
-                                Text("\(AgentBotParser.sourceHost(url)) \u{2197}").font(.caption2).foregroundColor(.secondary)
+                            case .url(let link)?:
+                                Text("\(AgentBotParser.sourceHost(link)) \u{2197}").font(.caption2).foregroundColor(.secondary)
+                            case nil:
+                                if source.articleId != nil {
+                                    Text(I18n.t("kb.helpArticle")).font(.caption2).foregroundColor(.secondary)
+                                }
                             }
                             Spacer(minLength: 0)
                         }
@@ -242,7 +248,8 @@ struct AgentReplyExtrasView: View {
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(UIColor.separator), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!inApp && source.url == nil)
+                    .disabled(target == nil)
+                    .accessibilityAddTraits(target?.isPage == true ? .isLink : .isButton)
                 }
 
                 if let card = extras?.card {
@@ -500,12 +507,18 @@ struct RichAgentMessageView: View {
                 Text(I18n.t("kb.helpArticle")).font(.caption2).foregroundColor(.secondary)
                 Text(title).font(.subheadline.weight(.semibold))
                 if !snippet.isEmpty { Text(snippet).font(.footnote).foregroundColor(.secondary).lineLimit(3) }
-                // In the help centre by id (the web's agentRich openArticle),
-                // else the public page when there is one.
-                if HelpCentre.canOpenArticle(conferBot.serverCustomizations, articleId: articleId) {
-                    Button(I18n.t("sdk.kb.readArticle") + " \u{203A}") { conferBot.openHelpArticle(id: articleId) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
-                } else if let link = url.flatMap(URL.init(string:)) {
-                    Button(I18n.t("sdk.kb.readArticle") + " \u{2197}") { openURL(link) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                // Its public page when it has one, else the article in the
+                // help centre while it is on (the web's agentRich
+                // openArticle; AgentBotParser.richArticleTarget, #94).
+                switch AgentBotParser.richArticleTarget(articleId: articleId, title: title, url: url, canOpenArticles: conferBot.isHelpCentreOn) {
+                case .url(let link)?:
+                    if let page = URL(string: link) {
+                        Button(I18n.t("common.read") + " \u{2197}") { openURL(page) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                    }
+                case .article(let id, _)?:
+                    Button(I18n.t("common.read") + " \u{203A}") { conferBot.openHelpArticle(id: id) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                case nil:
+                    EmptyView()
                 }
             }
         case .card(let title, let description, let imageURL, let buttonLabel, let buttonURL)?:
