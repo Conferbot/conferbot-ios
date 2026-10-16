@@ -35,6 +35,9 @@ let package = Package(
                 "Utils/ValidationUtils.swift",
                 "Core/ConferBot.swift",
                 "Analytics/ChatAnalytics.swift"
+            ],
+            resources: [
+                .copy("Resources/i18n-strings.json")
             ]
         )
     ]
