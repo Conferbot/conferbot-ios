@@ -32,6 +32,9 @@ public final class LiveChatExtras: ObservableObject {
     @Published public private(set) var leadCardOpen = false
     @Published public private(set) var csatConfig: CsatConfig?
     @Published public private(set) var csatOpen = false
+    /// The flow's end asked for the rating: it shows 1.5 s later (web
+    /// index.ts), and the post-chat redirect already waits for it (#98).
+    @Published public private(set) var csatDue = false
     // What the visitor already sent from a card (kept here, not in the card,
     // so a re-render does not bring the form back).
     @Published public private(set) var leftMessageTo: String?
@@ -65,6 +68,43 @@ public final class LiveChatExtras: ObservableObject {
     private var reportedSeen = ""
     /// The conversation the flow's end already offered the rating for (#95).
     private var flowRatingOfferedFor: String?
+    /// The flow's end's rating, waiting its 1.5 s (#98).
+    private var csatDueTimer: SignalTimer?
+
+    /// As the web (index.ts): the post-chat rating shows 1.5 s after the flow's end.
+    public static let flowEndRatingSeconds: TimeInterval = 1.5
+    /// A conversation already asked for its post-chat rating ("1"), kept across restarts.
+    public static let ratingOfferedKeyPrefix = "conferbot_rating_offered_"
+
+    /// Where a conversation's rating, once asked, is remembered (UserDefaults;
+    /// nil: in memory only). ConferBot sets it.
+    var ratingStore: () -> RedirectStore? = { nil }
+    /// The clock of the flow's end's 1.5 s (tests: a fake one).
+    var schedule: ConnectingSignal.Schedule = ConnectingSignal.mainQueueTimer
+
+    /// The rating is up (or due after the flow's end) and not answered: the
+    /// post-chat redirect waits for it.
+    public var ratingPending: Bool {
+        csatConfig != nil && ((csatOpen && !csatSent) || csatDue)
+    }
+
+    /// Remembered so a restart does not ask this conversation again.
+    private func rememberAsked(_ id: String) {
+        flowRatingOfferedFor = id
+        guard !id.isEmpty else { return }
+        ratingStore()?.write(Self.ratingOfferedKeyPrefix + id, "1")
+    }
+
+    private func askedBefore(_ id: String) -> Bool {
+        guard !id.isEmpty else { return false }
+        return ratingStore()?.read(Self.ratingOfferedKeyPrefix + id) == "1"
+    }
+
+    private func cancelCsatDue() {
+        csatDueTimer?.cancel()
+        csatDueTimer = nil
+        csatDue = false
+    }
 
     init(socket: @escaping () -> SocketClient?,
          sessionId: @escaping () -> String?,
@@ -188,23 +228,41 @@ public final class LiveChatExtras: ObservableObject {
             self.lockedBy = nil
             self.fileRequestedBy = nil
             self.csatOpen = true
-            // The flow's end that may follow asks no second time (#95).
-            self.flowRatingOfferedFor = self.sessionId() ?? ""
+            // The flow's end that may follow asks no second time (#95),
+            // nor after a restart (#98).
+            self.cancelCsatDue()
+            self.rememberAsked(self.sessionId() ?? "")
         }
     }
 
     /// The flow reached its end (web index.ts: the post-chat rating after
-    /// chat-flow-completed), not a sub-flow's: the post-chat rating when the
-    /// owner has it on, once per conversation, never for a blocked visitor
-    /// or over one already up or sent (#95). Opened at once, so the
-    /// post-chat redirect waits for it (the web waits 1.5 s to draw it).
-    func flowEnded() {
+    /// chat-flow-completed), not a sub-flow's: the post-chat rating `delay`
+    /// later (1.5 s, as the web) when the owner has it on, once per
+    /// conversation (remembered in UserDefaults, so a restart doesn't ask
+    /// again), never for a blocked visitor or over one already up or sent
+    /// (#95, #98). Due at once, so the post-chat redirect already waits for
+    /// it; a block or a new conversation cancels it.
+    func flowEnded(delay: TimeInterval = LiveChatExtras.flowEndRatingSeconds) {
         main {
-            guard self.csatConfig != nil, self.blocked == nil, !self.csatOpen, !self.csatSent else { return }
+            let can = { [unowned self] in self.csatConfig != nil && self.blocked == nil && !self.csatOpen && !self.csatSent }
+            guard can() else { return }
             let id = self.sessionId() ?? ""
             guard self.flowRatingOfferedFor != id else { return }
-            self.flowRatingOfferedFor = id
-            self.csatOpen = true
+            // Asked before a restart: nothing.
+            if self.askedBefore(id) {
+                self.flowRatingOfferedFor = id
+                return
+            }
+            self.rememberAsked(id)
+            self.csatDueTimer?.cancel()
+            self.csatDue = true
+            self.csatDueTimer = self.schedule(delay) { [weak self] in
+                guard let self = self else { return }
+                self.csatDueTimer = nil
+                self.csatDue = false
+                // Another conversation by now, blocked, or one up already: nothing.
+                if can(), self.flowRatingOfferedFor == id, (self.sessionId() ?? "") == id { self.csatOpen = true }
+            }
         }
     }
 
@@ -222,6 +280,7 @@ public final class LiveChatExtras: ObservableObject {
             self.leadCardOpen = false
             self.fileRequestedBy = nil
             self.csatOpen = false
+            self.cancelCsatDue()
             self.emailTranscriptOpen = false
         }
     }
@@ -413,7 +472,10 @@ public final class LiveChatExtras: ObservableObject {
     public func submitRating(_ value: Any, feedback: String?) {
         guard let config = csatConfig, let id = sessionId() else { return }
         socket()?.emit(event: "submit-chat-rating", data: LiveChat.ratingPayload(chatSessionId: id, type: config.ratingType, value: value, feedback: feedback))
-        main { self.csatSent = true }
+        main {
+            self.csatSent = true
+            self.rememberAsked(id)
+        }
     }
 
     public func dismissCsat() {
@@ -449,6 +511,7 @@ public final class LiveChatExtras: ObservableObject {
             self.leftMessageTo = nil
             self.leadEmail = nil
             self.csatSent = false
+            self.cancelCsatDue()
             self.flowRatingOfferedFor = nil
             self.blocked = nil
             self.emailTranscriptOpen = false
