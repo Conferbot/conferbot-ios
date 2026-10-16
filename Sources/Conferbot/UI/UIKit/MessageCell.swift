@@ -128,9 +128,9 @@ public class MessageCell: UITableViewCell {
         } else if let agentMessage = message as? AgentMessageRecord {
             messageLabel.text = agentMessage.text
         } else if let fileMessage = message as? AgentMessageFileRecord {
-            messageLabel.text = "📎 File: \(fileMessage.file)"
+            messageLabel.text = "📎 " + ChatText.file(fileMessage.file)
         } else if let audioMessage = message as? AgentMessageAudioRecord {
-            messageLabel.text = "🎵 Audio message"
+            messageLabel.text = "🎵 " + ChatText.audio
         } else if let joinedMessage = message as? AgentJoinedMessageRecord {
             // With "They can see your conversation so far" after an AI handover.
             messageLabel.text = HandoverState.joinedText(joinedMessage.agentDetails.name)
@@ -149,9 +149,7 @@ public class MessageCell: UITableViewCell {
         }
 
         // Time
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        timeLabel.text = formatter.string(from: message.time)
+        timeLabel.text = ChatText.time(message.time)
 
         // Apply corner radius customization
         if let radius = customization?.bubbleCornerRadius {
@@ -213,6 +211,9 @@ public class TypingIndicatorCell: UITableViewCell {
         bubbleView.layer.cornerRadius = 16
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(bubbleView)
+        // "Typing", read in the widget's language.
+        isAccessibilityElement = true
+        accessibilityLabel = MascotMoods.typingLabel("dots", "")
 
         let dots = [dot1, dot2, dot3]
         dots.forEach { dot in
