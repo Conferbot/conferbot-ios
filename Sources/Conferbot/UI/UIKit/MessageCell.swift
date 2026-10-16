@@ -143,7 +143,9 @@ public class MessageCell: UITableViewCell {
             bubbleView.backgroundColor = .systemGray6
             messageLabel.textColor = .secondaryLabel
         } else if let systemMessage = message as? SystemMessageRecord {
-            messageLabel.text = systemMessage.text
+            // The AI's inactivity close: "Chat paused" and its note, or "Chat ended" (#32).
+            let line = systemMessage.line
+            messageLabel.text = line.text + (line.note.map { "\n" + $0 } ?? "")
             bubbleView.backgroundColor = .systemGray6
             messageLabel.textColor = .secondaryLabel
         }
