@@ -204,37 +204,57 @@ public class APIClient {
         }
     }
 
-    /// Register push notification token
-    public func registerPushToken(
-        token: String,
-        chatSessionId: String
-    ) async throws {
-        guard let url = URL(string: "\(baseURL)/push/register") else {
-            throw ConferBotError.apiError("Invalid URL: \(baseURL)/push/register")
+    /// Register the push token with the conversation (embed-server POST
+    /// /api/v1/mobile/push/register, docs/mobile-push.md; the bot is the
+    /// X-Bot-ID header's). `body` is `Push.registerBody`. Never throws: the
+    /// server's error code, NETWORK or SERVER.
+    public func registerPushToken(_ body: [String: Any]) async -> PushRegisterResult {
+        guard let url = URL(string: "\(baseURL)\(Push.registerPath)"),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return PushRegisterResult(ok: false, error: .server)
         }
+        do {
+            let (status, json) = try await post(url, data)
+            return Push.registerResult(status: status, data: json)
+        } catch {
+            return PushRegisterResult(ok: false, error: .network)
+        }
+    }
+
+    /// Unregister the token (logout, the visitor cleared, notifications
+    /// off): POST /api/v1/mobile/push/unregister. Never throws.
+    @discardableResult
+    public func unregisterPushToken(_ token: String) async -> Bool {
+        guard let url = URL(string: "\(baseURL)\(Push.unregisterPath)"),
+              let data = try? JSONSerialization.data(withJSONObject: Push.unregisterBody(token: token)) else {
+            return false
+        }
+        guard let (status, json) = try? await post(url, data) else { return false }
+        return (200...299).contains(status) && json?["success"] as? Bool == true
+    }
+
+    /// Register push notification token (the old call; throws on any refusal).
+    @available(*, deprecated, message: "Use registerPushToken(_ body:) with Push.registerBody, or ConferBot.setPushToken")
+    public func registerPushToken(token: String, chatSessionId: String) async throws {
+        guard let url = URL(string: "\(baseURL)\(Push.registerPath)") else {
+            throw ConferBotError.apiError("Invalid URL: \(baseURL)\(Push.registerPath)")
+        }
+        let body = Push.registerBody(token: token, chatSessionId: chatSessionId, tokenType: Push.tokenType(of: token))
+        let (status, json) = try await post(url, try JSONSerialization.data(withJSONObject: body))
+        guard (200...299).contains(status) else { throw ConferBotError.httpError(status) }
+        if json?["success"] as? Bool == false { throw ConferBotError.apiError(json?["error"] as? String ?? "Push registration refused") }
+    }
+
+    /// A JSON POST with the SDK's headers: the status and the JSON answer.
+    private func post(_ url: URL, _ body: Data) async throws -> (Int, [String: Any]?) {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = ConferBotNetworkConfig.apiTimeout
-
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
-
-        let body: [String: Any] = [
-            "token": token,
-            "chatSessionId": chatSessionId,
-            "platform": ConferBotConstants.platformIdentifier
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ConferBotError.invalidResponse
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw ConferBotError.httpError(httpResponse.statusCode)
-        }
+        request.httpBody = body
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ConferBotError.invalidResponse }
+        return (http.statusCode, (try? JSONSerialization.jsonObject(with: data)) as? [String: Any])
     }
 }
 
