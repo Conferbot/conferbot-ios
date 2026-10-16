@@ -23,6 +23,9 @@ public struct ConferBotConstants {
     // Platform identifier
     public static let platformIdentifier = "ios"
 
+    /// The SDK's version, sent with analytics (the podspec's s.version).
+    public static let sdkVersion = "2.0.0"
+
     // Socket configuration
     public static let socketReconnectionAttempts = 5
     public static let socketReconnectionDelay: TimeInterval = 1.0
