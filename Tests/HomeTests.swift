@@ -404,7 +404,13 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(Home.hiddenWhileAsking, [.resume, .requests, .talk, .help])
     }
 
-    func testTheMascotHasItsPlaceEmptyForNow() {
-        XCTAssertNil(Home.model(.init(c: HOME))!.mascot)
+    func testCarriesTheOwnersMascotForAnAppsOwnSpot() {
+        // The web's home draws none.
+        XCTAssertEqual(Home.model(.init(c: HOME))!.mascot.look, MascotArt.Look())
+        var c = HOME
+        c["mascotShape"] = "owl"
+        c["mascotName"] = "Hoot"
+        c["widgetIconBgColor"] = "#123456"
+        XCTAssertEqual(Home.model(.init(c: c))!.mascot, Home.Mascot(look: MascotArt.Look(shape: "owl", name: "Hoot"), accent: "#123456"))
     }
 }
