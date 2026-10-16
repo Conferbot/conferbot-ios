@@ -117,4 +117,28 @@ final class ReplyTimeTests: XCTestCase {
         XCTAssertEqual(p(with(["state": "offline"]), agent: true), .init("Answers instantly, day or night", .online))
         XCTAssertEqual(p(["mode": "hide", "handover": true], agent: true).text, "Answers instantly, day or night")
     }
+
+    // MARK: - typicalWait (the wait card, web replyTime.ts typicalWait)
+
+    func testTypicalWaitTheRoutedTeamsUsualWaitFirstElseTheWorkspaces() {
+        XCTAssertEqual(ReplyTime.typicalWait(["mode": "auto", "bucket": "few_hours"], queueTypical: ["bucket": "under_minute"]), "Typical wait: under a minute")
+        XCTAssertEqual(ReplyTime.typicalWait(["mode": "auto", "bucket": "few_hours"]), "Typical wait: a few hours")
+        XCTAssertEqual(ReplyTime.typicalWait(["mode": "auto", "bucket": "unknown", "wait": "about 3 minutes"]), "Typical wait: about 3 minutes")
+        XCTAssertEqual(ReplyTime.typicalWait(nil, queueTypical: ["bucket": "day"]), "Typical wait: up to a day")
+    }
+
+    func testTypicalWaitNothingForFixedOrHideOrNoData() {
+        XCTAssertNil(ReplyTime.typicalWait(["mode": "hide", "bucket": "few_minutes"], queueTypical: ["bucket": "few_minutes"]))
+        XCTAssertNil(ReplyTime.typicalWait(["mode": "fixed", "text": "Within a day", "bucket": "few_minutes"]))
+        XCTAssertNil(ReplyTime.typicalWait(["mode": "auto"]))
+        XCTAssertNil(ReplyTime.typicalWait(nil))
+    }
+
+    func testTypicalWaitInTheVisitorsLanguage() {
+        I18n.setWidgetLanguage("de", languages: [])
+        defer { I18n.setWidgetLanguage("en", languages: []) }
+        let w = ReplyTime.typicalWait(["mode": "auto", "bucket": "few_minutes"])
+        XCTAssertNotNil(w)
+        XCTAssertFalse(w!.contains("Typical"))
+    }
 }
