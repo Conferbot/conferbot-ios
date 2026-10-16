@@ -26,8 +26,10 @@
 //  "For this page" articles and a greeting page rule's own questions; an app
 //  has no page address or title, so the agent's own questions are used), the
 //  help card's own search's "For this page", and the floating panel's
-//  three-article cap (wider than 500px only). The mascot is a later item:
-//  `HomeModel.mascot` is where it will go.
+//  three-article cap (wider than 500px only). The web's home draws no
+//  mascot (it appears on the launcher, the greeting card, the typing bubble
+//  and the idle call); `Model.mascot` is the owner's, for an app that draws
+//  it on its own home (`HomeScreenView(mascot:)`, `MascotView`).
 //
 //  Pure: everything the view needs comes out of `Home.model`.
 //
@@ -781,8 +783,19 @@ public enum Home {
         public let order: [Section]
         /// Every article the ask box and the help card search.
         public let articles: [WaitArticles.HelpArticle]
-        /// Where the home's mascot will go (a later item): always nil for now.
-        public let mascot: String?
+        /// The owner's mascot (art3d mascotLookOf) and its colour, for an app that draws it on its home; the web's home has none.
+        public let mascot: Mascot
+    }
+
+    /// The owner's mascot and the colour it is drawn in when the owner chose none (the launcher's).
+    public struct Mascot: Equatable {
+        public let look: MascotArt.Look
+        public let accent: String
+
+        public init(look: MascotArt.Look, accent: String) {
+            self.look = look
+            self.accent = accent
+        }
     }
 
     private static func truncate(_ v: Any?, _ max: Int) -> String {
@@ -906,7 +919,7 @@ public enum Home {
             trust: trust,
             order: order,
             articles: articles,
-            mascot: nil
+            mascot: Mascot(look: MascotArt.lookOf(c), accent: [str(c["widgetIconBgColor"]), str(c["headerBgColor"])].map(trim).first { !$0.isEmpty } ?? "#4f46e5")
         )
     }
 
