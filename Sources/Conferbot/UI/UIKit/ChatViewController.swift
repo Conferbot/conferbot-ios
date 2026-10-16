@@ -26,6 +26,15 @@ public class ChatViewController: UIViewController {
     }()
     private var messages: [any RecordItem] = []
     private var isAgentTyping = false
+    /// The step waiting for the visitor, drawn under the messages with the
+    /// SwiftUI step views (FlowStepView): choice pills, rating, scale,
+    /// slider, date, calendar, file, check options, ranking, cards, matrix,
+    /// consent, payment and the OTP / address / signature extras. Typed
+    /// steps are answered in the composer (submitText).
+    private var stepState: NodeUIState?
+
+    /// The table's sections: the messages, the waiting step, the typing dots.
+    private enum Section: Int, CaseIterable { case messages, step, typing }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -48,6 +57,10 @@ public class ChatViewController: UIViewController {
         tableView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         tableView.register(MessageCell.self, forCellReuseIdentifier: "MessageCell")
         tableView.register(TypingIndicatorCell.self, forCellReuseIdentifier: "TypingCell")
+        tableView.register(StepHostCell.self, forCellReuseIdentifier: "StepCell")
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 60
+        tableView.keyboardDismissMode = .interactive
 
         view.addSubview(tableView)
         addChild(liveStrip)
@@ -176,11 +189,23 @@ public class ChatViewController: UIViewController {
             }
             .store(in: &cancellables)
 
-        // Subscribe to typing indicator
+        // The typing dots: an agent typing, the bot working on a step or an
+        // AI reply on its way (as the SwiftUI chat)
         ConferBot.shared.$isAgentTyping
+            .combineLatest(ConferBot.shared.$isProcessingNode, ConferBot.shared.$awaitingReply)
+            .map { $0 || $1 || $2 }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isTyping in
                 self?.handleTypingIndicator(isTyping)
+            }
+            .store(in: &cancellables)
+
+        // The step waiting for the visitor (#74)
+        ConferBot.shared.$currentUIState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.handleStep(state)
             }
             .store(in: &cancellables)
 
@@ -205,33 +230,74 @@ public class ChatViewController: UIViewController {
     private var cancellables = Set<AnyCancellable>()
 
     private func handleNewMessages(_ newMessages: [any RecordItem]) {
-        let oldCount = messages.count
+        let old = messages
         messages = newMessages
+        guard isViewLoaded, tableView.window != nil else {
+            tableView.reloadData()
+            return
+        }
 
-        if oldCount < newMessages.count {
-            // New messages added
-            let newIndexPaths = (oldCount..<newMessages.count).map {
-                IndexPath(row: $0, section: 0)
+        // Only new messages at the end are animated in; anything else (a
+        // reset, an edited or removed message) reloads the list.
+        if old.count < newMessages.count, zip(old, newMessages).allSatisfy({ $0.id == $1.id }) {
+            let newIndexPaths = (old.count..<newMessages.count).map {
+                IndexPath(row: $0, section: Section.messages.rawValue)
             }
-
             tableView.insertRows(at: newIndexPaths, with: .automatic)
             scrollToBottom(animated: true)
+        } else if old.count != newMessages.count || !zip(old, newMessages).allSatisfy({ $0.id == $1.id }) {
+            tableView.reloadData()
+            scrollToBottom(animated: false)
         }
     }
 
     private func handleTypingIndicator(_ isTyping: Bool) {
-        self.isAgentTyping = isTyping
-
+        guard isTyping != isAgentTyping else { return }
+        isAgentTyping = isTyping
+        let indexPath = IndexPath(row: 0, section: Section.typing.rawValue)
         if isTyping {
-            // Add typing indicator
-            let indexPath = IndexPath(row: messages.count, section: 0)
             tableView.insertRows(at: [indexPath], with: .automatic)
             scrollToBottom(animated: true)
         } else {
-            // Remove typing indicator
-            let indexPath = IndexPath(row: messages.count, section: 0)
             tableView.deleteRows(at: [indexPath], with: .automatic)
         }
+    }
+
+    /// Draws the waiting step under the messages, or takes it away. The same
+    /// step updated in place (an OTP moving to its code) keeps its view's state.
+    private func handleStep(_ state: NodeUIState?) {
+        let next = drawsStep(state) ? state : nil
+        let had = stepState != nil
+        let sameStep = had && next != nil && stepState?.stepNodeId == next?.stepNodeId
+        stepState = next
+        let indexPath = IndexPath(row: 0, section: Section.step.rawValue)
+        switch (had, next != nil) {
+        case (false, true):
+            tableView.insertRows(at: [indexPath], with: .fade)
+        case (true, false):
+            tableView.deleteRows(at: [indexPath], with: .fade)
+        case (true, true):
+            if sameStep, #available(iOS 15.0, *) {
+                tableView.reconfigureRows(at: [indexPath])
+            } else {
+                tableView.reloadRows(at: [indexPath], with: .fade)
+            }
+        case (false, false):
+            return
+        }
+        if next != nil { scrollToBottom(animated: true) }
+    }
+
+    /// Whether the step has a view of its own: everything that waits for the
+    /// visitor except plain typed questions (the composer answers those) and
+    /// the handover wait (the live strip draws its card).
+    private func drawsStep(_ state: NodeUIState?) -> Bool {
+        guard #available(iOS 15.0, *), let state = state, let nodeId = state.stepNodeId else { return false }
+        if case .textInput = state {
+            let type = ConferBot.shared.waitingStep(nodeId)?.type ?? ""
+            return ["otp-node", "address-node", "signature-node"].contains(type)
+        }
+        return true
     }
 
     private func updateConnectionStatus() {
@@ -245,13 +311,12 @@ public class ChatViewController: UIViewController {
     }
 
     private func scrollToBottom(animated: Bool) {
-        guard !messages.isEmpty || isAgentTyping else { return }
-
-        let lastRow = isAgentTyping ? messages.count : messages.count - 1
-        let indexPath = IndexPath(row: lastRow, section: 0)
-
         DispatchQueue.main.async {
-            self.tableView.scrollToRow(at: indexPath, at: .bottom, animated: animated)
+            // The last row there is: the typing dots, the step, or the last message.
+            let section = Section.allCases.reversed().first { self.tableView.numberOfRows(inSection: $0.rawValue) > 0 }
+            guard let section = section else { return }
+            let row = self.tableView.numberOfRows(inSection: section.rawValue) - 1
+            self.tableView.scrollToRow(at: IndexPath(row: row, section: section.rawValue), at: .bottom, animated: animated)
         }
     }
 
@@ -296,15 +361,33 @@ public class ChatViewController: UIViewController {
 
 // MARK: - UITableViewDataSource
 extension ChatViewController: UITableViewDataSource {
+    public func numberOfSections(in tableView: UITableView) -> Int {
+        Section.allCases.count
+    }
+
     public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return messages.count + (isAgentTyping ? 1 : 0)
+        switch Section(rawValue: section) {
+        case .messages: return messages.count
+        case .step: return stepState == nil ? 0 : 1
+        case .typing: return isAgentTyping ? 1 : 0
+        case nil: return 0
+        }
     }
 
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        // Check if this is typing indicator
-        if isAgentTyping && indexPath.row == messages.count {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: "TypingCell", for: indexPath) as? TypingIndicatorCell else {
-                return UITableViewCell()
+        if indexPath.section == Section.typing.rawValue {
+            return tableView.dequeueReusableCell(withIdentifier: "TypingCell", for: indexPath)
+        }
+        if indexPath.section == Section.step.rawValue {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "StepCell", for: indexPath)
+            if #available(iOS 15.0, *), let state = stepState, let stepCell = cell as? StepHostCell {
+                stepCell.show(state, parent: self) { [weak self] in
+                    // The step's view changed size (calendar slots, a picked file)
+                    UIView.performWithoutAnimation {
+                        self?.tableView.beginUpdates()
+                        self?.tableView.endUpdates()
+                    }
+                }
             }
             return cell
         }
@@ -328,8 +411,13 @@ extension ChatViewController: UITableViewDelegate {
 // MARK: - ChatInputViewDelegate
 extension ChatViewController: ChatInputViewDelegate {
     public func chatInputView(_ inputView: ChatInputView, didSendMessage message: String) {
-        Task {
-            try? await ConferBot.shared.sendMessage(message)
+        // A typed question (ask-name, ask-email, OTP, AI, KB...) takes the
+        // text as its answer; otherwise it goes as a chat message (#74).
+        // A refused answer stays in the box with the reason over it.
+        if let error = ConferBot.shared.submitText(message) {
+            DispatchQueue.main.async { inputView.restore(message, error: error) }
+        } else {
+            inputView.restore(nil, error: nil)
         }
     }
 
@@ -354,4 +442,66 @@ extension ChatViewController: UIDocumentPickerDelegate {
             self?.present(alert, animated: true)
         }
     }
+}
+
+/// The waiting step's SwiftUI view (FlowStepView) in a table cell.
+final class StepHostCell: UITableViewCell {
+    private var host: UIViewController?
+    private var onResize: (() -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @available(iOS 15.0, *)
+    func show(_ state: NodeUIState, parent: UIViewController, onResize: @escaping () -> Void) {
+        self.onResize = onResize
+        if #available(iOS 16.0, *) {
+            // Sizes itself and follows its content's size.
+            contentConfiguration = UIHostingConfiguration { FlowStepView(uiState: state) }
+                .margins(.horizontal, 16)
+                .margins(.vertical, 6)
+            return
+        }
+        // iOS 15: a hosting controller pinned to the cell, which reports
+        // its content's height changes so the table can re-measure the row.
+        let root = AnyView(FlowStepView(uiState: state)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: StepHeightKey.self, value: proxy.size.height)
+            })
+            .onPreferenceChange(StepHeightKey.self) { [weak self] _ in
+                DispatchQueue.main.async { self?.onResize?() }
+            })
+        if let host = host as? UIHostingController<AnyView> {
+            host.rootView = root
+            host.view.invalidateIntrinsicContentSize()
+            return
+        }
+        let host = UIHostingController(rootView: root)
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        parent.addChild(host)
+        contentView.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            host.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        ])
+        host.didMove(toParent: parent)
+        self.host = host
+    }
+}
+
+private struct StepHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
