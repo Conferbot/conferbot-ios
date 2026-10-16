@@ -207,7 +207,8 @@ public class ConferBot: ObservableObject {
             self?.currentAgent = agent
             self?.chatState.currentAgent = details
         },
-        save: { [weak self] in self?.saveSessionState() }
+        save: { [weak self] in self?.saveSessionState() },
+        onRestoredWait: { [weak self] remaining in self?.liveChat.resumeWait(remainingSeconds: remaining) }
     ))
     // MARK: - While you wait
     // The help card 6s into a wait for a person, the server's queue-help pick
@@ -2488,16 +2489,16 @@ public class ConferBot: ObservableObject {
             }
         }
 
-        // Closed for inactivity; the visitor's next message reopens it.
+        // The AI let an idle visitor go: "Chat paused" (the next message picks
+        // it back up) or, for continue_flow on a flow bot, "Chat ended" and the
+        // flow goes on. The line and its record entry are the handover's (#32).
         socketClient?.on(SocketEvents.aiAgentInactiveClose) { [weak self] data, _ in
             guard let self = self, self.isOwnSession(data.first as? [String: Any]) else { return }
             let json = data.first as? [String: Any]
             Task { @MainActor in
-                // A wait for a person still going ends with the chat.
-                self.handover.onChatEnded(json)
                 self.setAwaitingReply(false)
                 self.suggestions = []
-                self.chatState.pushLiveChatRecord(entryId: "ai-close-\(UUID().uuidString)", type: "ai-agent-inactive-close")
+                self.handover.onInactiveClose(json, agentBot: self.agentBot != nil)
             }
         }
         socketClient?.on(SocketEvents.aiAgentResumed) { [weak self] data, _ in
