@@ -43,6 +43,15 @@ public struct ResolvedLauncher: Equatable {
     public var animation = "subtle"
     /// The greeting next to the button, when the owner turned it on.
     public var ctaText: String?
+    /// How it arrives (LauncherEntrance), its "look here" loop
+    /// (LauncherAttention) and the mascot's idle call (LauncherIdleCall):
+    /// classic / off unless the owner chose one.
+    public var entrance = "classic"
+    public var attention = "off"
+    public var idleCall = "off"
+    /// Seconds before the idle call (5-120), and its bubble's line.
+    public var idleCallDelay = LauncherIdleCall.defaultDelay
+    public var idleCallText = ""
 
     public init() {}
 }
@@ -150,6 +159,11 @@ public enum Launcher {
         if let a = c["launcherAnimation"] as? String, a == "lively" || a == "off" { r.animation = a }
         // Only when the owner turned the greeting on (templates/shared.ts: no chatIconCta, no bubble).
         r.ctaText = (c["chatIconCta"] as? Bool) == true && !str(c["chatIconCtaText"]).isEmpty ? str(c["chatIconCtaText"]) : nil
+        r.entrance = LauncherEntrance.normalize(c["launcherEntrance"])
+        r.attention = LauncherAttention.normalize(c["launcherAttention"])
+        r.idleCall = LauncherIdleCall.normalize(c["launcherIdleCall"])
+        r.idleCallDelay = LauncherIdleCall.normalizeDelay(c["launcherIdleCallDelay"])
+        r.idleCallText = LauncherIdleCall.line(r.idleCall, c["launcherIdleCallText"])
         return r
     }
 }
