@@ -171,7 +171,11 @@ public final class FileUploadService: NSObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 120 // 2 minute timeout for uploads
         config.timeoutIntervalForResource = 300 // 5 minute total timeout
-        uploadSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        // The session keeps its delegate until invalidated: a weak hop, so
+        // the service can go and its deinit invalidates the session.
+        let relay = UploadSessionDelegate()
+        relay.owner = self
+        uploadSession = URLSession(configuration: config, delegate: relay, delegateQueue: .main)
     }
 
     deinit {
@@ -531,6 +535,23 @@ extension FileUploadService: URLSessionTaskDelegate {
         )
 
         progressSubject.send(uploadProgress)
+    }
+}
+
+/// Forwards the upload session's progress to the service without keeping it alive.
+@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+private final class UploadSessionDelegate: NSObject, URLSessionTaskDelegate {
+    weak var owner: FileUploadService?
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        owner?.urlSession(session, task: task, didSendBodyData: bytesSent,
+                          totalBytesSent: totalBytesSent, totalBytesExpectedToSend: totalBytesExpectedToSend)
     }
 }
 
