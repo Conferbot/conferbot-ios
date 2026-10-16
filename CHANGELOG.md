@@ -182,6 +182,9 @@ release. The changes below are listed against 1.0.0's source.
 - `OfflineManager` publishes its queue count at once and runs one flush at a time (a
   message could be sent twice); `FileUploadService` no longer leaks through its
   `URLSession` (#99).
+- A message sent while the socket is reconnecting is queued and sent on the next connect,
+  not lost; the queue's messages keep their retries. Socket.IO's `reconnect` fires when
+  reconnection starts, and the SDK no longer takes it as connected (#101).
 
 ### Security
 
