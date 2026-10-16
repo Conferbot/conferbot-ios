@@ -230,7 +230,7 @@ struct AgentReplyExtrasView: View {
                             }
                             Text(source.title).font(.footnote.weight(.medium)).lineLimit(1).foregroundColor(.primary)
                             if inApp {
-                                Text("Help article \u{203A}").font(.caption2).foregroundColor(.secondary)
+                                Text(I18n.t("kb.helpArticle") + " \u{203A}").font(.caption2).foregroundColor(.secondary)
                             } else if let url = source.url {
                                 Text("\(AgentBotParser.sourceHost(url)) \u{2197}").font(.caption2).foregroundColor(.secondary)
                             }
@@ -251,7 +251,7 @@ struct AgentReplyExtrasView: View {
                         CardRows(rows: card.rows)
                         if let note = card.note { Text(note).font(.caption2).foregroundColor(.secondary) }
                         if let url = card.url.flatMap(URL.init(string:)) {
-                            Button("Learn more \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                            Button(I18n.t("sdk.card.learnMore") + " \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
                         }
                     }
                 }
@@ -269,7 +269,7 @@ struct AgentReplyExtrasView: View {
                         }
                         CardRows(rows: result.rows)
                         if let url = result.linkURL.flatMap(URL.init(string:)) {
-                            Button("\(result.linkLabel ?? "Open") \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                            Button("\(result.linkLabel ?? I18n.t("result.open")) \u{2197}") { openURL(url) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
                         }
                     }
                 }
@@ -317,7 +317,7 @@ private struct ActionCardView: View {
                 HStack(spacing: 8) {
                     Button { answer(true) } label: {
                         ZStack {
-                            if state == "busy" { ProgressView().tint(.white) } else { Text("Confirm").font(.footnote.weight(.semibold)) }
+                            if state == "busy" { ProgressView().tint(.white) } else { Text(I18n.t("action.confirm")).font(.footnote.weight(.semibold)) }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
@@ -325,7 +325,7 @@ private struct ActionCardView: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(accent))
                     }
                     Button { answer(false) } label: {
-                        Text("Not now").font(.footnote)
+                        Text(I18n.t("common.notNow")).font(.footnote)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
                             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor.separator), lineWidth: 1))
@@ -336,7 +336,7 @@ private struct ActionCardView: View {
                 .disabled(state != "ask")
                 .padding(.top, 4)
             } else {
-                Text(state == "done" ? "Confirmed" : state == "declined" ? "Not now" : "That did not go through. Please ask again.")
+                Text(state == "done" ? I18n.t("sdk.action.confirmed") : state == "declined" ? I18n.t("common.notNow") : I18n.t("sdk.action.notThroughAsk"))
                     .font(.footnote).foregroundColor(.secondary)
             }
         }
@@ -497,15 +497,15 @@ struct RichAgentMessageView: View {
             }
         case .article(let articleId, let title, let snippet, let url)?:
             CardSurface {
-                Text("Help article").font(.caption2).foregroundColor(.secondary)
+                Text(I18n.t("kb.helpArticle")).font(.caption2).foregroundColor(.secondary)
                 Text(title).font(.subheadline.weight(.semibold))
                 if !snippet.isEmpty { Text(snippet).font(.footnote).foregroundColor(.secondary).lineLimit(3) }
                 // In the help centre by id (the web's agentRich openArticle),
                 // else the public page when there is one.
                 if HelpCentre.canOpenArticle(conferBot.serverCustomizations, articleId: articleId) {
-                    Button("Read article \u{203A}") { conferBot.openHelpArticle(id: articleId) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                    Button(I18n.t("sdk.kb.readArticle") + " \u{203A}") { conferBot.openHelpArticle(id: articleId) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
                 } else if let link = url.flatMap(URL.init(string:)) {
-                    Button("Read article \u{2197}") { openURL(link) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
+                    Button(I18n.t("sdk.kb.readArticle") + " \u{2197}") { openURL(link) }.font(.footnote.weight(.semibold)).foregroundColor(accent)
                 }
             }
         case .card(let title, let description, let imageURL, let buttonLabel, let buttonURL)?:
