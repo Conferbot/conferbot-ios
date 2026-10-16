@@ -9,7 +9,8 @@
 //  preserveAspectRatio none), g (transform, clip-path, opacity), path,
 //  ellipse, circle, rect (rx), polygon; fill / stroke as a colour, none or a
 //  linear / radial gradient (object bounding box or user space, with a
-//  gradientTransform), their opacities, stroke width, caps and joins; and
+//  gradientTransform), their opacities, stroke width, caps, joins and
+//  dashes; and
 //  clipPath. No filters, as in RN. Draws into a SwiftUI GraphicsContext
 //  (Canvas, iOS 15).
 //
@@ -209,7 +210,10 @@ enum FxSvg {
             if let stroke = a["stroke"], stroke != "none" {
                 let cap: CGLineCap = a["stroke-linecap"] == "round" ? .round : a["stroke-linecap"] == "square" ? .square : .butt
                 let join: CGLineJoin = a["stroke-linejoin"] == "round" ? .round : a["stroke-linejoin"] == "bevel" ? .bevel : .miter
-                let outline = s.strokedPath(StrokeStyle(lineWidth: d(a, "stroke-width", 1), lineCap: cap, lineJoin: join))
+                let dash = Keyframes.split((a["stroke-dasharray"] ?? "").trimmingCharacters(in: .whitespaces), "[\\s,]+").compactMap { Double($0) }.map { CGFloat($0) }
+                let outline = s.strokedPath(StrokeStyle(lineWidth: d(a, "stroke-width", 1), lineCap: cap, lineJoin: join,
+                                                        dash: dash.contains { $0 > 0 } ? (dash.count % 2 == 1 ? dash + dash : dash) : [],
+                                                        dashPhase: d(a, "stroke-dashoffset")))
                 paint(&c, doc, stroke, o * d(a, "stroke-opacity", 1), area: outline, bounds: bounds)
             }
         } else if !n.kids.isEmpty {
