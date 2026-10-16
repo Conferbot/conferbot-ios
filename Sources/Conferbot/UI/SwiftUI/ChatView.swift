@@ -395,6 +395,8 @@ public struct ChatView: View {
             HStack(alignment: .top) {
                 Spacer().frame(width: 40)
                 HandoverWaitCard(live: live, message: message, accent: pillColor, onCancel: { conferBot.leaveQueue() })
+                // Under the bubbles' edge, not centred in the row
+                Spacer(minLength: 0)
             }
         } else {
             FlowStepView(uiState: uiState)
