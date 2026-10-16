@@ -64,6 +64,82 @@ public class KnowledgeBaseService: ObservableObject {
         self.session = session
     }
 
+    // MARK: - Socket (the web widget's kbContent.ts)
+
+    /// The web's events: `search-kb-articles {chatbotId, query, limit}`
+    /// (ack `{success, query, articles[{_id, title, description, category,
+    /// snippet}]}`) and `get-kb-article {chatbotId, articleId}` (ack
+    /// `{success, articleId, article}`). REST is the fallback for both.
+    static let searchEvent = "search-kb-articles"
+    static let articleEvent = "get-kb-article"
+    static let socketTimeout: Double = 8
+
+    /// Sends an event and hands back its ack, nil when nothing answered
+    /// (not connected, timed out). The socket client's when unset; tests set
+    /// their own.
+    public var emitWithAck: ((_ event: String, _ data: [String: Any], _ timeoutSeconds: Double, _ done: @escaping (Any?) -> Void) -> Void)?
+
+    /// Server matches inside article text per query, kept when it answered.
+    private var remoteSearches: [String: [KnowledgeBaseArticle]] = [:]
+
+    private func ack(_ event: String, _ data: [String: Any]) async -> Any? {
+        let emit: (String, [String: Any], Double, @escaping (Any?) -> Void) -> Void
+        if let own = emitWithAck {
+            emit = own
+        } else if let socket = socketClient, socket.isConnected {
+            emit = { event, data, timeout, done in socket.emitWithAck(event: event, data: data, timeout: timeout, completion: done) }
+        } else {
+            return nil
+        }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Any?, Never>) in
+            let once = ResumeOnce()
+            emit(event, data, Self.socketTimeout) { reply in
+                if once.claim() { cont.resume(returning: reply) }
+            }
+        }
+    }
+
+    /// An article row from a socket reply (a draft or one without an id is nil).
+    private func decodeArticle(_ raw: Any?) -> KnowledgeBaseArticle? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        if let status = dict["reviewStatus"] as? String, status != "published" { return nil }
+        guard JSONSerialization.isValidJSONObject(dict),
+              let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
+        return try? JSONDecoder().decode(KnowledgeBaseArticle.self, from: data)
+    }
+
+    /// The server's matches inside article text, with snippets; nil when the
+    /// socket did not answer (REST is tried then).
+    func searchOverSocket(_ query: String) async -> [KnowledgeBaseArticle]? {
+        let key = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard key.count >= 2 else { return nil }
+        if let hit = remoteSearches[key] { return hit }
+        let reply = await ack(Self.searchEvent, ["chatbotId": botId, "query": key, "limit": 10]) as? [String: Any]
+        guard reply?["success"] as? Bool == true else { return nil }
+        let hits = ((reply?["articles"] as? [Any]) ?? []).compactMap(decodeArticle)
+        remoteSearches[key] = hits
+        return hits
+    }
+
+    /// The article with its body over the socket; nil when it did not answer.
+    func articleOverSocket(_ id: String) async -> KnowledgeBaseArticle? {
+        let reply = await ack(Self.articleEvent, ["chatbotId": botId, "articleId": id]) as? [String: Any]
+        guard reply?["success"] as? Bool == true,
+              let raw = reply?["article"] as? [String: Any], raw["content"] is String else { return nil }
+        return decodeArticle(raw)
+    }
+
+    /// Local matches first, then the server's other matches, each article
+    /// once; a server hit the help centre already lists keeps the list's
+    /// fields and takes the hit's snippet.
+    func mergeSearch(local: [KnowledgeBaseArticle], remote: [KnowledgeBaseArticle]) -> [KnowledgeBaseArticle] {
+        var seen = Set(local.map(\.id))
+        let extra = remote.filter { seen.insert($0.id).inserted }.map { hit -> KnowledgeBaseArticle in
+            withTopicName(articleCache[hit.id].map { $0.merged(body: hit) } ?? hit)
+        }
+        return local + extra
+    }
+
     // MARK: - Public Methods
 
     /// Fetch all articles from the knowledge base
@@ -177,9 +253,20 @@ public class KnowledgeBaseService: ObservableObject {
             return []
         }
 
+        // The help centre's own title, description and tag matches at once,
+        // then the server's matches inside article text (web kbContent.ts).
+        let local = searchArticlesLocally(query: query)
+        if let remote = await searchOverSocket(query) {
+            let results = mergeSearch(local: local, remote: remote)
+            searchResults = results
+            loadingState = .loaded
+            return results
+        }
+
         loadingState = .loading
 
         do {
+            // REST when the socket did not answer.
             // The server reads `query` (embed-server searchKBArticles); `q` was a 400.
             var components = URLComponents(string: "\(baseURL)/knowledge-base/search")
             // Encoded by hand: queryItems leaves "&", "=" and "+" as they are.
@@ -205,7 +292,7 @@ public class KnowledgeBaseService: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
 
             let payload = try decoder.decode(KnowledgeBaseEnvelope.self, from: data).data
-            let results = (payload?.articles ?? []).map(withTopicName)
+            let results = mergeSearch(local: local, remote: payload?.articles ?? [])
 
             searchResults = results
             loadingState = .loaded
@@ -286,6 +373,15 @@ public class KnowledgeBaseService: ObservableObject {
         }
 
         loadingState = .loading
+
+        // The body over the socket (`get-kb-article`), as the web; REST when it did not answer.
+        if let fetched = await articleOverSocket(id) {
+            let article = withTopicName(known.map { $0.merged(body: fetched) } ?? fetched)
+            currentArticle = article
+            articleCache[id] = article
+            loadingState = .loaded
+            return article
+        }
 
         do {
             guard let url = URL(string: "\(baseURL)/knowledge-base/articles/\(id)") else {
@@ -571,4 +667,17 @@ private struct ArticleEngagementTracker {
     let startTime: Date
     var maxScrollDepth: Int = 0
     var isCompleted: Bool = false
+}
+
+/// Resumes a continuation once, whatever the socket calls back.
+private final class ResumeOnce {
+    private let lock = NSLock()
+    private var done = false
+
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
 }
