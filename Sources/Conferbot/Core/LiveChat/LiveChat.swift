@@ -75,7 +75,8 @@ public struct LiveEntry: Equatable {
 
 public enum LiveChat {
 
-    public static let talkToPersonAsk = "I'd like to talk to a person, please."
+    /// What "Talk to a person" sends, in the visitor's language.
+    public static var talkToPersonAsk: String { I18n.t("chat.talkToPersonAsk") }
     public static let queuePollSeconds: TimeInterval = 20
 
     private static func int(_ v: Any?) -> Int? {
@@ -110,17 +111,19 @@ public enum LiveChat {
         }
     }
 
-    /// "You're next in line", "You're 3rd in line", "Connecting you to the team".
+    /// "You're next in line", "You're 3rd in line", "Connecting you to the team",
+    /// in the active language (web queueCard.ts positionText: queue.*; {ord} is
+    /// English's "3rd", the other languages say {n}).
     public static func queueLine(_ q: QueueStatus?) -> String {
-        guard let p = q?.position else { return "Connecting you to the team" }
-        if p == 1 { return "You're next in line" }
-        if p > 1 { return "You're \(ordinal(p)) in line" }
-        return "Connecting you to the team"
+        guard let p = q?.position else { return I18n.t("queue.connecting") }
+        if p == 1 { return I18n.t("queue.next") }
+        if p > 1 { return I18n.t("queue.position", ["n": p, "ord": ordinal(p)]) }
+        return I18n.t("queue.connecting")
     }
 
     /// The server's label is already a phrase ("Under a minute", "About 2 min").
     public static func queueSubline(_ q: QueueStatus?) -> String {
-        q?.estimateLabel ?? "Our team will be with you soon"
+        q?.estimateLabel ?? I18n.t("queue.soon")
     }
 
     /// handover-waiting: nobody could take the chat (the AI took it back).
@@ -138,8 +141,9 @@ public enum LiveChat {
     /// The line on that card.
     public static func handoverWaitingLine(_ w: HandoverWaiting, now: Date = Date(), timeZone: TimeZone = .current) -> String {
         let back = backAtLabel(w.backAt, now: now, timeZone: timeZone)
-        let first = w.offline ? "The team is offline right now\(back.map { ", back around \($0)" } ?? "")." : "Everyone's busy right now."
-        let second = w.email.map { "They'll reply to \($0)." } ?? "Leave your email and they will reply."
+        let first = !w.offline ? I18n.t("sdk.waiting.busy")
+            : back.map { I18n.t("sdk.waiting.offlineBack", ["when": $0]) } ?? I18n.t("sdk.waiting.offline")
+        let second = w.email.map { I18n.t("sdk.waiting.replyTo", ["email": $0]) } ?? I18n.t("sdk.waiting.leaveEmail")
         return "\(first) \(second)"
     }
 
@@ -180,9 +184,9 @@ public enum LiveChat {
 
     public static func receiptLabel(_ state: ReceiptState) -> String {
         switch state {
-        case .seen: return "Seen"
-        case .delivered: return "Delivered"
-        case .sent: return "Sent"
+        case .seen: return I18n.t("receipt.seen")
+        case .delivered: return I18n.t("receipt.delivered")
+        case .sent: return I18n.t("receipt.sent")
         }
     }
 
@@ -199,7 +203,10 @@ public enum LiveChat {
     /// "9:00 AM" (same day) or "Friday 9:00 AM" from an ISO time; nil when unknown.
     public static func backAtLabel(_ iso: String?, now: Date = Date(), timeZone: TimeZone = .current) -> String? {
         guard let iso = iso, let date = parseISO(iso) else { return nil }
+        // In the widget's language (English keeps the phone's own format).
+        let locale: Locale? = I18n.isEnglish ? nil : I18n.locale
         let time = DateFormatter()
+        if let locale = locale { time.locale = locale }
         time.timeZone = timeZone
         time.dateStyle = .none
         time.timeStyle = .short
@@ -207,6 +214,7 @@ public enum LiveChat {
         cal.timeZone = timeZone
         if cal.isDate(date, inSameDayAs: now) { return time.string(from: date) }
         let day = DateFormatter()
+        if let locale = locale { day.locale = locale }
         day.timeZone = timeZone
         day.dateFormat = "EEEE"
         return "\(day.string(from: date)) \(time.string(from: date))"
@@ -228,14 +236,18 @@ public enum LiveChat {
         guard let raw = raw, raw["enabled"] as? Bool == true else { return nil }
         let types: Set<String> = ["stars", "thumbs", "emoji", "nps"]
         let type = (raw["ratingType"] as? String).flatMap { types.contains($0) ? $0 : nil } ?? "stars"
-        func s(_ key: String, _ d: String) -> String { str(raw[key]) ?? d }
+        // The owner's words, else the web's (postChatRating.ts csat.*) in the
+        // visitor's language; a stock English value shows translated too.
+        func s(_ key: String, _ i18nKey: String, _ stock: [String] = []) -> String {
+            I18n.ownerTextOr(str(raw[key]), i18nKey, stockEnglish: stock)
+        }
         return CsatConfig(
             ratingType: type,
-            titleText: s("titleText", "How was your experience?"),
-            subtitleText: s("subtitleText", "Your feedback helps us improve"),
-            thankYouText: s("thankYouText", "Thank you for your feedback!"),
+            titleText: s("titleText", "csat.title"),
+            subtitleText: s("subtitleText", "csat.subtitle"),
+            thankYouText: s("thankYouText", "csat.thanks"),
             showFeedbackInput: (raw["showFeedbackInput"] as? Bool) != false,
-            feedbackPlaceholder: s("feedbackPlaceholder", "Tell us more...")
+            feedbackPlaceholder: s("feedbackPlaceholder", "csat.placeholder", ["Tell us more..."])
         )
     }
 
@@ -321,7 +333,7 @@ public enum LiveChat {
         let path = url.components(separatedBy: CharacterSet(charactersIn: "?#")).first ?? url
         let last = path.components(separatedBy: "/").last ?? ""
         let decoded = last.removingPercentEncoding ?? last
-        return decoded.isEmpty ? "File" : decoded
+        return decoded.isEmpty ? I18n.t("file.file") : decoded
     }
 
     /// The builder's rich text as plain text (<p>...</p>, <br>, entities).
