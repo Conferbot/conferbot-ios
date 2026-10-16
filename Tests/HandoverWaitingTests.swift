@@ -121,5 +121,27 @@ final class HandoverWaitingTests: XCTestCase {
         XCTAssertEqual(HandoverWait.aiEscalationNudgeSeconds(nil), 150)
         XCTAssertEqual(HandoverWait.aiEscalationNudgeSeconds(5), 330)
         XCTAssertEqual(HandoverWait.aiEscalationNudgeSeconds("0.5"), 60)
+        // 0 or below is unset (#93).
+        XCTAssertEqual(HandoverWait.aiEscalationNudgeSeconds(0), 150)
+        XCTAssertEqual(HandoverWait.aiEscalationNudgeSeconds(-3), 150)
+    }
+
+    func testOnlyAnAIAgentHandingOnStartsTheEscalationWait() {
+        XCTAssertTrue(HandoverWait.startsEscalationWait(["reason": "escalated", "agentDetails": ["isAIAgent": true]]))
+        XCTAssertTrue(HandoverWait.startsEscalationWait(["agentDetails": ["isAIAgent": true]]))
+        XCTAssertFalse(HandoverWait.startsEscalationWait(["reason": "visitor_inactive", "agentDetails": ["isAIAgent": true]]))
+        XCTAssertFalse(HandoverWait.startsEscalationWait(["reason": "escalated", "agentDetails": ["name": "Sam"]]))
+        XCTAssertFalse(HandoverWait.startsEscalationWait(nil))
+    }
+
+    func testTheEscalationsStepIsTheFlowsElseTheLatestHandoverStepInTheRecord() {
+        let record: [[String: Any]] = [
+            ["id": "a", "type": "human-handover-node", "data": ["maxWaitTime": 1]],
+            ["id": "m", "type": "bot-message"],
+            ["id": "b", "shape": "human-handover-node", "data": ["maxWaitTime": 4]],
+        ]
+        XCTAssertEqual(HandoverWait.escalationHandoverData(["maxWaitTime": 9], record: record)?["maxWaitTime"] as? Int, 9)
+        XCTAssertEqual(HandoverWait.escalationHandoverData(nil, record: record)?["maxWaitTime"] as? Int, 4)
+        XCTAssertNil(HandoverWait.escalationHandoverData(nil, record: [["id": "m", "type": "bot-message"]]))
     }
 }
