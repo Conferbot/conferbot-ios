@@ -231,10 +231,10 @@ public struct FilePickerView: View {
         VStack(spacing: 20) {
             // Header
             HStack {
-                Text(configuration.title ?? "Select File")
+                Text(configuration.title ?? I18n.t("sdk.file.selectTitle"))
                     .font(.headline)
                 Spacer()
-                Button("Cancel") {
+                Button(I18n.t("common.cancel")) {
                     onCancel()
                     presentationMode.wrappedValue.dismiss()
                 }
@@ -255,7 +255,7 @@ public struct FilePickerView: View {
             }
 
             // File size info
-            Text("Maximum file size: \(ByteCountFormatter.string(fromByteCount: Int64(configuration.maxSizeBytes), countStyle: .file))")
+            Text(I18n.t("sdk.file.maxSize", ["mb": configuration.maxSizeBytes / (1024 * 1024)]))
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -264,8 +264,8 @@ public struct FilePickerView: View {
                 if configuration.allowDocuments {
                     SourceOptionButton(
                         icon: "doc.fill",
-                        title: "Choose File",
-                        subtitle: "Browse documents"
+                        title: I18n.t("sdk.file.chooseOne"),
+                        subtitle: I18n.t("sdk.file.browseDocuments")
                     ) {
                         showDocumentPicker = true
                     }
@@ -274,8 +274,8 @@ public struct FilePickerView: View {
                 if configuration.allowPhotos && configuration.allowsImages {
                     SourceOptionButton(
                         icon: "photo.on.rectangle",
-                        title: "Photo Library",
-                        subtitle: "Select from photos"
+                        title: I18n.t("sdk.file.photoLibrary"),
+                        subtitle: I18n.t("sdk.file.fromPhotos")
                     ) {
                         showPhotoPicker = true
                     }
@@ -284,8 +284,8 @@ public struct FilePickerView: View {
                 if configuration.allowCamera && configuration.allowsImages {
                     SourceOptionButton(
                         icon: "camera.fill",
-                        title: "Take Photo",
-                        subtitle: "Use camera"
+                        title: I18n.t("sdk.file.takePhoto"),
+                        subtitle: I18n.t("sdk.file.useCamera")
                     ) {
                         checkCameraPermission()
                     }
@@ -329,14 +329,14 @@ public struct FilePickerView: View {
                     if granted {
                         showCamera = true
                     } else {
-                        errorMessage = "Camera access denied. Please enable in Settings."
+                        errorMessage = I18n.t("sdk.permission.cameraDenied")
                     }
                 }
             }
         case .denied, .restricted:
-            errorMessage = "Camera access denied. Please enable in Settings."
+            errorMessage = I18n.t("sdk.permission.cameraDenied")
         @unknown default:
-            errorMessage = "Camera not available"
+            errorMessage = I18n.t("sdk.file.cameraUnavailable")
         }
     }
 
@@ -565,14 +565,14 @@ struct PhotoPickerRepresentable: UIViewControllerRepresentable {
                     }
                 }
             } else {
-                completion(.failure(FileUploadError.uploadFailed(reason: "Unsupported file type")))
+                completion(.failure(FileUploadError.uploadFailed(reason: I18n.t("sdk.file.unsupported"))))
             }
         }
 
         private func processImage(_ image: UIImage, filename: String?) {
             // Convert to JPEG data
             guard let data = image.jpegData(compressionQuality: 0.8) else {
-                completion(.failure(FileUploadError.uploadFailed(reason: "Could not process image")))
+                completion(.failure(FileUploadError.uploadFailed(reason: I18n.t("sdk.file.processFailed"))))
                 return
             }
 
@@ -683,7 +683,7 @@ struct CameraPickerRepresentable: UIViewControllerRepresentable {
 
         private func processImage(_ image: UIImage) {
             guard let data = image.jpegData(compressionQuality: 0.8) else {
-                completion(.failure(FileUploadError.uploadFailed(reason: "Could not process image")))
+                completion(.failure(FileUploadError.uploadFailed(reason: I18n.t("sdk.file.processFailed"))))
                 return
             }
 
@@ -811,7 +811,7 @@ public struct UploadProgressView: View {
                     Spacer()
 
                     if let remaining = progress.estimatedTimeRemaining, remaining > 0 {
-                        Text("~\(Int(remaining))s remaining")
+                        Text(I18n.t("sdk.file.secondsLeft", ["n": Int(remaining)]))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
