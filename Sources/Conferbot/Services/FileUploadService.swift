@@ -23,6 +23,14 @@ public enum FileUploadError: LocalizedError {
     case noData
 
     public var errorDescription: String? {
+        // The visitor's language (web upload.*); English keeps the detail.
+        if !I18n.isEnglish {
+            switch self {
+            case .fileTooLarge(let maxSize): return I18n.t("upload.tooBig", ["mb": maxSize / (1024 * 1024)])
+            case .invalidFileType(let allowed): return I18n.t("upload.notAllowed", ["types": allowed.joined(separator: ", ")])
+            default: return I18n.t("upload.failed")
+            }
+        }
         switch self {
         case .fileTooLarge(let maxSize):
             let mbSize = maxSize / (1024 * 1024)
