@@ -54,7 +54,7 @@ In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Conferbot/conferbot-ios", branch: "main")
+    .package(url: "https://github.com/Conferbot/conferbot-ios", from: "2.0.0")
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -63,22 +63,20 @@ targets: [
 ]
 ```
 
-> This guide describes the code on `main` (see [CHANGELOG.md](CHANGELOG.md), "Unreleased"). The 1.0.0 tag does not compile, so use the `main` branch (or a commit) until the next version is tagged, then `from: "<that version>"`.
+> This guide describes version 2.0.0 (see [CHANGELOG.md](CHANGELOG.md)). The 1.0.0 tag does not compile; use 2.0.0 or later.
 
 ### CocoaPods
-
-The pod is not on the CocoaPods trunk, so point at the repository:
 
 ```ruby
 platform :ios, '14.0'
 use_frameworks!
 
 target 'YourApp' do
-  pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :branch => 'main'
+  pod 'Conferbot', '~> 2.0'
 end
 ```
 
-Then `pod install`. Once the next version is tagged, use `:tag => '<version>'` instead of `:branch`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
+Then `pod install`. If `pod install` cannot find it yet, point at the tag instead: `pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :tag => '2.0.0'`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
 
 The module is `Conferbot`; the class is `ConferBot` (capital B): `import Conferbot`, then `ConferBot.shared`.
 
@@ -566,9 +564,9 @@ More: [docs/USAGE.md](docs/USAGE.md), [docs/API.md](docs/API.md), [docs/ARCHITEC
 
 **My navigation bar disappears in the chat / my bar styling no longer applies.** On iOS 15+ the UIKit chat draws its own header and hides the bar while it is on screen; it puts it back when the chat goes. Style the chat in the dashboard. See [CHANGELOG.md](CHANGELOG.md).
 
-**The package does not build at 1.0.0.** That tag does not compile; use `main` (see [Install](#install)).
+**The package does not build at 1.0.0.** That tag does not compile; use 2.0.0 or later (see [Install](#install)).
 
-**`pod install` cannot find `Conferbot`.** The pod is not on the trunk; use the `:git` line above.
+**`pod install` cannot find `Conferbot`.** Run `pod repo update`, or use the `:git` and `:tag` line above.
 
 **No push notifications.** Check the Push Notifications capability, that `setPushToken` is called, and that the user allowed notifications. Sending is off on the server until push is enabled, and for now reaches only apps with Conferbot's bundle id (see [Push notifications](#push-notifications)).
 
