@@ -111,6 +111,10 @@ public class ConferBot: ObservableObject {
     /// A help article the chat asked to open (a source under an AI answer
     /// or an article card); the chat screens show it in the help centre.
     @Published public private(set) var helpArticleToOpen: String?
+    /// A help article shown on its own, fetched by id: one the server picked
+    /// for a wait (queue-help) while the help centre is off (#83). The chat
+    /// screens present it; ``closeStandaloneArticle()`` when it is closed.
+    @Published public private(set) var standaloneArticle: KnowledgeBaseArticle?
 
     // Configuration
     private var apiKey: String?
@@ -200,7 +204,7 @@ public class ConferBot: ObservableObject {
             record: { ChatState.shared.getServerRecord() },
             lastMessageId: { [weak self] in self?.messages.last?.id },
             leftQueueHelped: { [weak self] in self?.handover.leftQueueHelped() },
-            openArticle: { [weak self] id in self?.openHelpArticle(id: id) ?? false },
+            openArticle: { [weak self] id in self?.openWaitArticle(id: id) ?? false },
             reducedMotion: {
                 #if canImport(UIKit)
                 return UIAccessibility.isReduceMotionEnabled
@@ -214,6 +218,37 @@ public class ConferBot: ObservableObject {
         liveChat.onQueueStatus = { [weak w] data in w?.onQueueStatus(data) }
         return w
     }()
+
+    // MARK: - Your requests
+    // The visitor's own conversations with the team: the list, one request
+    // and a reply box, read and answered over the socket (Core/Requests).
+    // The chat menu has "Your requests" once there is one; `requests.unread`
+    // is the app's badge.
+    /// my-request-update and connect, fanned out to the requests' listeners.
+    private let requestsEvents = RequestsEventHub()
+
+    @MainActor
+    public private(set) lazy var requests: YourRequests = YourRequests(hooks: .init(
+        socket: RequestsSocket(
+            emitWithAck: { [weak self] event, data, timeout, done in
+                guard let socket = self?.socketClient else { return done(nil) }
+                socket.emitWithAck(event: event, data: data, timeout: timeout, completion: done)
+            },
+            emit: { [weak self] event, data in self?.socketClient?.emit(event: event, data: data) },
+            on: { [weak self] event, fn in self?.requestsEvents.on(event, fn) ?? {} }
+        ),
+        isConnected: { [weak self] in self?.socketClient?.isConnected ?? false },
+        sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        record: { ChatState.shared.getServerRecord() },
+        user: { [weak self] in
+            guard let u = self?.currentUser else { return nil }
+            return RequestsUser(id: u.id, email: u.email, hash: u.hash)
+        },
+        visitorId: { [weak self] in
+            let ids = [self?.chatState.visitorId, self?.currentSession?.visitorId, self?.socketClient?.visitorId]
+            return ids.compactMap { $0 }.first { !$0.isEmpty }
+        }
+    ))
 
     /// The flow's handover step whose 20s waiting signal has started (once per wait).
     private var connectingWaitFor: String?
@@ -240,6 +275,8 @@ public class ConferBot: ObservableObject {
         DispatchQueue.main.async {
             self.isChatVisible = visible
             if visible { self.liveChat.reportReceipts(chatVisible: true) }
+            // The chat opening or closing: the requests are read again, at most every 15s.
+            Task { @MainActor in await self.requests.refresh() }
         }
     }
 
@@ -311,6 +348,8 @@ public class ConferBot: ObservableObject {
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 self.liveChat.reportReceipts(chatVisible: self.isChatVisible)
+                // A chat the visitor wrote in may become a request (web _sendResponse).
+                Task { @MainActor in self.requests.recordChanged() }
             }
             .store(in: &liveChatCancellables)
     }
@@ -470,6 +509,9 @@ public class ConferBot: ObservableObject {
 
         // Register all node handlers
         registerAllNodeHandlers()
+
+        // What this device remembers of the visitor's requests, for this bot.
+        Task { @MainActor in self.requests.load(botId: botId) }
 
         setupSocketListeners()
         connectSocket()
@@ -761,6 +803,8 @@ public class ConferBot: ObservableObject {
     public func identify(user: ConferBotUser) {
         self.currentUser = user
         ChatState.shared.visitorContext = user.toVisitorContext()
+        // A signed-in user (with a hash) has their requests from any device.
+        Task { @MainActor in await self.requests.refresh(force: true) }
         debugPrint("[ConferBot] User identified: \(user.id)")
     }
 
@@ -785,6 +829,7 @@ public class ConferBot: ObservableObject {
             self.resetAgentBotChat()
             self.handover.reset()
             self.waiting.reset()
+            self.requests.newConversation()
         }
 
         // Clear any existing stored session if forcing new
@@ -1641,7 +1686,17 @@ public class ConferBot: ObservableObject {
 
                 // Notify offline manager that socket connected
                 self.offlineManager.handleSocketConnected()
+
+                // The open request is read (and joined) again; the list too.
+                self.requestsEvents.fire(SocketEvents.connect)
+                await self.requests.refresh(force: true)
             }
+        }
+
+        // A request changed on the server (a team reply, solved).
+        socketClient?.on(Requests.Event.update) { [weak self] data, _ in
+            let d = data.first
+            DispatchQueue.main.async { self?.requestsEvents.fire(Requests.Event.update, d) }
         }
 
         socketClient?.on(SocketEvents.disconnect) { [weak self] _, _ in
@@ -2599,6 +2654,29 @@ public class ConferBot: ObservableObject {
         let set = { self.helpArticleToOpen = id }
         if Thread.isMainThread { set() } else { DispatchQueue.main.async(execute: set) }
         return true
+    }
+
+    /// An article the server picked for a wait (queue-help): in the help
+    /// centre while it is on, else fetched by id and shown on its own
+    /// (``standaloneArticle``), as RN and Flutter do (#83).
+    @discardableResult
+    func openWaitArticle(id: String) -> Bool {
+        switch HelpCentre.waitArticleRoute(serverCustomizations, articleId: id) {
+        case .nowhere: return false
+        case .helpCentre: return openHelpArticle(id: id)
+        case .byId:
+            guard let service = knowledgeBaseService else { return false }
+            Task { @MainActor in
+                if let article = try? await service.getArticle(id: id) { self.standaloneArticle = article }
+            }
+            return true
+        }
+    }
+
+    /// The article shown on its own was closed.
+    public func closeStandaloneArticle() {
+        let clear = { self.standaloneArticle = nil }
+        if Thread.isMainThread { clear() } else { DispatchQueue.main.async(execute: clear) }
     }
 
     /// The help centre took the article ``helpArticleToOpen`` asked for.
