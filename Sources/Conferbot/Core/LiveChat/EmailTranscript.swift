@@ -54,25 +54,27 @@ public enum EmailTranscript {
         return TranscriptEmailResult(ok: false, message: raw.isEmpty ? nil : String(raw.prefix(200)))
     }
 
-    /// What the card says when it did not go: the server's words (it words
-    /// them in English, as the SDK is), else ours.
+    /// What the card says when it did not go: the server's words in English
+    /// (it words them in English), ours in the other languages (web
+    /// emailTranscript.ts).
     public static func errorText(_ r: TranscriptEmailResult?) -> String {
-        if let r = r, !r.ok, let m = r.message { return m }
+        if I18n.isEnglish, let r = r, !r.ok, let m = r.message { return m }
         return Copy.sendFailed
     }
 
-    /// The web's English strings (i18n en: chat.menu.emailChat, mailchat.*, form.*).
+    /// The web's strings (ts/chat/emailTranscript.ts: chat.menu.emailChat,
+    /// mailchat.*, form.*, common.*), in the active language.
     public enum Copy {
-        public static let menu = "Email me this chat"
-        public static let title = "Email me this chat"
-        public static let sub = "We'll send the whole conversation to your inbox."
-        public static let placeholder = "you@company.com"
-        public static let label = "Your email"
-        public static let send = "Send"
-        public static let sending = "Sending\u{2026}"
-        public static let cancel = "Cancel"
-        public static let checkEmail = "Please check the email address."
-        public static let sendFailed = "We couldn't send it just now. Please try again."
-        public static func sent(_ email: String) -> String { "Sent! Check your inbox at \(email)" }
+        public static var menu: String { I18n.t("chat.menu.emailChat") }
+        public static var title: String { I18n.t("chat.menu.emailChat") }
+        public static var sub: String { I18n.t("mailchat.sub") }
+        public static var placeholder: String { I18n.t("form.emailPlaceholder") }
+        public static var label: String { I18n.t("form.yourEmail") }
+        public static var send: String { I18n.t("common.send") }
+        public static var sending: String { I18n.t("common.sendingEllipsis") }
+        public static var cancel: String { I18n.t("common.cancel") }
+        public static var checkEmail: String { I18n.t("form.checkEmail") }
+        public static var sendFailed: String { I18n.t("form.sendFailed") }
+        public static func sent(_ email: String) -> String { I18n.t("mailchat.sent", ["email": email]) }
     }
 }
