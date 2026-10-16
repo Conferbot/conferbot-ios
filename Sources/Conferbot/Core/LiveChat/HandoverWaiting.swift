@@ -77,6 +77,29 @@ public enum HandoverWait {
     public static func aiEscalationNudgeSeconds(_ maxWaitTime: Any?) -> TimeInterval {
         LiveChat.waitSeconds(maxWaitTime) + serverGraceSeconds
     }
+
+    /// Does this agent-left start the escalation's wait? Only an AI agent
+    /// handing the visitor on: a person leaving is not an escalation, and an
+    /// idle close ends the chat (ai-agent-inactive-close). RN #43.
+    public static func startsEscalationWait(_ data: [String: Any]?) -> Bool {
+        (data?["agentDetails"] as? [String: Any])?["isAIAgent"] as? Bool == true
+            && data?["reason"] as? String != "visitor_inactive"
+    }
+
+    /// The handover step an escalation waits on: the flow's handover step
+    /// (or an agent bot's shell step), else the latest handover step in the
+    /// record (an agent bot's silent handover). RN escalationHandoverData.
+    public static func escalationHandoverData(_ stepData: [String: Any]?, record: [[String: Any]]) -> [String: Any]? {
+        if let stepData = stepData { return stepData }
+        for entry in record.reversed() {
+            let kind = (entry["type"] as? String) ?? (entry["shape"] as? String)
+            if kind == NodeTypes.Special.humanHandover || entry["shape"] as? String == NodeTypes.Special.humanHandover,
+               let data = entry["data"] as? [String: Any] {
+                return data
+            }
+        }
+        return nil
+    }
 }
 
 /// A one-shot timer the signal can be tested with.
