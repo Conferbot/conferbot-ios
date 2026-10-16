@@ -18,6 +18,9 @@ struct ViewSwitch<Content: View>: View {
     /// customizations.viewTransition and viewTransitionDirection.
     let kind: Any?
     let sweep: Any?
+    /// Clipped to its frame (the moving view stays inside). Off where the
+    /// views' own backgrounds run up under the status bar (the UIKit chat, #96).
+    var clips: Bool = true
     @ViewBuilder let content: (HomeView) -> Content
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -34,7 +37,7 @@ struct ViewSwitch<Content: View>: View {
                 .modifier(Moving(motion: motion, progress: progress, size: g.size))
                 .id(current)
         }
-        .clipped()
+        .modifier(ClipIf(on: clips))
         .onChange(of: view) { next in
             let from = shown ?? next
             guard from != next else { return }
@@ -82,5 +85,13 @@ private struct Moving: ViewModifier {
             dy = CGFloat(y) * size.height * (1 - progress)
         }
         return content.opacity(opacity).scaleEffect(scale).offset(x: dx, y: dy)
+    }
+}
+
+@available(iOS 15.0, *)
+private struct ClipIf: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.clipped() } else { content }
     }
 }
