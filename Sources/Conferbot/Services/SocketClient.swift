@@ -18,6 +18,12 @@ public class SocketClient {
     /// Listeners added with on(_:callback:), kept so they hold before connect()
     /// creates the socket (ConferBot registers them first) and across a new socket.
     private var handlers: [(event: String, callback: NormalCallback)] = []
+    /// The visitor, sent with the handshake so the server can refuse one the
+    /// workspace blocked (web core/socket.ts). Set before connect().
+    public var visitorId: String?
+    /// The handshake was refused: the workspace blocked this visitor
+    /// (connect_error "visitor_blocked"). The socket stops retrying.
+    public var onBlocked: (() -> Void)?
 
     public var isConnected: Bool {
         return socket?.status == .connected
@@ -37,8 +43,14 @@ public class SocketClient {
         disconnect()
     }
 
+    /// One connect at a time: two threads building managers at once tore
+    /// down each other's socket mid-connect.
+    private let connectLock = NSLock()
+
     /// Connect to socket server
     public func connect() {
+        connectLock.lock()
+        defer { connectLock.unlock() }
         guard socket?.status != .connected else {
             debugPrint("[ConferBot Socket] Already connected")
             return
@@ -49,11 +61,7 @@ public class SocketClient {
             .compress,
             // The embed-server reads socket.handshake.query.botId, so the
             // connect params must use plain keys (not X- header names)
-            .connectParams([
-                "botId": botId,
-                "apiKey": apiKey,
-                "platform": ConferBotConstants.platformIdentifier
-            ]),
+            .connectParams(handshakeParams),
             .extraHeaders([
                 ConferBotConstants.headerApiKey: apiKey,
                 ConferBotConstants.headerBotId: botId,
@@ -75,7 +83,19 @@ public class SocketClient {
 
         setupConnectionHandlers()
         for h in handlers { socket?.on(h.event, callback: h.callback) }
-        socket?.connect()
+        // The visitor in the handshake's auth too (socket.io v4 reads both).
+        socket?.connect(withPayload: visitorId.map { ["botId": botId, "visitorId": $0] } ?? ["botId": botId])
+    }
+
+    /// The handshake's query: the bot, and the visitor when known (#40).
+    var handshakeParams: [String: Any] {
+        var params: [String: Any] = [
+            "botId": botId,
+            "apiKey": apiKey,
+            "platform": ConferBotConstants.platformIdentifier
+        ]
+        if let id = visitorId, !id.isEmpty { params["visitorId"] = String(id.prefix(128)) }
+        return params
     }
 
     private func setupConnectionHandlers() {
@@ -89,6 +109,13 @@ public class SocketClient {
 
         socket?.on(clientEvent: .error) { [weak self] data, _ in
             self?.debugPrint("[ConferBot Socket] Error: \(data)")
+            // Refused at the handshake: the workspace blocked this visitor.
+            // No retrying; the chat shows its closed state.
+            if LiveEvents.isBlockedError(data) {
+                self?.manager?.reconnects = false
+                self?.socket?.disconnect()
+                self?.onBlocked?()
+            }
         }
 
         socket?.on(clientEvent: .reconnect) { [weak self] _, _ in
@@ -215,7 +242,9 @@ public class SocketClient {
         emit(SocketEvents.initiateHandover, data)
     }
 
-    /// End chat
+    /// end-chat. Only an agent ends a live chat: the server refuses it from a
+    /// visitor (`forbidden`), so the SDK never sends it; ConferBot.endSession
+    /// leaves the queue with queue-self-resolve instead (#59).
     public func endChat(chatSessionId: String) {
         emit(SocketEvents.endChat, ["chatSessionId": chatSessionId])
     }
