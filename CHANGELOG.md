@@ -6,15 +6,9 @@ This is the only changelog for the SDK (the old copy in `docs/` was merged in he
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-<!--
-  Proposed next version: 2.0.0. The breaking changes below (the SwiftUI views
-  need iOS 15, the removed handler classes and node views, NodeResult's new
-  cases, the UIKit chat's removed conformances) need a major bump under semver.
-  Bump s.version in Conferbot.podspec when cutting the release and tag the
-  same version (SwiftPM and the podspec's :tag both read the git tag).
--->
-
 ## [Unreleased]
+
+## [2.0.0] - 2026-10-16
 
 Everything since 1.0.0: the SDK now behaves like the Conferbot web widget, from the
 launcher to the AI agent, the handover and the help centre. `docs/PARITY.md` tracks each
