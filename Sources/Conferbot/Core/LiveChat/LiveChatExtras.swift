@@ -6,9 +6,10 @@
 //  place in the queue, what happens when nobody can join (an email for the
 //  reply, leave a message), read receipts both ways, a conversation locked or
 //  its composer turned off by the agent, an agent's dropped connection, an
-//  agent asking for a file, the AI's follow-up email card, and the post-chat
-//  rating. Owned by ConferBot (`conferBot.liveChat`); the shapes are in
-//  LiveChat.swift.
+//  agent asking for a file, the AI's follow-up email card, the post-chat
+//  rating, "Email me this chat" and a blocked visitor's closed chat. Owned
+//  by ConferBot (`conferBot.liveChat`); the shapes are in LiveChat.swift,
+//  LiveEvents.swift and EmailTranscript.swift.
 //
 
 import Foundation
@@ -36,6 +37,13 @@ public final class LiveChatExtras: ObservableObject {
     @Published public private(set) var leftMessageTo: String?
     @Published public private(set) var leadEmail: String?
     @Published public private(set) var csatSent = false
+    /// The workspace blocked this visitor: the closed line (LiveEvents), else nil (#40).
+    @Published public private(set) var blocked: String?
+    /// "Email me this chat": the card is up, and where it went once sent (#39).
+    @Published public private(set) var emailTranscriptOpen = false
+    @Published public private(set) var emailTranscriptSentTo: String?
+    /// The server's transcript email (APIClient.sendTranscriptEmail); ConferBot sets it.
+    var postTranscriptEmail: ((_ chatSessionId: String, _ email: String) async -> TranscriptEmailResult)?
 
     private let socket: () -> SocketClient?
     private let sessionId: () -> String?
@@ -151,19 +159,81 @@ public final class LiveChatExtras: ObservableObject {
             let marks = LiveChat.receiptMarks(d)
             self.main { self.receiptMarks = marks }
         }
-        on("chat-ended") { _ in
-            self.main {
-                self.queue = nil
-                self.stopQueuePoll()
-                self.lockedBy = nil
-                self.fileRequestedBy = nil
-                self.csatOpen = true
-            }
-        }
         on("agent-message") { d in
             // Buying intent and no email yet: the one-field follow-up card.
             let ai = ((d?["agentDetails"] as? [String: Any])?["isAIAgent"] as? Bool) == true
             if ai && (d?["leadCard"] as? Bool) == true { self.main { self.leadCardOpen = true } }
+        }
+    }
+
+    /// chat-ended, once per end (ConferBot drops the same end again, #40):
+    /// the queue and the agent's asks go, the post-chat rating shows.
+    func chatEnded() {
+        main {
+            self.queue = nil
+            self.stopQueuePoll()
+            self.lockedBy = nil
+            self.fileRequestedBy = nil
+            self.csatOpen = true
+        }
+    }
+
+    /// Blocked by the workspace, mid-chat or at the handshake (web
+    /// _applyVisitorBlock): the chat closes with a neutral line, whatever was
+    /// waiting goes, and nothing more is taken (#40).
+    func block(_ text: String) {
+        stopQueuePoll()
+        stopWaitTimer()
+        main {
+            self.blocked = text
+            self.queue = nil
+            self.handoverWaiting = nil
+            self.noAgentsAvailable = false
+            self.leadCardOpen = false
+            self.fileRequestedBy = nil
+            self.csatOpen = false
+            self.emailTranscriptOpen = false
+        }
+    }
+
+    /// "Email me this chat" from the chat menu: the card, once at a time (web mountEmailTranscript).
+    public func openEmailTranscript() {
+        main {
+            guard self.blocked == nil else { return }
+            self.emailTranscriptSentTo = nil
+            self.emailTranscriptOpen = true
+        }
+    }
+
+    public func closeEmailTranscript() {
+        main { self.emailTranscriptOpen = false }
+    }
+
+    /// Send the transcript to this address. Sent: the address is kept as the
+    /// visitor's (user metadata, the email answer) and the record goes, as
+    /// the web's rememberEmail does. `done` gets the result on the main thread.
+    public func emailTranscript(_ email: String, done: @escaping (TranscriptEmailResult) -> Void = { _ in }) {
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard EmailTranscript.isEmail(address) else {
+            return main { done(TranscriptEmailResult(ok: false, message: EmailTranscript.Copy.checkEmail)) }
+        }
+        guard let id = sessionId(), let post = postTranscriptEmail else {
+            return main { done(TranscriptEmailResult(ok: false)) }
+        }
+        Task {
+            let r = await post(id, address)
+            if r.ok {
+                self.chatState().updateMetadata(key: "email", value: address)
+                self.chatState().setAnswer(nodeId: "email-transcript", value: address)
+                self.sendRecord()
+            }
+            self.main {
+                if r.ok {
+                    self.emailTranscriptSentTo = address
+                    self.emailTranscriptOpen = false
+                }
+                done(r)
+            }
         }
     }
 
@@ -328,6 +398,9 @@ public final class LiveChatExtras: ObservableObject {
             self.leftMessageTo = nil
             self.leadEmail = nil
             self.csatSent = false
+            self.blocked = nil
+            self.emailTranscriptOpen = false
+            self.emailTranscriptSentTo = nil
         }
         reportedDelivered = ""
         reportedSeen = ""
