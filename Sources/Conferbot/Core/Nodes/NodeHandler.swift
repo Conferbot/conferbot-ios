@@ -136,6 +136,20 @@ public enum NodeUIState {
     case none
 }
 
+extension NodeUIState {
+    /// The step a waiting state belongs to (nil for messages and the like).
+    var stepNodeId: String? {
+        switch self {
+        case .textInput(_, _, let id), .singleChoice(_, let id), .multiChoice(_, let id), .buttons(_, let id), .quickReplies(_, let id),
+             .cards(_, let id), .rating(_, _, let id), .opinionScale(_, _, _, _, let id), .calendar(_, let id), .fileUpload(_, _, let id),
+             .payment(_, _, _, _, let id), .rich(_, _, let id):
+            return id
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Input Validation
 
 /// Validation types for text input
