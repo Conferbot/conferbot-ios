@@ -17,6 +17,8 @@ handover, file uploads, push notifications, and full customization support.
   s.swift_versions = ['5.7', '5.8', '5.9']
 
   s.source_files = 'Sources/Conferbot/**/*.{swift,h,m}'
+  # The widget's words in its five languages (scripts/sync-i18n.sh, Core/I18n)
+  s.resource_bundles = { 'Conferbot' => ['Sources/Conferbot/Resources/i18n-strings.json'] }
 
   s.frameworks = 'UIKit', 'Foundation', 'Combine'
   s.dependency 'Socket.IO-Client-Swift', '~> 16.0'
