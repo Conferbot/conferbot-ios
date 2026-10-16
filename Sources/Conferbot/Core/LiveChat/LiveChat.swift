@@ -403,10 +403,40 @@ public enum LiveChat {
         return out
     }
 
-    /// The max wait in seconds (minutes as the builder wrote them).
+    // MARK: - The wait card's max-wait countdown (web queueCard.ts clock, setRemaining; special.ts _attachHandoverWait)
+
+    /// "1:05" (never below 0:00).
+    public static func clock(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds.isFinite ? seconds.rounded() : 0))
+        return "\(s / 60):" + String(format: "%02d", s % 60)
+    }
+
+    /// The card's countdown line: "Max wait 1:05", in the visitor's language.
+    public static func maxWaitText(_ seconds: Double) -> String {
+        I18n.t("queue.maxWait", ["time": clock(seconds)])
+    }
+
+    /// When the handover's max wait runs out: the server's seconds left for
+    /// a wait picked back up after a restart (live-chat-state waitEndsAt,
+    /// HandoverState.restoredLiveChat), else the step's max wait from now
+    /// (minutes; 2 when unset).
+    public static func waitDeadline(maxWaitTime: Any?, remainingSeconds: Int?, now: Date = Date()) -> Date {
+        let seconds: Double
+        if let r = remainingSeconds, r >= 0 { seconds = Double(r) } else { seconds = waitSeconds(maxWaitTime) }
+        return now.addingTimeInterval(seconds)
+    }
+
+    /// Whole seconds left before the deadline (0 once it has passed).
+    public static func secondsLeft(_ deadline: Date, now: Date = Date()) -> Int {
+        max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
+    }
+
+    /// The max wait in seconds (minutes as the builder wrote them; 2 when
+    /// unset, 0 or below, as RN's aiEscalationNudgeMs / waitDeadline, #93).
     public static func waitSeconds(_ v: Any?) -> Double {
         let m = waitMinutes(v)
-        return ((m as? Double) ?? Double((m as? Int) ?? 2)) * 60
+        let minutes = (m as? Double) ?? Double((m as? Int) ?? 2)
+        return (minutes > 0 ? minutes : 2) * 60
     }
 
     /// Minutes, as the builder wrote them: half a minute is 0.5, not 2 (the default).
