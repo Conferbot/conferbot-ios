@@ -1,11 +1,13 @@
 import XCTest
 @testable import Conferbot
 
-/// The launcher entrance, attention and idle call against Chrome: the React
-/// Native SDK's golden (scripts/parity/launcherfx/golden.json, copied to
+/// The launcher entrance, attention and idle call, and the mascot's moods,
+/// typing, greeting card and gestures, against Chrome: the React Native
+/// SDK's golden (scripts/parity/launcherfx/golden.json, copied to
 /// Tests/Resources/launcherfx-golden.json) holds Chrome's own values of
 /// every track, paused at each sample. Each sample keeps only the channels
-/// away from rest; iterations -1 is infinity.
+/// away from rest; iterations -1 is infinity. A transform list (`matrix`)
+/// is read back as its CSS matrix (ma..mf).
 final class LauncherFxGoldenTests: XCTestCase {
     private static let golden: [String: Any] = {
         let url = Bundle.module.url(forResource: "launcherfx-golden", withExtension: "json")!
@@ -66,11 +68,25 @@ final class LauncherFxGoldenTests: XCTestCase {
             let tracks = (c["tracks"] as! [[String: Any]]).map { Track.fromJson($0) }
             let base = doubles(c["base"])
             let box = c["box"] as! [String: Any]
+            let matrix = (c["matrix"] as? Bool) == true
+            let order = tracks.isEmpty ? "trs" : Keyframes.transformOrder(tracks[0])
             for s in c["samples"] as! [[String: Any]] {
                 let v = s["v"] as! [String: Any]
-                let want = FxValues.rest(doubles(v).filter { $0.key != "px" && $0.key != "py" })
                 let t = num(s, "t")
                 let got = Keyframes.evaluate(tracks, t, base: base)
+                if matrix {
+                    // A transform list: its matrix, in the order the list draws it.
+                    let m = Keyframes.transformMatrix(got, order)
+                    let d = doubles(v)
+                    for (i, ch) in ["ma", "mb", "mc", "md", "me", "mf"].enumerated() {
+                        worst["matrix"] = max(worst["matrix"] ?? 0, abs(m[i] - (d[ch] ?? [1, 0, 0, 1, 0, 0][i])))
+                    }
+                    worst["o"] = max(worst["o"] ?? 0, abs(got.o - (d["o"] ?? 1)))
+                    worst["dash"] = max(worst["dash"] ?? 0, abs(got.dash - (d["dash"] ?? 0)))
+                    samples += 1
+                    continue
+                }
+                let want = FxValues.rest(doubles(v).filter { $0.key != "px" && $0.key != "py" })
                 for ch in Keyframes.channels { worst[ch] = max(worst[ch] ?? 0, abs(got[ch] - want[ch])) }
                 if let path = c["path"] as? String, let px = Keyframes.number(v["px"]) {
                     let x = num(box, "x"), y = num(box, "y"), w = num(box, "w"), h = num(box, "h")
@@ -84,10 +100,12 @@ final class LauncherFxGoldenTests: XCTestCase {
         }
         let report = worst.keys.sorted().map { "\($0)=\(String(format: "%.5f", worst[$0]!))" }.joined(separator: " ")
         print("launcherfx golden: \(cases.count) cases, \(samples) samples; max error \(report)")
-        XCTAssertEqual(cases.count, 447)
-        XCTAssertEqual(samples, 19275)
+        XCTAssertEqual(cases.count, 499)
+        XCTAssertEqual(samples, 22123)
         for ch in ["tx", "ty", "txp", "typ", "r", "rx", "ry", "od", "dash", "clip"] { XCTAssertLessThan(worst[ch]!, 0.01, ch) }
         for ch in ["sx", "sy", "o"] { XCTAssertLessThan(worst[ch]!, 0.001, ch) }
+        // The mascot's transform lists (moods, typing, the card, the gestures), as matrices.
+        XCTAssertLessThan(worst["matrix"]!, 0.001)
         // Chrome lays `left` out on a 1/64 px grid; the motion path is flattened.
         XCTAssertLessThan(worst["left"]!, 0.05)
         XCTAssertLessThan(worst["path"]!, 0.6)
@@ -146,6 +164,37 @@ final class LauncherFxGoldenTests: XCTestCase {
             }
         }
         check("entrance:settle", [LauncherEntrance.settleReveal])
+        // The mascot: its moods, the typing mascot and pencil, the card's moves, the figure's gestures.
+        let moods: [(String, String?, Double?)] = [("wave", "wave", 2), ("wave", "down", nil), ("think", nil, nil), ("happy", "down", nil)]
+        for (mood, arm, count) in moods {
+            let plan = MascotMoods.plan(mood, arm: arm, waveCount: count)
+            for (part, tracks) in plan.parts where part != "lid" || mood == "wave" {
+                check("mascot:mood-\(mood)\(arm.map { "@\($0)" } ?? ""):\(part)", tracks)
+            }
+        }
+        check("mascot:typing:sway", [MascotMoods.Typing.sway])
+        check("mascot:typing:blink", [MascotMoods.Typing.blink])
+        check("mascot:typing:glance", [MascotMoods.Typing.glance])
+        for (i, d) in MascotMoods.Typing.dots.enumerated() { check("mascot:typing:dot\(i)", [d.track]) }
+        check("mascot:pencil:line", [MascotMoods.Pencil.write])
+        check("mascot:pencil:pencil", [MascotMoods.Pencil.pencil])
+        check("mascot:card:spring", [MascotMotion.cardEnterTrack("lively", "card")!])
+        check("mascot:card:in", [MascotMotion.cardEnterTrack("subtle", "card")!])
+        check("mascot:card:collapse", [MascotMotion.cardLeaveTrack("lively", "open")!])
+        check("mascot:card:out", [MascotMotion.cardLeaveTrack("off", "close")!])
+        check("mascot:card:ping-dot", [MascotMotion.Ping.dot])
+        check("mascot:card:ping-ring", [MascotMotion.Ping.ring])
+        check("mascot:card:word3", [MascotMotion.wordFade("Hi there, how can we help you today?")!.tracks[3]])
+        for amp in [1, 0.75, 0.55] {
+            for g in ["pop", "rise", "fadeIn", "wave", "tilt", "nod", "hop", "handoff", "bow"] {
+                if amp != 1 && (g == "rise" || g == "fadeIn") { continue }
+                let tr = MascotMotion.gestureTrack(g, g == "fadeIn" ? 0 : amp, delay: g == "pop" ? 140 : g == "rise" ? 80 : 0,
+                                                   toward: g == "handoff" ? (x: -40, y: 60) : nil)
+                check("mascot:gesture:\(g)@\(Keyframes.jsNum(amp))", [tr])
+            }
+            check("mascot:gesture:talk@\(Keyframes.jsNum(amp))", [MascotMotion.talkTrack(amp)])
+        }
+        check("mascot:gesture:breath", [MascotMotion.breath])
         // Every case in the golden is one this SDK builds.
         XCTAssertEqual(checked, cases.count)
     }
