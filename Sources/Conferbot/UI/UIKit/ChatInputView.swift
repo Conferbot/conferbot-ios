@@ -170,6 +170,10 @@ extension ChatInputView: UITextViewDelegate {
         // Update placeholder
         placeholderLabel.isHidden = !textView.text.isEmpty
 
+        // The waiting nudge waits while something is typed; a person in the
+        // chat sees the draft (TypingPreview), never for a secure field.
+        ConferBot.shared.composerChanged(textView.text, secure: textView.isSecureTextEntry)
+
         // Update send button
         sendButton.isEnabled = !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
