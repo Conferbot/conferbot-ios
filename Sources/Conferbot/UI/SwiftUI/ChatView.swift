@@ -299,8 +299,11 @@ public struct ChatView: View {
                     .chatFont(.display, size: 16, weight: .semibold, relativeTo: .headline, fallback: .system(size: 16, weight: .semibold))
                     .foregroundColor(ink)
                     .lineLimit(1)
-                if !conferBot.isConnected {
+                // No connection line for a closed chat (#79).
+                if conferBot.headerConnection == .connecting {
                     Text(ChatText.connecting).font(.caption).foregroundColor(ink.opacity(0.85))
+                } else if conferBot.headerConnection == .none {
+                    EmptyView()
                 } else if let tagline = look.tagline {
                     Text(tagline).font(.caption).foregroundColor(ink.opacity(0.85)).lineLimit(1)
                 } else if look.showOnline, let status = headerStatus {
@@ -410,17 +413,23 @@ public struct ChatView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conferBot.customization?.headerTitle ?? ChatText.supportChat)
+                // The bot's name remembered from its last settings, and no
+                // connection line for a closed chat: a visitor refused at
+                // the handshake never gets the settings (#79).
+                Text(conferBot.chatHeaderTitle)
                     .font(.headline)
 
-                if conferBot.isConnected {
+                switch conferBot.headerConnection {
+                case .connected:
                     Text(ChatText.online)
                         .font(.caption)
                         .foregroundColor(.green)
-                } else {
+                case .connecting:
                     Text(ChatText.connecting)
                         .font(.caption)
                         .foregroundColor(.orange)
+                case .none:
+                    EmptyView()
                 }
             }
 
@@ -747,17 +756,23 @@ public struct ChatViewWithKBSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conferBot.customization?.headerTitle ?? ChatText.supportChat)
+                // The bot's name remembered from its last settings, and no
+                // connection line for a closed chat: a visitor refused at
+                // the handshake never gets the settings (#79).
+                Text(conferBot.chatHeaderTitle)
                     .font(.headline)
 
-                if conferBot.isConnected {
+                switch conferBot.headerConnection {
+                case .connected:
                     Text(ChatText.online)
                         .font(.caption)
                         .foregroundColor(.green)
-                } else {
+                case .connecting:
                     Text(ChatText.connecting)
                         .font(.caption)
                         .foregroundColor(.orange)
+                case .none:
+                    EmptyView()
                 }
             }
 
