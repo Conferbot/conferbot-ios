@@ -5,36 +5,50 @@
 //  Checks on what the visitor types or picks, ported from the web widget
 //  (conferbot-widget/src/ts/chat/nodeKit.ts, nodeLogic.ts,
 //  utils/emailTypos.ts) through the React Native SDK (src/core/flow/inputs.ts),
-//  with the widget's English messages (ts/i18n/en.ts).
+//  with the widget's messages (ts/i18n) in the active language.
 //
 
 import Foundation
 
 public enum FlowInputs {
 
-    /// English texts the steps say (web i18n en.ts).
+    /// The steps' plain texts by key (web i18n: validation.*, upload.*, common.*).
+    static let enKeys: [String] = [
+        "validation.email", "validation.phone", "validation.numberLike", "validation.link",
+        "validation.number", "validation.url", "upload.tapRetry", "common.skipped", "common.done", "common.somethingWrong",
+    ]
+
+    /// The texts the steps say, in the active language (the name stays from
+    /// when they were English only).
     public enum EN {
-        public static let emailInvalid = "Please enter a valid email address"
-        public static func emailTypo(_ email: String) -> String { "Did you mean \(email)? Press Enter to send it, or edit it." }
-        public static let phoneInvalid = "Please enter a valid phone number"
-        public static let numberLike = "Please enter a number, like 42"
-        public static func numberBetween(_ min: Double, _ max: Double) -> String { "Please enter a number between \(JS.numberText(min)) and \(JS.numberText(max))" }
-        public static func numberMin(_ min: Double) -> String { "Please enter \(JS.numberText(min)) or more" }
-        public static func numberMax(_ max: Double) -> String { "Please enter \(JS.numberText(max)) or less" }
-        public static let link = "Please enter a link, like example.com"
-        public static func uploadOverSize(_ mb: Double) -> String { "That file is over \(JS.numberText(mb)) MB - choose a smaller one." }
-        public static func uploadNotAllowed(_ types: String) -> String { "That file can't be sent here - choose \(types)." }
-        public static let uploadRetry = "That didn't upload - tap to try again."
-        public static let skipped = "Skipped"
-        public static let done = "Done"
-        public static let somethingWrong = "Something went wrong. Please try again."
+        public static var emailInvalid: String { I18n.t("validation.email") }
+        public static func emailTypo(_ email: String) -> String { I18n.t("validation.emailTypo", ["email": email]) }
+        public static var phoneInvalid: String { I18n.t("validation.phone") }
+        public static var numberLike: String { I18n.t("validation.numberLike") }
+        public static func numberBetween(_ min: Double, _ max: Double) -> String {
+            I18n.t("validation.numberBetween", ["min": JS.numberText(min), "max": JS.numberText(max)])
+        }
+        public static func numberMin(_ min: Double) -> String { I18n.t("validation.numberMin", ["min": JS.numberText(min)]) }
+        public static func numberMax(_ max: Double) -> String { I18n.t("validation.numberMax", ["max": JS.numberText(max)]) }
+        public static var link: String { I18n.t("validation.link") }
+        public static var numberInvalid: String { I18n.t("validation.number") }
+        public static var urlInvalid: String { I18n.t("validation.url") }
+        public static func uploadOverSize(_ mb: Double) -> String { I18n.t("upload.overSize", ["mb": JS.numberText(mb)]) }
+        public static func uploadNotAllowed(_ types: String) -> String { I18n.t("upload.notAllowed", ["types": types]) }
+        public static var uploadRetry: String { I18n.t("upload.tapRetry") }
+        public static var skipped: String { I18n.t("common.skipped") }
+        public static var done: String { I18n.t("common.done") }
+        public static var somethingWrong: String { I18n.t("common.somethingWrong") }
     }
 
     /// The owner's own error text, or the default when they left it empty or
-    /// kept the stock English (web i18n ownerTextOr).
+    /// kept the stock English (web i18n ownerTextOr). `fallback` is drawn in
+    /// the active language; its English is stock too.
     public static func ownerTextOr(_ value: Any?, _ fallback: String, _ stockEnglish: [String] = []) -> String {
         let v = (value as? String).map { FlowText.plainText($0) } ?? ""
-        if v.isEmpty || ([fallback] + stockEnglish).contains(where: { FlowText.plainText($0) == v }) { return fallback }
+        let key = enKeys.first { I18n.t($0) == fallback }
+        let stock = [fallback] + (key.map { [I18n.tFor(.en, $0)] } ?? []) + stockEnglish
+        if v.isEmpty || stock.contains(where: { FlowText.plainText($0) == v }) { return fallback }
         return value as? String ?? fallback
     }
 
@@ -170,7 +184,7 @@ public enum FlowInputs {
 
     public static let defaultMaxFileMB: Double = 5
 
-    /// The allowed types in words: "PNG or IMAGE/JPEG", "images or PDF".
+    /// The allowed types in words: "PNG or IMAGE/JPEG", "images or PDF" (web nodeLogic.ts fileTypesWords).
     public static func fileTypesWords(_ types: Any?) -> String {
         var unique: [String] = []
         for t in JS.array(types) {
@@ -178,7 +192,7 @@ public enum FlowInputs {
             if x.isEmpty { continue }
             var word: String
             if x.hasSuffix("/") {
-                word = x == "image/" ? "images" : x == "video/" ? "videos" : x.replacingOccurrences(of: "/", with: "")
+                word = x == "image/" ? I18n.t("file.images") : x == "video/" ? I18n.t("file.videos") : x.replacingOccurrences(of: "/", with: "")
             } else {
                 word = x.replacing("^\\.", with: "").replacing("^application/", with: "").uppercased()
             }
@@ -186,7 +200,7 @@ public enum FlowInputs {
             if !unique.contains(word) { unique.append(word) }
         }
         if unique.isEmpty { return "" }
-        return unique.count == 1 ? unique[0] : "\(unique.dropLast().joined(separator: ", ")) or \(unique[unique.count - 1])"
+        return unique.count == 1 ? unique[0] : "\(unique.dropLast().joined(separator: ", ")) \(I18n.t("common.or")) \(unique[unique.count - 1])"
     }
 
     /// Why a picked file can't be sent, or nil (web nodeLogic.fileUploadProblem).
