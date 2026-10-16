@@ -261,8 +261,16 @@ struct GreetingCardView: View {
     let onPress: () -> Void
     let onClose: () -> Void
     let onStarter: (String) -> Void
+    /// The card is going: "open" (opened from it, or the chat opened) or "close" (its x).
+    var leaving: String? = nil
+    /// The launcher under the card (the figure hands off toward its centre).
+    var launcher: CGSize? = nil
+    /// It has gone (its leaving moves are over).
+    var onGone: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var figure = GreetingFigureModel()
+    @State private var leftAt: Date?
     @State private var shownAt = Date()
     @State private var settled = false
     @State private var typed = 0
@@ -284,16 +292,35 @@ struct GreetingCardView: View {
         }
     }
 
+    /// The card's width: its style's, never wider than the screen less 12 a side.
+    private var width: CGFloat { min(CGFloat(Greeting.width(style)), UIScreen.main.bounds.width - 24) }
+
+    /// What moves on the card: the owner's mascot, the bot's avatar (not on the text message, whose head is hidden), or nothing.
+    private var figureKind: String? {
+        card.mascot != nil ? "mascot" : card.head.avatar != nil && style != "imessage" ? "avatar" : nil
+    }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: settled || reduceMotion)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: (settled || reduceMotion) && leftAt == nil)) { tl in
             let t = settled || reduceMotion ? 1e9 : tl.date.timeIntervalSince(shownAt) * 1000
+            // Leaving: the collapse toward the launcher, or the fade down (polish-home.css).
+            let leave = leftAt.flatMap { at in
+                MascotMotion.cardLeaveTrack(card.motion, leaving ?? "open", reduced: reduceMotion).map { Keyframes.evaluate([$0], tl.date.timeIntervalSince(at) * 1000) }
+            } ?? FxValues.rest()
             styled(t)
                 .modifier(Entrance(style: style, motion: card.motion, reduced: reduceMotion, t: t, anchor: alignLeft ? .bottomLeading : .bottomTrailing))
+                .modifier(FxTransformEffect(v: leave, order: "ts"))
+                .opacity(min(1, max(0, leave.o)))
         }
-        // Its style's width, never wider than the screen less 12 a side.
-        .frame(width: min(CGFloat(Greeting.width(style)), UIScreen.main.bounds.width - 24))
+        .frame(width: width)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { figure.cardHeight = Double(g.size.height) }
+                .onChange(of: g.size.height) { figure.cardHeight = Double($0) }
+        })
         .contentShape(Rectangle())
         .onTapGesture(perform: onPress)
+        .allowsHitTesting(leaving == nil)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(Text(card.text))
@@ -301,8 +328,34 @@ struct GreetingCardView: View {
             shownAt = Date()
             DispatchQueue.main.asyncAfter(deadline: .now() + settleMs / 1000) { settled = true }
             startTyping()
+            figure.toward = { [width, alignLeft, launcher, figureSize, weak figure] in
+                // The figure sits at the card's top left (16, 14 in); the launcher 12 below the card, its outer edge in line.
+                guard let l = launcher, let h = figure?.cardHeight else { return nil }
+                let fx = 16 + figureSize / 2, fy = 14 + figureSize / 2
+                let lx = alignLeft ? l.width / 2 : width - l.width / 2
+                return (Double(lx - fx), h + Double(12 + l.height / 2 - fy))
+            }
+            figure.start(mode: card.motion, style: style, figure: figureKind, reduced: reduceMotion)
+            if let reason = leaving { leave(reason) }
         }
-        .onDisappear { typing?.cancel() }
+        .onChange(of: leaving) { reason in
+            if let reason = reason { leave(reason) }
+        }
+        .onDisappear {
+            typing?.cancel()
+            figure.stop()
+        }
+    }
+
+    private var figureSize: CGFloat { card.mascot != nil ? 40 : 32 }
+
+    /// The figure's hand-off or bow, the card's collapse or fade, then gone.
+    private func leave(_ reason: String) {
+        guard leftAt == nil else { return }
+        leftAt = Date()
+        let figureEnd = figure.hide(reason)
+        let cardEnd = MascotMotion.cardLeaveTrack(card.motion, reason, reduced: reduceMotion).map { Keyframes.tracksEnd([$0]) } ?? 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + (max(figureEnd, cardEnd) + 16) / 1000) { onGone?() }
     }
 
     /// The typewriter: from 260ms, a character every 34-64ms, a pause after punctuation.
@@ -360,12 +413,24 @@ struct GreetingCardView: View {
         .frame(width: 7, height: 7)
     }
 
+    /// The bot's avatar, or the owner's mascot in its place (polish-home.css .cb-greet__mascot:
+    /// 40 x 40, blinking, waving twice as the card appears), moved by the director.
     private func avatar(_ size: CGFloat, radius: CGFloat? = nil) -> some View {
         Group {
-            if let url = card.head.avatar.flatMap(URL.init(string:)) {
-                AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color(hex: "#eef2f7") }
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: radius ?? size / 2, style: .continuous))
+            if let m = card.mascot {
+                GreetingFigure(model: figure, size: 40) {
+                    MascotView(look: m.look, accent: m.accent, size: 40, mood: "wave", arm: "wave", waveCount: 2)
+                }
+                .frame(width: 40, height: 40)
+                .padding(.top, -6)
+                .padding(.bottom, -4)
+                .padding(.leading, -2)
+            } else if let url = card.head.avatar.flatMap(URL.init(string:)) {
+                GreetingFigure(model: figure, size: size) {
+                    AsyncImage(url: url) { img in img.resizable().scaledToFill() } placeholder: { Color(hex: "#eef2f7") }
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: radius ?? size / 2, style: .continuous))
+                }
             }
         }
     }
