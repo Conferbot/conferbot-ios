@@ -45,97 +45,116 @@ public struct MessageBubble: View {
         return nil
     }
 
+    /// The web's row (css/polish.css): a bot message starts at the left edge
+    /// with its avatar in a fixed 32pt column, on the bubble's bottom line
+    /// (the column stays when the avatar is hidden, so the bubbles and the
+    /// step cards under them line up); the visitor's ends at the right edge,
+    /// 48pt clear of the left. Neither runs the full width.
     private var bubbleRow: some View {
-        HStack {
+        HStack(alignment: .bubbleBottom, spacing: 8) {
             if isUserMessage {
-                Spacer()
-            }
-
-            if !isUserMessage && (customization?.showAvatar ?? true) && !(look.map { $0.hideAvatar } ?? false) {
+                Spacer(minLength: 48)
+            } else if showsAvatar {
                 avatarView
+                    .frame(width: MessageBubble.avatarColumn)
+                    .alignmentGuide(.bubbleBottom) { $0[.bottom] }
+            } else {
+                Color.clear.frame(width: MessageBubble.avatarColumn, height: 1)
+                    .alignmentGuide(.bubbleBottom) { $0[.bottom] }
             }
 
             VStack(alignment: isUserMessage ? .trailing : .leading, spacing: 4) {
-                if let imageUrl = standaloneImageUrl {
-                    // Standalone bot image (welcome-node / image-node):
-                    // rounded, no bubble background - web widget parity
-                    StandaloneImageView(url: imageUrl)
-                } else if let frozen = frozenChoices {
-                    // Persisted choice pills: disabled, selected one highlighted
-                    ChoicePillsView(
-                        pills: frozen.labels.map { ChoicePillsView.Pill(id: $0, label: $0) },
-                        selectedLabel: frozen.selected,
-                        isFrozen: true,
-                        primaryColor: pillPrimaryColor,
-                        ink: look.map { Color(hex: $0.optionTextColor) },
-                        onTap: nil
-                    )
-                } else if let rich = message as? AgentRichMessageRecord {
-                    // An agent's article, quick replies or card (AgentReplyViews.swift)
-                    RichAgentMessageView(record: rich, accent: pillPrimaryColor, bubbleColor: backgroundColor)
-                } else if let agentMessage = message as? AgentMessageRecord {
-                    // Lists, bold and tappable links; an unsent message says so.
-                    Group {
-                        if agentMessage.deleted {
-                            Text("This message was deleted").italic().opacity(0.7)
-                        } else {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor)
-                                // Sent in the visitor's language: the agent's own words one tap away.
-                                if let translation = agentMessage.translation {
-                                    let labels = LiveChat.translationLabels(translation.to)
-                                    Button { showOriginal.toggle() } label: {
-                                        Text(showOriginal ? labels.1 : labels.0)
-                                            .font(.caption)
-                                            .underline()
-                                            .foregroundColor(textColor.opacity(0.8))
+                VStack(alignment: isUserMessage ? .trailing : .leading, spacing: 4) {
+                    if let imageUrl = standaloneImageUrl {
+                        // Standalone bot image (welcome-node / image-node):
+                        // rounded, no bubble background - web widget parity
+                        StandaloneImageView(url: imageUrl)
+                    } else if let frozen = frozenChoices {
+                        // Persisted choice pills: disabled, selected one highlighted
+                        ChoicePillsView(
+                            pills: frozen.labels.map { ChoicePillsView.Pill(id: $0, label: $0) },
+                            selectedLabel: frozen.selected,
+                            isFrozen: true,
+                            primaryColor: pillPrimaryColor,
+                            ink: look.map { Color(hex: $0.optionTextColor) },
+                            onTap: nil
+                        )
+                    } else if let rich = message as? AgentRichMessageRecord {
+                        // An agent's article, quick replies or card (AgentReplyViews.swift)
+                        RichAgentMessageView(record: rich, accent: pillPrimaryColor, bubbleColor: backgroundColor)
+                    } else if let agentMessage = message as? AgentMessageRecord {
+                        // Lists, bold and tappable links; an unsent message says so.
+                        Group {
+                            if agentMessage.deleted {
+                                Text("This message was deleted").italic().opacity(0.7)
+                            } else {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor)
+                                    // Sent in the visitor's language: the agent's own words one tap away.
+                                    if let translation = agentMessage.translation {
+                                        let labels = LiveChat.translationLabels(translation.to)
+                                        Button { showOriginal.toggle() } label: {
+                                            Text(showOriginal ? labels.1 : labels.0)
+                                                .font(.caption)
+                                                .underline()
+                                                .foregroundColor(textColor.opacity(0.8))
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    .padding(12)
-                    .background(backgroundColor)
-                    .foregroundColor(textColor)
-                    .clipShape(bubbleShape)
-                    .overlay(bubbleOutline)
-
-                    // An AI reply's sources, buttons, cards and "Helpful?"
-                    AgentReplyExtrasView(message: agentMessage, accent: pillPrimaryColor)
-                } else if let fileInfo = extractFileInfo() {
-                    FileMessageBubble(
-                        fileInfo: fileInfo,
-                        isUserMessage: isUserMessage,
-                        backgroundColor: backgroundColor,
-                        cornerRadius: customization?.bubbleCornerRadius ?? 16
-                    )
-                } else if let html = botHtml {
-                    // Text from the builder's rich-text editor, drawn
-                    // formatted as the web draws it (#64)
-                    ChatMarkdownText(text: ChatMarkdown.htmlToMarkdown(html), color: textColor)
-                        .padding(12)
-                        .background(backgroundColor)
-                        .clipShape(bubbleShape)
-                        .overlay(bubbleOutline)
-                } else {
-                    Text(messageText)
                         .padding(12)
                         .background(backgroundColor)
                         .foregroundColor(textColor)
                         .clipShape(bubbleShape)
                         .overlay(bubbleOutline)
+
+                        // An AI reply's sources, buttons, cards and "Helpful?"
+                        AgentReplyExtrasView(message: agentMessage, accent: pillPrimaryColor)
+                    } else if let fileInfo = extractFileInfo() {
+                        FileMessageBubble(
+                            fileInfo: fileInfo,
+                            isUserMessage: isUserMessage,
+                            backgroundColor: backgroundColor,
+                            cornerRadius: customization?.bubbleCornerRadius ?? 16
+                        )
+                    } else if let html = botHtml {
+                        // Text from the builder's rich-text editor, drawn
+                        // formatted as the web draws it (#64)
+                        ChatMarkdownText(text: ChatMarkdown.htmlToMarkdown(html), color: textColor)
+                            .padding(12)
+                            .background(backgroundColor)
+                            .clipShape(bubbleShape)
+                            .overlay(bubbleOutline)
+                    } else {
+                        Text(messageText)
+                            .padding(12)
+                            .background(backgroundColor)
+                            .foregroundColor(textColor)
+                            .clipShape(bubbleShape)
+                            .overlay(bubbleOutline)
+                    }
                 }
+                .alignmentGuide(.bubbleBottom) { $0[.bottom] }
 
                 Text((message as? AgentMessageRecord)?.edited == true ? "Edited \u{00B7} \(timeString)" : timeString)
                     .font(.caption2)
                     .foregroundColor(look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
             }
 
-            if isUserMessage {
-                Spacer()
-                    .frame(width: 48)
+            if !isUserMessage {
+                Spacer(minLength: 16)
             }
         }
+        .frame(maxWidth: .infinity, alignment: isUserMessage ? .trailing : .leading)
+    }
+
+    /// The bot's avatar column (the web's 32px avatar and its 8px gap make
+    /// the 40pt indent the step cards use).
+    static let avatarColumn: CGFloat = 32
+
+    private var showsAvatar: Bool {
+        (customization?.showAvatar ?? true) && !(look.map { $0.hideAvatar } ?? false)
     }
 
     private var isUserMessage: Bool {
@@ -342,8 +361,9 @@ public struct MessageBubble: View {
     }
 
     private var avatarView: some View {
-        let size = CGFloat(look?.avatarSize ?? 32)
-        let radius = CGFloat(look?.avatarRadius ?? 16)
+        // Never wider than the column (the web pins it at 32px).
+        let size = min(CGFloat(look?.avatarSize ?? 32), MessageBubble.avatarColumn)
+        let radius = min(CGFloat(look?.avatarRadius ?? 16), size / 2)
         return Group {
             if let avatarURL = agentPhoto ?? (look.flatMap { URL(string: $0.avatar) }) ?? customization?.avatarURL {
                 AsyncImage(url: avatarURL) { image in
@@ -812,9 +832,18 @@ public struct TypingIndicator: View {
             .background(look.map { Color(hex: $0.botBubbleColor) } ?? Color(UIColor.systemGray5))
             .clipShape(BubbleShape(corners: look?.botBubble ?? .all(16)))
         }
-        .padding(.horizontal, 12)
+        // In the bot's column, as a bot message (it was centred).
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             animating = true
         }
     }
+}
+
+private extension VerticalAlignment {
+    /// The bottom of a message's bubble (not its time line), where the avatar sits.
+    enum BubbleBottom: AlignmentID {
+        static func defaultValue(in d: ViewDimensions) -> CGFloat { d[.bottom] }
+    }
+    static let bubbleBottom = VerticalAlignment(BubbleBottom.self)
 }
