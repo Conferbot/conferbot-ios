@@ -859,6 +859,12 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         .onReceive(bot.$agentBot) { agent in
             greeting.update(customizations: bot.serverCustomizations, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: agent)
         }
+        // A tapped Conferbot notification (handlePushNotification): the chat opens on it.
+        .onReceive(bot.$pushToOpen) { p in
+            guard p != nil else { return }
+            bot.pushOpened()
+            openChat()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in fx.idle.appActive = true }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in fx.idle.appActive = false }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in fx.idle.keyboard = true }
