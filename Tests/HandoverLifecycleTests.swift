@@ -22,6 +22,7 @@ final class HandoverLifecycleTests: XCTestCase {
     private var engine: NodeFlowEngine?
     private var waitingForPerson = false
     private var stepData: [String: Any]?
+    private var restoredWait: [Int?] = []
     private var lifecycle: HandoverLifecycle!
 
     override func setUp() {
@@ -37,6 +38,7 @@ final class HandoverLifecycleTests: XCTestCase {
         engine = nil
         waitingForPerson = false
         stepData = nil
+        restoredWait = []
         lifecycle = HandoverLifecycle(hooks: .init(
             sessionId: { "s1" },
             emit: { [unowned self] e, d in self.emitted.append((e, d)) },
@@ -54,7 +56,8 @@ final class HandoverLifecycleTests: XCTestCase {
             handoverStepData: { [unowned self] in self.stepData },
             setLive: { [unowned self] in self.live = $0 },
             setAgent: { [unowned self] a, _ in self.agent = a },
-            save: {}
+            save: {},
+            onRestoredWait: { [unowned self] in self.restoredWait.append($0) }
         ), schedule: clock.schedule)
     }
 
@@ -246,6 +249,53 @@ final class HandoverLifecycleTests: XCTestCase {
         if case .humanHandover = flow.currentUIState {} else { XCTFail("not waiting on the handover step") }
         XCTAssertFalse(events.contains(SocketEvents.initiateHandover))
         XCTAssertTrue(lifecycle.connecting.pending)
+        // The countdown and the max wait go on from the server's seconds left (#35).
+        XCTAssertEqual(restoredWait.count, 1)
+        XCTAssertLessThanOrEqual(abs(((restoredWait.first ?? nil) ?? 0) - 60), 1)
+    }
+
+    // MARK: - The AI escalation's nudge, as RN #43 (#93)
+
+    func testOnlyAnAIHandingTheVisitorOnArmsTheNudge() {
+        XCTAssertEqual(lifecycle.onAgentLeft(["reason": "escalated", "agentDetails": ["_id": "u1", "name": "Sam"]]), .handover)
+        XCTAssertFalse(lifecycle.nudgePending)
+        XCTAssertTrue(lifecycle.connecting.pending)
+        lifecycle.onAgentLeft(["handover": true, "agentDetails": ["_id": "u1", "name": "Sam"]])
+        XCTAssertFalse(lifecycle.nudgePending)
+        lifecycle.onAgentLeft(escalation)
+        XCTAssertTrue(lifecycle.nudgePending)
+    }
+
+    func testAnAgentBotsSilentHandoverStepInTheRecordGivesTheMaxWait() {
+        ChatState.shared.pushBotRecord(nodeId: "agent-handover", nodeType: "human-handover-node",
+                                       nodeData: ["maxWaitTime": 1, "assignedAgents": ["u7"]], text: nil)
+        lifecycle.onAgentLeft(escalation)
+        clock.tick(89)
+        XCTAssertFalse(events.contains(SocketEvents.handoverTimeout))
+        clock.tick(1)
+        let nudge = emitted.first { $0.0 == SocketEvents.handoverTimeout }?.1
+        XCTAssertEqual((nudge?["assignmentData"] as? [String: Any])?["assignedAgents"] as? [String], ["u7"])
+    }
+
+    func testAMaxWaitOfZeroIsTwoMinutes() {
+        stepData = ["maxWaitTime": 0]
+        lifecycle.onAgentLeft(escalation)
+        clock.tick(149)
+        XCTAssertFalse(events.contains(SocketEvents.handoverTimeout))
+        clock.tick(1)
+        XCTAssertTrue(events.contains(SocketEvents.handoverTimeout))
+    }
+
+    func testARestoredChatStillWaitingAfterAnAIEscalationArmsNoNudge() {
+        ChatState.shared.pushServerEntry(["id": "b1", "type": "bot-message"])
+        ChatState.shared.pushServerEntry(["id": "l1", "type": "agent-left-chat", "handover": true])
+        acks[SocketEvents.liveChatState] = ["status": "waiting"]
+        var step: HandoverState.RestoreStep?
+        lifecycle.resumeRestored(sessionId: "s1", nodes: [], agentBot: true) { step = $0 }
+        drain()
+        XCTAssertEqual(step, .live)
+        XCTAssertTrue(lifecycle.connecting.pending)
+        XCTAssertFalse(lifecycle.nudgePending)
     }
 
     func testARestoredChatWithNothingLiveIsNotAskedAbout() {
