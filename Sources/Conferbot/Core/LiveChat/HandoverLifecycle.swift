@@ -257,7 +257,7 @@ public final class HandoverLifecycle {
         guard own(data) else { return }
         let entry = LiveEvents.requeuedEntry(data)
         let id = entry["id"] as? String ?? LiveEvents.eventId("requeued")
-        add(SystemMessageRecord(id: id, time: Date(), text: entry["text"] as? String ?? LiveEvents.requeuedDefaultText), server: entry)
+        add(SystemMessageRecord(id: id, time: Date(), text: entry["text"] as? String ?? LiveEvents.requeuedText(teamName: nil)), server: entry)
         hooks.setAgent(nil, nil)
         leftThisWait = false
         if let engine = hooks.engine(), engine.isAtHandover, let nodeId = engine.currentNodeId {
@@ -448,7 +448,7 @@ public final class HandoverLifecycle {
             // Ended while the app was closed: say so, as the live event would.
             if r.status == .ended {
                 let entryId = Self.entryId("chat-ended")
-                add(SystemMessageRecord(id: entryId, time: Date(), text: "Chat has ended"),
+                add(SystemMessageRecord(id: entryId, time: Date(), text: LiveEvents.chatHasEndedText),
                     server: ["id": entryId, "_id": entryId, "type": "agent-chat-ended", "time": Self.now()])
             }
             hooks.setLive(false)
