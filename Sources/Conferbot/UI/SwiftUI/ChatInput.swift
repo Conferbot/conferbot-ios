@@ -28,31 +28,21 @@ public struct ChatInput: View {
 
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            // Text input
-            ZStack(alignment: .leading) {
-                if text.isEmpty {
-                    Text("Type a message...")
-                        .foregroundColor(.gray)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                }
-
-                TextEditor(text: $text)
-                    .frame(minHeight: 40, maxHeight: 100)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(20)
-                    .onChange(of: text) { newValue in
-                        if newValue.count > ConferBotConstants.maxMessageLength {
-                            text = String(newValue.prefix(ConferBotConstants.maxMessageLength))
-                        }
-                        if !isEditing {
-                            isEditing = true
-                            onEditingChanged(true)
-                        }
+            // Text input: one line, growing with the text up to five (#76)
+            ComposerField(text: $text, placeholder: "Type a message...", placeholderColor: .gray,
+                          horizontalPadding: 14, verticalPadding: 10)
+                .frame(minHeight: 40)
+                .background(Color(UIColor.systemGray6))
+                .cornerRadius(20)
+                .onChange(of: text) { newValue in
+                    if newValue.count > ConferBotConstants.maxMessageLength {
+                        text = String(newValue.prefix(ConferBotConstants.maxMessageLength))
                     }
-            }
+                    if !isEditing && !newValue.isEmpty {
+                        isEditing = true
+                        onEditingChanged(true)
+                    }
+                }
 
             // Send button
             Button(action: sendMessage) {
