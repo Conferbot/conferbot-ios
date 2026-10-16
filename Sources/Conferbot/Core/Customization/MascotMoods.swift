@@ -147,6 +147,6 @@ public enum MascotMoods {
 
     /// "Pip is typing" when the owner named their mascot (chatChrome.ts typingBubbleHtml), else "Typing".
     public static func typingLabel(_ style: String, _ mascotName: String) -> String {
-        style == "mascot" && !mascotName.isEmpty ? "\(mascotName) is typing" : "Typing"
+        style == "mascot" && !mascotName.isEmpty ? I18n.t("typing.named", ["name": mascotName]) : I18n.t("typing.typing")
     }
 }
