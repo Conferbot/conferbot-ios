@@ -185,6 +185,36 @@ public class ConferBot: ObservableObject {
         },
         save: { [weak self] in self?.saveSessionState() }
     ))
+    // MARK: - While you wait
+    // The help card 6s into a wait for a person, the server's queue-help pick
+    // with "That solved it", the waiting games 2.5s after the waiting signal
+    // (Core/LiveChat/WaitingExtras). Never in `messages` or saved.
+    public private(set) lazy var waiting: WaitingExtras = {
+        let w = WaitingExtras(hooks: .init(
+            sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+            emitWithAck: { [weak self] event, data, timeout, done in
+                guard let socket = self?.socketClient else { return done(nil) }
+                socket.emitWithAck(event: event, data: data, timeout: timeout, completion: done)
+            },
+            customizations: { [weak self] in self?.serverCustomizations },
+            record: { ChatState.shared.getServerRecord() },
+            lastMessageId: { [weak self] in self?.messages.last?.id },
+            leftQueueHelped: { [weak self] in self?.handover.leftQueueHelped() },
+            openArticle: { [weak self] id in self?.openHelpArticle(id: id) ?? false },
+            reducedMotion: {
+                #if canImport(UIKit)
+                return UIAccessibility.isReduceMotionEnabled
+                #else
+                return false
+                #endif
+            }
+        ))
+        w.listen(to: handover.signals)
+        handover.waitHooks = (start: { [weak w] in w?.waitStarted() }, end: { [weak w] in w?.waitEnded() })
+        liveChat.onQueueStatus = { [weak w] data in w?.onQueueStatus(data) }
+        return w
+    }()
+
     /// The flow's handover step whose 20s waiting signal has started (once per wait).
     private var connectingWaitFor: String?
     /// An agent bot's handover step data (its max wait), for the AI escalation's nudge.
@@ -328,6 +358,8 @@ public class ConferBot: ObservableObject {
     }
 
     private init() {
+        // While you wait: wired to the handover's signals before any wait begins.
+        _ = waiting
         setupFlowEngine()
         setupAnalytics()
         setupOfflineManager()
@@ -752,6 +784,7 @@ public class ConferBot: ObservableObject {
             self.flowStarted = false
             self.resetAgentBotChat()
             self.handover.reset()
+            self.waiting.reset()
         }
 
         // Clear any existing stored session if forcing new
@@ -1044,6 +1077,10 @@ public class ConferBot: ObservableObject {
     ///   the input, or nil when the text was accepted/sent
     @discardableResult
     public func submitText(_ text: String) -> String? {
+        // Waiting for a person: "play" or "games" opens the games menu
+        // instead of being sent (WaitingGames, web games/wire.ts).
+        if waiting.interceptPlay(text) { return nil }
+
         if case .textInput(_, let validation, let nodeId)? = currentUIState {
             if let validation = validation, !validation.validate(text) {
                 return validation.errorMessage
@@ -1383,6 +1420,7 @@ public class ConferBot: ObservableObject {
     public func resetFlow() {
         chatState.reset()
         handover.reset()
+        waiting.reset()
 
         // Reset live chat state on ConferBot level too
         isLiveChatMode = false
@@ -1452,6 +1490,7 @@ public class ConferBot: ObservableObject {
         hasRestoredSession = false
         flowStarted = false
         handover.reset()
+        waiting.reset()
         liveChat.reset()
         Task { @MainActor in self.resetAgentBotChat() }
 
@@ -1702,6 +1741,8 @@ public class ConferBot: ObservableObject {
 
             // The help centre: published articles without bodies, sent only
             // while the owner has it on (embed-server chatbotHandler).
+            let kbJson = json["knowledgeBaseData"]
+            DispatchQueue.main.async { self.waiting.setKnowledgeBase(kbJson) }
             if let help = KnowledgeBaseData.from(json: json["knowledgeBaseData"]) {
                 self.knowledgeBaseService?.apply(help)
                 DispatchQueue.main.async { self.knowledgeBaseCategories = help.categories }
@@ -1733,7 +1774,10 @@ public class ConferBot: ObservableObject {
 
         setupAgentBotListeners()
         liveChat.setupListeners()
-        if let socket = socketClient { handover.setupListeners(on: socket) }
+        if let socket = socketClient {
+            handover.setupListeners(on: socket)
+            waiting.setupListeners(on: socket)
+        }
         watchLiveChat()
 
         // The server's answers the flow's steps wait for: an integration's
