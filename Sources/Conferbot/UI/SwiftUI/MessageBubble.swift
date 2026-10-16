@@ -99,6 +99,7 @@ public struct MessageBubble: View {
                                     // bubble, italic and muted (web _markAgentFallbackBubble, #49).
                                     ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor,
                                                      muted: agentMessage.extras?.isFallback == true)
+                                        .chatFont(.body)
                                     // Sent in the visitor's language: the agent's own words one tap away.
                                     if let translation = agentMessage.translation {
                                         let labels = LiveChat.translationLabels(translation.to)
@@ -131,12 +132,14 @@ public struct MessageBubble: View {
                         // Text from the builder's rich-text editor, drawn
                         // formatted as the web draws it (#64)
                         ChatMarkdownText(text: ChatMarkdown.htmlToMarkdown(html), color: textColor)
+                            .chatFont(.body)
                             .padding(12)
                             .background(backgroundColor)
                             .clipShape(bubbleShape)
                             .overlay(bubbleOutline)
                     } else {
                         Text(messageText)
+                            .chatFont(.body)
                             .padding(12)
                             .background(backgroundColor)
                             .foregroundColor(textColor)
@@ -144,11 +147,23 @@ public struct MessageBubble: View {
                             .overlay(bubbleOutline)
                     }
                 }
+                // The bot's tapback and the burst on the visitor's answer (Core/Delight)
+                .overlay(Group {
+                    if isUserMessage {
+                        AnswerTouches(rowId: message.id, accent: Color(hex: look?.accent ?? "0808EE"),
+                                      card: look?.theme.tokens.map { Color(hex: $0.card) } ?? Color(UIColor.systemBackground),
+                                      ring: look?.surface.map { Color(hex: $0) } ?? Color(UIColor.systemBackground))
+                    }
+                })
                 .alignmentGuide(.bubbleBottom) { $0[.bottom] }
 
                 Text((message as? AgentMessageRecord)?.edited == true ? ChatText.editedAt(timeString) : timeString)
                     .font(.caption2)
                     .foregroundColor(look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
+                // "Edit" under the visitor's latest answer
+                if isUserMessage {
+                    ChangeAnswerSlot(rowId: message.id, muted: look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
+                }
             }
 
             if !isUserMessage {
