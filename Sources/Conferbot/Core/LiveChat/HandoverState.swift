@@ -37,20 +37,30 @@ public enum HandoverState {
 
     public typealias Entry = [String: Any]
 
-    /// The web's English strings (ts/i18n/en.ts handover.*, system.*).
-    public static let pendingText = "Connecting you with the team\u{2026}"
+    /// The web's strings (ts/i18n handover.*, system.*), in the active language.
+    public static var pendingText: String { I18n.t("handover.pending") }
 
     public static func text(_ outcome: HandoverOutcome) -> String {
         switch outcome {
-        case .joined: return "Connected with the team"
-        case .unavailable: return "The team couldn't join just now"
-        case .cancelled: return "You left the queue"
-        case .ended: return "Chat ended before the team joined"
+        case .joined: return I18n.t("handover.joined")
+        case .unavailable: return I18n.t("handover.unavailable")
+        case .cancelled: return I18n.t("handover.cancelled")
+        case .ended: return I18n.t("handover.ended")
         }
     }
 
-    /// The note under a person's join after an AI handed the visitor on.
-    public static let handedOverNote = "They can see your conversation so far"
+    /// The note under a person's join after an AI handed the visitor on, kept
+    /// in English on the record entry (the web's HANDED_OVER_NOTE marker).
+    public static let handedOverNoteMarker = "They can see your conversation so far"
+
+    /// That note as drawn, in the active language.
+    public static var handedOverNote: String { I18n.t("system.handedOverNote") }
+
+    /// A join's note as drawn: the marker in the active language (web
+    /// agentJoinedDivider.ts), else as written.
+    public static func handedOverNoteText(_ note: String) -> String {
+        note == handedOverNoteMarker ? handedOverNote : note
+    }
 
     /// The line's words: pending, or how the wait ended.
     public static func lineText(_ outcome: HandoverOutcome?) -> String {
@@ -60,14 +70,14 @@ public enum HandoverState {
     /// "<name> joined the chat" (web agentJoinedDivider.ts).
     public static func joinedText(_ name: String?) -> String {
         let n = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(n.isEmpty ? "An agent" : n) joined the chat"
+        return (n.isEmpty ? I18n.t("agent.anAgent") : n) + I18n.t("system.joined")
     }
 
     /// "<name> left the chat", or the pending line for a handover (web agentLeftDivider.ts).
     public static func agentLeftText(_ name: String?, handover: Bool) -> String {
         if handover { return lineText(nil) }
         let n = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(n.isEmpty ? "The agent" : n) left the chat"
+        return (n.isEmpty ? I18n.t("agent.theAgent") : n) + I18n.t("system.left")
     }
 
     // MARK: - Reading the record
@@ -205,7 +215,7 @@ public enum HandoverState {
             if isJoin(t) && handedOver && !isAIJoin(r) && r["afterAI"] as? Bool != true {
                 changed += 1
                 out["afterAI"] = true
-                out["note"] = handedOverNote
+                out["note"] = handedOverNoteMarker
             }
             if closers.contains(t) { handedOver = false }
             next.append(out)
