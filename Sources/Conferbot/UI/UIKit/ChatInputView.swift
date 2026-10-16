@@ -28,11 +28,12 @@ public class ChatInputView: UIView {
     private var textViewHeightConstraint: NSLayoutConstraint?
     private let maxHeight: CGFloat = 100
 
-    /// Replies off (the agent locked the conversation or turned them off).
-    public func setRepliesEnabled(_ enabled: Bool) {
+    /// Replies off (the agent locked the conversation or turned them off,
+    /// or the chat is closed: `reason` is then its line, #40).
+    public func setRepliesEnabled(_ enabled: Bool, reason: String? = nil) {
         textView.isEditable = enabled
         sendButton.isEnabled = enabled && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        placeholderLabel.text = enabled ? "Type a message..." : "Replies are turned off for now"
+        placeholderLabel.text = enabled ? "Type a message..." : (reason ?? "Replies are turned off for now")
         alpha = enabled ? 1 : 0.7
     }
 
