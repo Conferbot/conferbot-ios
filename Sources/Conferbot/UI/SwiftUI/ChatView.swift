@@ -130,8 +130,10 @@ public struct ChatView: View {
                         // The send button in the header colour (or the theme palette's accent), as on the web.
                         primaryColor: conferBot.hasServerLook ? Color(hex: conferBot.customizations.accent)
                             : (conferBot.customization?.primaryColor.map { Color($0) } ?? .blue),
-                        enabled: !repliesOff,
-                        placeholder: repliesOff ? "Replies are turned off for now" : "Type a message...",
+                        enabled: !repliesOff && conferBot.closedState?.inputOff != true,
+                        // Closed (blocked, or ended with nothing going on): the line says why (#40).
+                        placeholder: conferBot.closedState.map { $0.inputOff ? $0.text : "Type a message..." }
+                            ?? (repliesOff ? "Replies are turned off for now" : "Type a message..."),
                         onAttach: canAttach ? { showFileImporter = true } : nil,
                         tokens: conferBot.hasServerLook ? conferBot.customizations.theme.tokens : nil,
                         fieldRadius: conferBot.hasServerLook ? conferBot.customizations.fieldRadius : 25,
@@ -218,9 +220,32 @@ public struct ChatView: View {
                 }
             }
             Spacer()
+            chatMenu(ink: ink)
         }
         .padding()
         .background(Color(hex: look.headerBg))
+    }
+
+    /// The chat menu (web chat menu): "Email me this chat" while there is a
+    /// conversation and the visitor is not blocked (#39).
+    @ViewBuilder
+    private func chatMenu(ink: Color) -> some View {
+        if conferBot.currentSession != nil && live.blocked == nil {
+            Menu {
+                Button {
+                    conferBot.openEmailTranscript()
+                } label: {
+                    Label(EmailTranscript.Copy.menu, systemImage: "envelope")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(ink)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Chat menu")
+        }
     }
 
     /// "Online", the team's reply time ("Typically replies in a few
@@ -268,6 +293,7 @@ public struct ChatView: View {
             }
 
             Spacer()
+            chatMenu(ink: .primary)
         }
         .padding()
         .background(Color(UIColor.systemBackground))
@@ -318,7 +344,8 @@ public struct ChatView: View {
                     }
 
                     // Interactive choice pills for the node awaiting input
-                    if let uiState = conferBot.currentUIState {
+                    // (none for a blocked visitor, #40)
+                    if let uiState = conferBot.currentUIState, live.blocked == nil {
                         interactiveChoicesView(for: uiState)
                             .id("step")
                     }
@@ -417,7 +444,7 @@ public struct ChatView: View {
 
     /// Changes when a live chat card appears or changes, to keep it in view.
     private var liveCardsKey: String {
-        "\(live.noAgentsAvailable)|\(live.handoverWaiting != nil)|\(live.fileRequestedBy ?? "")|\(live.leadCardOpen)|\(live.csatOpen)|\(live.csatSent)|\(live.leftMessageTo ?? "")"
+        "\(live.noAgentsAvailable)|\(live.handoverWaiting != nil)|\(live.fileRequestedBy ?? "")|\(live.leadCardOpen)|\(live.csatOpen)|\(live.csatSent)|\(live.leftMessageTo ?? "")|\(live.emailTranscriptOpen)|\(live.emailTranscriptSentTo ?? "")|\(conferBot.closedState?.kind.rawValue ?? "")"
     }
 
     private var pillColor: Color {
