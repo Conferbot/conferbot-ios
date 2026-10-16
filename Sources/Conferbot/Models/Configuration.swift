@@ -71,17 +71,23 @@ public struct ConferBotConfig {
     public let enableOfflineMode: Bool
     public let apiBaseURL: String
     public let socketURL: String
+    /// The language of the SDK's own words: "en", "nl", "fr", "de", "es" or
+    /// "auto" (the phone's languages). nil leaves it to the bot's
+    /// `widgetLanguage` setting, as the web's host-page customizations do.
+    public let widgetLanguage: String?
 
     public init(
         enableNotifications: Bool = true,
         enableOfflineMode: Bool = true,
         apiBaseURL: String = ConferBotEndpoints.apiBaseURL,
-        socketURL: String = ConferBotEndpoints.socketURL
+        socketURL: String = ConferBotEndpoints.socketURL,
+        widgetLanguage: String? = nil
     ) {
         self.enableNotifications = enableNotifications
         self.enableOfflineMode = enableOfflineMode
         self.apiBaseURL = apiBaseURL
         self.socketURL = socketURL
+        self.widgetLanguage = widgetLanguage
     }
 }
 
