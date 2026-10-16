@@ -37,8 +37,19 @@ struct StepStyle {
     let card: Color
     let text: Color
     let muted: Color
+    /// The chat's font (the owner's, else the theme's) once loaded, regular and semibold.
+    var chatBody: Font? = nil
+    var chatBold: Font? = nil
 
     @MainActor static var current: StepStyle {
+        var style = plain
+        let loader = ConferBot.shared.chatFont
+        style.chatBody = loader.font(.body, size: style.fontSize)
+        style.chatBold = loader.font(.body, size: style.fontSize, weight: .semibold)
+        return style
+    }
+
+    @MainActor private static var plain: StepStyle {
         let bot = ConferBot.shared
         if bot.hasServerLook {
             let look = bot.customizations
@@ -60,8 +71,10 @@ struct StepStyle {
                          card: Color(UIColor.secondarySystemBackground), text: .primary, muted: .secondary)
     }
 
-    var font: Font { .system(size: fontSize) }
-    var bold: Font { .system(size: fontSize, weight: .semibold) }
+    var font: Font { chatBody ?? .system(size: fontSize) }
+    var bold: Font { chatBold ?? .system(size: fontSize, weight: .semibold) }
+    /// A medium-weight option label.
+    var medium: Font { chatBody ?? .system(size: fontSize, weight: .medium) }
 }
 
 /// A filled button in the option colour (Send, Continue, Submit).
@@ -105,7 +118,7 @@ private struct StepOptionButton: View {
                 if let icon = leading { Image(systemName: icon).foregroundColor(picked ? style.accent : style.optionInk.opacity(0.6)) }
                 Text(title).multilineTextAlignment(.leading)
             }
-            .font(.system(size: style.fontSize, weight: .medium))
+            .font(style.medium)
             .foregroundColor(style.optionInk)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -133,20 +146,6 @@ private struct StepCard<Content: View>: View {
 }
 
 // MARK: - The router
-
-extension NodeUIState {
-    /// The step a waiting state belongs to (nil for messages and the like).
-    var stepNodeId: String? {
-        switch self {
-        case .textInput(_, _, let id), .singleChoice(_, let id), .multiChoice(_, let id), .buttons(_, let id), .quickReplies(_, let id),
-             .cards(_, let id), .rating(_, _, let id), .opinionScale(_, _, _, _, let id), .calendar(_, let id), .fileUpload(_, _, let id),
-             .payment(_, _, _, _, let id), .rich(_, _, let id):
-            return id
-        default:
-            return nil
-        }
-    }
-}
 
 /// The view for the step waiting for the visitor: what `currentUIState`
 /// asks for, refined by the step's type (a slider is drawn as a slider, a
@@ -209,7 +208,8 @@ struct FlowStepView: View {
             if step(nodeId).type == "datetime-node" {
                 DateTimeStepView(data: step(nodeId).data, style: style, send: answer(nodeId)).id(nodeId)
             } else {
-                CalendarStepView(data: step(nodeId).data, withTime: mode == .dateTime, style: style, send: answer(nodeId)).id(nodeId)
+                CalendarStepView(data: step(nodeId).data, nodeId: nodeId, bookings: bot.calendarBookings, withTime: mode == .dateTime,
+                                 style: style, send: answer(nodeId)).id(nodeId)
             }
         case .fileUpload(let types, let maxSize, let nodeId):
             FileStepView(allowedTypes: types, maxBytes: maxSize, optional: FlowInputs.isOptionalUpload(step(nodeId).data) && step(nodeId).type == "ask-file-node",
@@ -252,27 +252,38 @@ struct RatingStepView: View {
     let send: (Any) -> Void
     @State private var picked = 0
 
+    /// What each value means ("Good"), in the visitor's language (web nodeKit ratingWords).
+    private var words: [String] { Rating.words(faces ? "smiley" : count, count) }
+
     var body: some View {
-        HStack(spacing: count > 7 ? 4 : 8) {
-            ForEach(1...max(1, count), id: \.self) { i in
-                Button {
-                    picked = i
-                    send(FlowStepAnswer.value(Double(i)))
-                } label: {
-                    if faces {
-                        Text(Rating.faceValues[min(i, 5) - 1])
-                            .font(.system(size: 28))
-                            .opacity(picked == 0 || picked == i ? 1 : 0.4)
-                            .frame(width: 40, height: 40)
-                    } else {
-                        Image(systemName: i <= picked ? "star.fill" : "star")
-                            .font(.system(size: count > 7 ? 20 : 26))
-                            .foregroundColor(style.accent)
-                            .frame(width: count > 7 ? 26 : 34, height: 36)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: count > 7 ? 4 : 8) {
+                ForEach(1...max(1, count), id: \.self) { i in
+                    Button {
+                        picked = i
+                        send(FlowStepAnswer.value(Double(i)))
+                    } label: {
+                        if faces {
+                            Text(Rating.faceValues[min(i, 5) - 1])
+                                .font(.system(size: 28))
+                                .opacity(picked == 0 || picked == i ? 1 : 0.4)
+                                .frame(width: 40, height: 40)
+                        } else {
+                            Image(systemName: i <= picked ? "star.fill" : "star")
+                                .font(.system(size: count > 7 ? 20 : 26))
+                                .foregroundColor(style.accent)
+                                .frame(width: count > 7 ? 26 : 34, height: 36)
+                        }
                     }
+                    .buttonStyle(PlainButtonStyle())
+                    // The pick's sparks (web ratingFx.ts burst): more for the top score.
+                    .overlay(Group { if picked == i { RatingSparks(top: i == count, color: style.accent) } })
+                    .accessibilityLabel(faces ? Rating.faceLabels[min(i, 5) - 1] : I18n.t("sdk.rating.rate", ["n": i, "max": count]))
                 }
-                .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel(faces ? Rating.faceLabels[min(i, 5) - 1] : I18n.t("sdk.rating.rate", ["n": i, "max": count]))
+            }
+            // The chosen value's word (web ratingFx.ts caption).
+            if picked > 0, picked <= words.count {
+                Text(words[picked - 1]).font(style.bold).foregroundColor(style.muted)
             }
         }
         .disabled(picked != 0)
@@ -301,7 +312,7 @@ struct ScaleStepView: View {
                         send(FlowStepAnswer.value(Double(n)))
                     } label: {
                         Text("\(n)")
-                            .font(.system(size: style.fontSize, weight: .medium))
+                            .font(style.medium)
                             .frame(maxWidth: .infinity, minHeight: 38)
                             .foregroundColor(picked == n ? style.ink : style.optionInk)
                             .background(picked == n ? style.accent : style.option)
@@ -443,6 +454,9 @@ struct DateTimeStepView: View {
 @available(iOS 15.0, *)
 struct CalendarStepView: View {
     let data: [String: Any]
+    var nodeId: String? = nil
+    /// The bot's bookings: taken slots are greyed out and not pickable (#48).
+    var bookings: [[String: Any]] = []
     let withTime: Bool
     let style: StepStyle
     let send: (Any) -> Void
@@ -451,6 +465,12 @@ struct CalendarStepView: View {
     private var dayKey: String { FlowStepAnswer.dayKey(day) }
 
     private var slots: [FlowCalendar.Slot] { CalendarNodeHandler.slots(data, dayKey, now: Date()) }
+
+    /// The day's taken slots (web displayStep.ts daySlotsFor `booked`).
+    private var booked: Set<String> { Set(CalendarNodeHandler.booked(data, nodeId: nodeId, bookings: bookings, dayKey)) }
+
+    /// Every slot taken: the system picker can't grey the day out, so it says so.
+    private var fullyBooked: Bool { withTime && FlowCalendar.isDayFullyBooked(slots, Array(booked)) }
 
     /// A day the owner closed: past days (unless shown), excluded weekdays and dates (web displayStep calendar).
     private var unavailable: Bool {
@@ -485,17 +505,26 @@ struct CalendarStepView: View {
             .tint(style.accent)
             if unavailable {
                 Text(I18n.t("sdk.calendar.dayClosed")).font(.caption).foregroundColor(style.muted)
+            } else if fullyBooked {
+                Text(I18n.t("calendar.fullyBooked", ["day": FlowCalendar.longDate(day, TimeZone.current.identifier, FlowCalendar.visitorLocale())]))
+                    .font(.caption).foregroundColor(style.muted)
             } else if withTime {
                 let list = slots
+                let taken = booked
                 if list.isEmpty {
                     Text(I18n.t("sdk.calendar.noTimes")).font(.caption).foregroundColor(style.muted)
                 } else {
                     Text(I18n.t("calendar.localTime")).font(.caption).foregroundColor(style.muted)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                         ForEach(list, id: \.start) { slot in
+                            let isTaken = taken.contains(FlowCalendar.slotLabel(slot))
+                            // Already booked: shown greyed out, not pickable (web displayStep.ts calendar-node).
                             StepOptionButton(title: local(slot), style: style) {
                                 send(FlowStepAnswer.calendar(date: dayKey, slot: slot.start))
                             }
+                            .disabled(isTaken)
+                            .opacity(isTaken ? 0.4 : 1)
+                            .accessibilityLabel(isTaken ? I18n.t("sdk.calendar.slotBooked", ["time": local(slot)]) : local(slot))
                         }
                     }
                 }
