@@ -35,14 +35,16 @@ public enum LiveEvents {
 
     // MARK: - Back in the queue (live-chat-requeued)
 
+    /// The record's English (web REQUEUED_TEXT).
     public static let requeuedDefaultText = "Connecting you to another agent..."
 
-    /// What the visitor reads when the chat goes back to the queue (web requeuedText).
+    /// What the visitor reads when the chat goes back to the queue (web
+    /// requeuedText), in the active language.
     public static func requeuedText(teamName: Any?) -> String {
         let raw = (teamName as? String) ?? ""
         let team = String(raw.replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
-        return team.isEmpty ? requeuedDefaultText : "Connecting you to \(team)..."
+        return team.isEmpty ? I18n.t("takeover.requeued") : I18n.t("takeover.requeuedTeam", ["team": team])
     }
 
     /// The requeued line's record entry (web: id, type, time, text).
@@ -92,10 +94,17 @@ public enum LiveEvents {
 
     // MARK: - Blocked, and the closed chat
 
-    /// The neutral line a blocked visitor sees (embed-server visitorBlock CLOSED_TEXT, web system.closed).
-    public static let closedText = "This conversation has been closed."
-    public static let chatEndedText = "Chat ended"
-    public static let newChatText = "Start a new chat"
+    /// What the server and the record say (embed-server visitorBlock CLOSED_TEXT).
+    public static let closedEnglish = "This conversation has been closed."
+
+    /// The neutral line a blocked visitor sees (web system.closed), and the
+    /// ended chat's words, in the active language ("Start a new chat" is the
+    /// SDK's own button).
+    public static var closedText: String { I18n.t("system.closed") }
+    public static var chatEndedText: String { I18n.t("system.chatEnded") }
+    public static var newChatText: String { I18n.t("sdk.live.newChat") }
+    /// The "Chat has ended" line drawn when a live chat ends.
+    public static var chatHasEndedText: String { I18n.t("sdk.live.chatHasEnded") }
 
     /// The handshake refused a blocked visitor (connect_error "visitor_blocked").
     /// socket.io-client-swift hands the error's data to the "error" event.
@@ -107,10 +116,11 @@ public enum LiveEvents {
         }
     }
 
-    /// The visitor-blocked event's line: the server's words, else ours.
+    /// The visitor-blocked event's line: the server's words, else ours (the
+    /// server's stock English in the visitor's language).
     public static func blockedText(_ data: [String: Any]?) -> String {
         let m = String(((data?["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-        return m.isEmpty ? closedText : m
+        return I18n.ownerTextOr(m, "system.closed", stockEnglish: [closedEnglish])
     }
 
     public struct ClosedState: Equatable {
