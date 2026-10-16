@@ -170,7 +170,7 @@ public final class ConsentNodeHandler: BaseNodeHandler {
         let data = FlowKit.data(node)
         let text = FlowRich.markdownLitePlain(data["consentText"])
         return .buttons(buttons: [
-            ButtonOption(id: "agree", label: text.isEmpty ? "I agree" : "✓ \(text)"),
+            ButtonOption(id: "agree", label: text.isEmpty ? I18n.t("sdk.consent.agree") : "✓ \(text)"),
             ButtonOption(id: "continue", label: FlowRich.consentContinueLabel(data)),
         ], nodeId: FlowKit.id(node))
     }
@@ -357,7 +357,7 @@ public final class OtpNodeHandler: BaseNodeHandler {
     private func key(_ node: [String: Any]) -> String { "_otp_\(FlowKit.id(node))" }
 
     private func ui(_ node: [String: Any], _ stage: String) -> NodeUIState {
-        .textInput(placeholder: stage == "email" ? "name@example.com" : "123456", validation: nil, nodeId: FlowKit.id(node))
+        .textInput(placeholder: stage == "email" ? I18n.t("otp.emailPlaceholder") : "123456", validation: nil, nodeId: FlowKit.id(node))
     }
 
     @MainActor
@@ -386,7 +386,7 @@ public final class OtpNodeHandler: BaseNodeHandler {
         if r.ok || r.code == "resend_wait" {
             state.setVariable(name: key(node), value: ["stage": "code", "email": target])
             let sentTo = JS.text(JS.dict(r.data)["sentTo"])
-            FlowKit.botSay(state, text: "We sent a \(FlowRich.otpLength)-digit code to \(sentTo.isEmpty ? target : sentTo)", nodeId: FlowKit.id(node), nodeType: nodeType)
+            FlowKit.botSay(state, text: I18n.t("otp.sentTo", ["n": FlowRich.otpLength, "email": sentTo.isEmpty ? target : sentTo]), nodeId: FlowKit.id(node), nodeType: nodeType)
             if r.code == "resend_wait" {
                 return .invalid(FlowRich.otpErrorText("resend_wait", retryAfter: JS.dict(r.data)["retryAfter"]), uiState: ui(node, "code"), inCard: true)
             }
@@ -447,7 +447,7 @@ public final class AddressNodeHandler: BaseNodeHandler {
     private var results: [String: [FlowRich.AddressValue]] = [:]
 
     private func ui(_ node: [String: Any], _ found: [FlowRich.AddressValue] = []) -> NodeUIState {
-        if found.isEmpty { return .textInput(placeholder: "Street address", validation: nil, nodeId: FlowKit.id(node)) }
+        if found.isEmpty { return .textInput(placeholder: I18n.t("address.street"), validation: nil, nodeId: FlowKit.id(node)) }
         return .singleChoice(options: found.enumerated().map { ChoiceOption(id: String($0.offset), label: $0.element.formatted, value: $0.element.formatted) }, nodeId: FlowKit.id(node))
     }
 
@@ -488,7 +488,7 @@ public final class AddressNodeHandler: BaseNodeHandler {
         }
         let fields: [String: Any] = action == "manual" ? r : ["line1": (response as? String) ?? JS.text(r["address"])]
         guard JS.bool(FlowKit.data(node)["allowManual"]) != false, let value = FlowRich.manualAddress(fields) else {
-            return .invalid("Enter the street address.", uiState: ui(node), inCard: true)
+            return .invalid(I18n.t("sdk.flow.streetRequired"), uiState: ui(node), inCard: true)
         }
         return finish(node, state, value, "manual")
     }
@@ -567,7 +567,7 @@ private func think<T>(_ ctx: FlowContext, _ work: () async -> T) async -> T {
 public final class AiExtractNodeHandler: BaseNodeHandler {
     public override var nodeType: String { "ai-extract-node" }
 
-    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: "Type your answer...", validation: nil, nodeId: FlowKit.id(node)) }
+    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: FlowKit.id(node)) }
 
     @MainActor
     private func run(_ node: [String: Any], _ state: ChatState, _ text: String, asked: Bool) async -> NodeResult {
@@ -586,7 +586,7 @@ public final class AiExtractNodeHandler: BaseNodeHandler {
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         if let preset = presetText(node, state), !preset.isEmpty { return await run(node, state, preset, asked: false) }
-        say(state, prompt(node, state, "<p>How can we help?</p>"), node)
+        say(state, prompt(node, state, "<p>\(I18n.t("sdk.flow.aiExtractPrompt"))</p>"), node)
         return .displayUI(ui(node))
     }
 
@@ -605,7 +605,7 @@ public final class AiExtractNodeHandler: BaseNodeHandler {
 public final class AiRouteNodeHandler: BaseNodeHandler {
     public override var nodeType: String { "ai-route-node" }
 
-    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: "Type your answer...", validation: nil, nodeId: FlowKit.id(node)) }
+    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: FlowKit.id(node)) }
 
     @MainActor
     private func run(_ node: [String: Any], _ state: ChatState, _ text: String, asked: Bool) async -> NodeResult {
@@ -628,7 +628,7 @@ public final class AiRouteNodeHandler: BaseNodeHandler {
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         if let preset = presetText(node, state), !preset.isEmpty { return await run(node, state, preset, asked: false) }
-        say(state, prompt(node, state, "<p>How can we help?</p>"), node)
+        say(state, prompt(node, state, "<p>\(I18n.t("sdk.flow.aiExtractPrompt"))</p>"), node)
         return .displayUI(ui(node))
     }
 
@@ -646,7 +646,7 @@ public final class AiRouteNodeHandler: BaseNodeHandler {
 public final class KbAnswerNodeHandler: BaseNodeHandler {
     public override var nodeType: String { "kb-answer-node" }
 
-    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: "Type your question...", validation: nil, nodeId: FlowKit.id(node)) }
+    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: I18n.t("sdk.flow.questionPlaceholder"), validation: nil, nodeId: FlowKit.id(node)) }
 
     @MainActor
     private func run(_ node: [String: Any], _ state: ChatState, _ text: String, asked: Bool) async -> NodeResult {
@@ -701,7 +701,7 @@ func typedSignatureSvg(_ name: String) -> (data: Data, width: Int, height: Int) 
 public final class SignatureNodeHandler: BaseNodeHandler {
     public override var nodeType: String { "signature-node" }
 
-    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: "Your full name", validation: nil, nodeId: FlowKit.id(node)) }
+    private func ui(_ node: [String: Any]) -> NodeUIState { .textInput(placeholder: I18n.t("signature.namePlaceholder"), validation: nil, nodeId: FlowKit.id(node)) }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
         say(state, prompt(node, state, FlowI18n.t("signature.typeToSign")), node)
@@ -715,16 +715,16 @@ public final class SignatureNodeHandler: BaseNodeHandler {
         let method = typed ? "typed" : "drawn"
         let name = typed ? FlowRich.cleanSignatureName((response as? String) ?? r["name"]) : ""
         let fullName = FlowRich.cleanSignatureName(r["fullName"] ?? (cfg.requireName ? name : ""))
-        if cfg.requireName && !FlowRich.isSignatureName(fullName) { return .invalid("Enter your full name.", uiState: ui(node), inCard: true) }
+        if cfg.requireName && !FlowRich.isSignatureName(fullName) { return .invalid(I18n.t("sdk.flow.signatureName"), uiState: ui(node), inCard: true) }
         let drawn = (r["image"] as? Data) ?? (r["dataUrl"] as? String).flatMap { u in u.components(separatedBy: ",").last.flatMap { Data(base64Encoded: $0) } }
         if method == "drawn" && drawn == nil {
-            return .invalid(cfg.allowTyped ? "Draw your signature in the box - or type your name instead." : "Draw your signature in the box.", uiState: ui(node), inCard: true)
+            return .invalid(cfg.allowTyped ? I18n.t("sdk.flow.signatureDrawOrType") : I18n.t("sdk.flow.signatureDraw"), uiState: ui(node), inCard: true)
         }
-        if method == "typed" && (!cfg.allowTyped || !FlowRich.isSignatureName(name)) { return .invalid("Type your full name to sign.", uiState: ui(node), inCard: true) }
+        if method == "typed" && (!cfg.allowTyped || !FlowRich.isSignatureName(name)) { return .invalid(I18n.t("sdk.flow.signatureType"), uiState: ui(node), inCard: true) }
         let ctx = ctxOf(node, state)
         let image: (data: Data, width: Int, height: Int) = method == "typed" ? typedSignatureSvg(name) : (drawn!, Int(JS.toNumber(r["width"]).isFinite ? JS.toNumber(r["width"]) : 0), Int(JS.toNumber(r["height"]).isFinite ? JS.toNumber(r["height"]) : 0))
         let up = await ctx.upload(FlowUploadFile(name: "signature-\(Int(Flow.ms(ctx.now()))).\(method == "typed" ? "svg" : "png")", type: method == "typed" ? "image/svg+xml" : "image/png", size: Double(image.data.count), data: image.data))
-        guard up.ok, let url = up.url else { return .invalid("We couldn't save your signature. Please try again.", uiState: ui(node), inCard: true) }
+        guard up.ok, let url = up.url else { return .invalid(I18n.t("sdk.flow.signatureSaveFailed"), uiState: ui(node), inCard: true) }
         let at = Flow.iso(ctx.now())
         let shownName = fullName.isEmpty ? name : fullName
         var entry: [String: Any] = ["id": FlowKit.id(node), "shape": "user-signature", "url": url, "at": at, "method": method, "width": image.width, "height": image.height]
