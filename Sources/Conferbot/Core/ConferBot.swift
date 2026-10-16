@@ -196,8 +196,8 @@ public class ConferBot: ObservableObject {
             return self.isLiveChatMode || !HandoverState.talkToPersonAllowed(self.chatState.getServerRecord())
         },
         ratingPending: { [weak self] in
-            guard let live = self?.liveChat else { return false }
-            return live.csatConfig != nil && live.csatOpen && !live.csatSent
+            // Up, or due 1.5 s after the flow's end, and not answered yet (#98).
+            self?.liveChat.ratingPending ?? false
         },
         // The system browser, as the SDK opens a link button's page.
         open: { href, done in
@@ -602,6 +602,7 @@ public class ConferBot: ObservableObject {
         let changes: [AnyPublisher<Void, Never>] = [
             liveChat.$csatOpen.map { _ in () }.eraseToAnyPublisher(),
             liveChat.$csatSent.map { _ in () }.eraseToAnyPublisher(),
+            liveChat.$csatDue.map { _ in () }.eraseToAnyPublisher(),
             liveChat.$blocked.map { _ in () }.eraseToAnyPublisher(),
             $isChatVisible.map { _ in () }.eraseToAnyPublisher(),
             $isLiveChatMode.map { _ in () }.eraseToAnyPublisher(),
@@ -830,6 +831,8 @@ public class ConferBot: ObservableObject {
         socketClient?.onBlocked = { [weak self] in
             DispatchQueue.main.async { self?.applyVisitorBlock(nil) }
         }
+        // A conversation asked for its post-chat rating is remembered across restarts (#98).
+        liveChat.ratingStore = { UserDefaultsRedirectStore() }
         // "Email me this chat" goes through the mobile API (#39).
         liveChat.postTranscriptEmail = { [weak self] id, email in
             guard let api = self?.apiClient else { return TranscriptEmailResult(ok: false) }
@@ -1094,8 +1097,8 @@ public class ConferBot: ObservableObject {
                 guard let self = self else { return }
                 self.isFlowComplete = isComplete
                 if isComplete {
-                    // The post-chat rating, as the web asks at the flow's end
-                    // (#95); before the redirect, which waits for it.
+                    // The post-chat rating 1.5 s after the flow's end, as the
+                    // web (#95, #98); due first, so the redirect waits for it.
                     self.liveChat.flowEnded()
                     // The flow's end is the conversation's end (the post-chat redirect).
                     self.postChatRedirect.conversationEnded()
