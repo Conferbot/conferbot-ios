@@ -956,7 +956,8 @@ public final class ChatAnalytics: ObservableObject {
 
     /// Get attribution data (deep link, referrer, etc.)
     private func getAttributionData() -> [String: Any] {
-        let sdkVersion = Bundle(for: ChatAnalytics.self).infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        // The SDK's own version: under SwiftPM the class's bundle is the app's.
+        let sdkVersion = ConferBotConstants.sdkVersion
         var attribution: [String: Any] = [
             "platform": "iOS",
             "sdkVersion": sdkVersion
