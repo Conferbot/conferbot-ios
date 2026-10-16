@@ -314,4 +314,133 @@ final class LiveEventsTests: XCTestCase {
         XCTAssertNil(LiveChat.surveyRatingPayload(chatSessionId: "s1", style: "stars", response: ["comment": "x"]))
         XCTAssertNil(LiveChat.surveyRatingPayload(chatSessionId: "", style: "stars", response: ["rating": 4]))
     }
+
+    // MARK: - The AI's inactivity close (#32)
+
+    private let escalated: [String: Any] = ["reason": "escalated", "agentDetails": ["_id": "ai-agent-1", "name": "Ava", "isAIAgent": true]]
+
+    func testAnInactivityPauseSaysChatPausedOnceAndTheChatStaysLive() {
+        let handover = lifecycle()
+        live = true
+        let plan = handover.onInactiveClose(["chatSessionId": "s1", "action": "pause"], agentBot: false)
+        XCTAssertEqual(plan, .init(paused: true, continueFlow: false))
+        // Another chat's close is not ours.
+        XCTAssertNil(handover.onInactiveClose(["chatSessionId": "other"], agentBot: false))
+        XCTAssertEqual(messages.count, 1)
+        let line = messages[0] as? SystemMessageRecord
+        XCTAssertEqual(line?.line.text, "Chat paused")
+        XCTAssertEqual(line?.line.note, "Send a message to pick up where you left off")
+        // Recorded once, with `paused`, without the screen's own fields.
+        let closes = ChatState.shared.getServerRecord().filter { $0["type"] as? String == "ai-agent-inactive-close" }
+        XCTAssertEqual(closes.count, 1)
+        XCTAssertEqual(closes[0]["paused"] as? Bool, true)
+        XCTAssertEqual(closes[0]["action"] as? String, "pause")
+        XCTAssertNil(closes[0]["shape"])
+        XCTAssertNil(closes[0]["_id"])
+        XCTAssertEqual(closes[0]["id"] as? String, line?.id)
+        // Live mode stays on (the next message goes the live way) and the composer stays on.
+        XCTAssertEqual(live, true)
+        XCTAssertFalse(agentCleared)
+        XCTAssertNil(LiveEvents.closedState(ChatState.shared.getServerRecord(), blocked: nil, stepWaiting: false, live: false))
+    }
+
+    func testAnAgentBotIsOnlyPausedEvenWithContinueFlow() {
+        let handover = lifecycle()
+        live = true
+        XCTAssertEqual(handover.onInactiveClose(["action": "continue_flow"], agentBot: true), .init(paused: true, continueFlow: false))
+        XCTAssertEqual((messages[0] as? SystemMessageRecord)?.line.text, "Chat paused")
+        XCTAssertEqual(live, true)
+    }
+
+    func testAPendingConnectingLineSettlesAsEndedAndTheNudgeStops() {
+        let handover = lifecycle()
+        handover.onAgentLeft(escalated)
+        XCTAssertTrue(handover.nudgePending)
+        handover.onInactiveClose(["chatSessionId": "s1"], agentBot: false)
+        XCTAssertFalse(handover.nudgePending)
+        XCTAssertFalse(handover.connecting.pending)
+        XCTAssertEqual((messages[0] as? AgentLeftMessageRecord)?.settled, "ended")
+        XCTAssertEqual((messages[1] as? SystemMessageRecord)?.line.text, "Chat paused")
+    }
+
+    @MainActor
+    func testContinueFlowEndsTheChatAndTheFlowGoesOnFromItsNextEdgeWithNoSurvey() async {
+        let flow = handoverFlow(survey)
+        engine = flow
+        flow.standAt("h1")
+        live = true
+        let handover = lifecycle()
+        XCTAssertEqual(handover.onInactiveClose(["chatSessionId": "s1", "action": "continue_flow"], agentBot: false), .init(paused: false, continueFlow: true))
+        XCTAssertEqual((messages[0] as? SystemMessageRecord)?.line.text, "Chat ended")
+        XCTAssertNil((messages[0] as? SystemMessageRecord)?.line.note)
+        XCTAssertEqual(live, false)
+        XCTAssertTrue(agentCleared)
+        await clock.settle()
+        for _ in 0..<10 where flow.currentNodeId != "m1" { try? await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertEqual(flow.currentNodeId, "m1")
+        XCTAssertTrue(ChatState.shared.getTranscript().contains { $0["message"] as? String == "Bye" })
+        XCTAssertFalse(ChatState.shared.getServerRecord().contains { $0["type"] as? String == "post-chat-survey-question" })
+    }
+}
+
+// MARK: - Paused or ended for inactivity (#32)
+
+final class InactiveCloseTests: XCTestCase {
+
+    override func tearDown() {
+        _ = I18n.setWidgetLanguage("en", languages: [])
+        super.tearDown()
+    }
+
+    func testPausedUnlessContinueFlowOnAFlowBot() {
+        XCTAssertEqual(LiveEvents.inactiveClosePlan(["action": "continue_flow"], agentBotChat: false), .init(paused: false, continueFlow: true))
+        XCTAssertEqual(LiveEvents.inactiveClosePlan(["action": "pause"], agentBotChat: false), .init(paused: true, continueFlow: false))
+        XCTAssertEqual(LiveEvents.inactiveClosePlan(nil, agentBotChat: false), .init(paused: true, continueFlow: false))
+        // An agent bot has no flow to go on with: always only paused.
+        XCTAssertEqual(LiveEvents.inactiveClosePlan(["action": "continue_flow"], agentBotChat: true), .init(paused: true, continueFlow: false))
+    }
+
+    func testItsEntryHasItsOwnIdTheActionAndPaused() {
+        let a = LiveEvents.inactiveCloseEntry(["action": "continue_flow"], agentBotChat: false)
+        let b = LiveEvents.inactiveCloseEntry(nil, agentBotChat: false)
+        XCTAssertEqual(a["type"] as? String, "ai-agent-inactive-close")
+        XCTAssertEqual(a["action"] as? String, "continue_flow")
+        XCTAssertEqual(a["paused"] as? Bool, false)
+        XCTAssertEqual(b["paused"] as? Bool, true)
+        XCTAssertNil(b["action"])
+        XCTAssertTrue((a["id"] as? String)?.hasPrefix("ai-agent-inactive-close-") == true)
+        XCTAssertNotEqual(a["id"] as? String, b["id"] as? String)
+    }
+
+    func testTheLinePausedWithItsNoteOrEndedInTheVisitorsLanguage() {
+        let paused = LiveEvents.inactiveCloseLine(paused: true)
+        XCTAssertEqual(paused.text, "Chat paused")
+        XCTAssertEqual(paused.note, "Send a message to pick up where you left off")
+        XCTAssertEqual(LiveEvents.inactiveCloseLine(paused: false).text, "Chat ended")
+        XCTAssertNil(LiveEvents.inactiveCloseLine(paused: false).note)
+        // An older entry without `paused` is a pause.
+        XCTAssertTrue(LiveEvents.inactiveCloseLine(paused: nil).paused)
+        _ = I18n.setWidgetLanguage("de", languages: ["de"])
+        XCTAssertEqual(LiveEvents.inactiveCloseLine(paused: true).text, I18n.tFor(.de, "system.chatPaused"))
+        XCTAssertNotEqual(I18n.tFor(.de, "system.chatPaused"), "Chat paused")
+    }
+
+    func testTheSavedLineDrawsTheSameAfterARestart() throws {
+        let defaults = UserDefaults(suiteName: "InactiveCloseTests")!
+        defaults.removePersistentDomain(forName: "InactiveCloseTests")
+        let storage = UserDefaultsSessionStorage(userDefaults: defaults)
+        let paused = SystemMessageRecord(id: "p1", time: Date(), text: "Chat paused", kind: LiveEvents.inactiveCloseType, paused: true)
+        let ended = SystemMessageRecord(id: "e1", time: Date(), text: "Chat ended", kind: LiveEvents.inactiveCloseType, paused: false)
+        let plain = SystemMessageRecord(id: "s1", time: Date(), text: "Chat has ended")
+        try storage.saveMessages(messages: [paused, ended, plain], sessionId: "s")
+        let back = storage.loadMessages(sessionId: "s").compactMap { $0 as? SystemMessageRecord }
+        XCTAssertEqual(back.count, 3)
+        XCTAssertEqual(back[0].line.text, "Chat paused")
+        XCTAssertEqual(back[0].line.note, "Send a message to pick up where you left off")
+        XCTAssertEqual(back[1].line.text, "Chat ended")
+        XCTAssertNil(back[1].line.note)
+        XCTAssertEqual(back[2].line.text, "Chat has ended")
+        XCTAssertNil(back[2].kind)
+        defaults.removePersistentDomain(forName: "InactiveCloseTests")
+    }
 }
