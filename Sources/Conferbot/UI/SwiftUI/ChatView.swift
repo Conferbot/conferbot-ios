@@ -41,6 +41,9 @@ public struct ChatView: View {
     @ObservedObject private var live = ConferBot.shared.liveChat
     @ObservedObject private var waiting = ConferBot.shared.waiting
     @ObservedObject private var requests = ConferBot.shared.requests
+    @ObservedObject private var home = ConferBot.shared.home
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.isPresented) private var isPresented
     @State private var showFileImporter = false
     @State private var uploadError: String?
     @State private var inputText = ""
@@ -62,11 +65,90 @@ public struct ChatView: View {
     }
 
     /// The Help tab: the owner's switch, then the host's override (Core/Customization/HelpCentre).
+    /// With the owner's home screen the help centre is the home's own view, so no tab.
     private var showsHelpCentre: Bool {
-        HelpCentre.isShown(conferBot.serverCustomizations, host: enableKnowledgeBase)
+        HelpCentre.isShown(conferBot.serverCustomizations, host: enableKnowledgeBase) && !home.isOn
     }
 
+    /// The conversation is what is on screen (not the home screen or the help centre).
+    private var chatShown: Bool { !home.isOn || home.view == .chat }
+
     public var body: some View {
+        views
+        .background(conferBot.customizations.surface.map { Color(hex: $0) } ?? Color(UIColor.systemBackground))
+        // A theme set to "auto" follows the phone's light / dark setting.
+        .onAppear { conferBot.setSystemDarkMode(colorScheme == .dark) }
+        .onChange(of: colorScheme) { conferBot.setSystemDarkMode($0 == .dark) }
+        .task {
+            if !isSessionStarted {
+                isSessionStarted = true
+                try? await conferBot.startSession()
+            }
+        }
+        // A source or article card in the chat opens its article in the
+        // help centre (the web's openArticle): the Help tab, or a sheet when
+        // the host hid the tab or the help centre is the home's view.
+        .onChange(of: conferBot.helpArticleToOpen) { id in
+            guard let id = id else { return }
+            if showsHelpCentre {
+                withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .knowledgeBase }
+            } else if home.isOn && home.view == .help {
+                // The help centre on screen opens it itself.
+            } else {
+                conferBot.helpArticleOpened()
+                sheetArticle = SheetArticle(id: id)
+            }
+        }
+        .sheet(item: $sheetArticle) { item in
+            KnowledgeBaseView(articleId: item.id)
+        }
+        // A wait's article with the help centre off, fetched by id (#83).
+        .background(EmptyView().standaloneArticleSheet(conferBot))
+        // "Your requests" over the chat or the home screen, from the menu or the home's card.
+        .overlay(RequestsPortalView())
+        // A live chat file: the system picker, uploaded and sent as the web widget sends it
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
+            if case .success(let url) = result {
+                uploadError = nil
+                conferBot.sendLiveFile(fileURL: url) { error in uploadError = error }
+            }
+        }
+        // Read receipts count only while the conversation itself is on screen
+        // (web index.ts: the home screen must not count agent messages as seen).
+        .onAppear {
+            conferBot.setChatVisible(chatShown)
+            waiting.setDrawing(true)
+        }
+        .onChange(of: chatShown) { conferBot.setChatVisible($0) }
+        .onDisappear {
+            conferBot.setChatVisible(false)
+            waiting.setDrawing(false)
+        }
+    }
+
+    /// The owner's home screen, the conversation and the help centre, moving
+    /// as the owner chose (ViewTransition); just the conversation without a home.
+    @ViewBuilder
+    private var views: some View {
+        if home.isOn {
+            ViewSwitch(view: home.view, kind: conferBot.serverCustomizations?["viewTransition"],
+                       sweep: conferBot.serverCustomizations?["viewTransitionDirection"]) { view in
+                switch view {
+                case .home:
+                    HomeScreenView(onClose: isPresented ? { dismiss() } : nil,
+                                   onArticle: { id in sheetArticle = SheetArticle(id: id) })
+                case .help:
+                    KnowledgeBaseView(categoryId: home.helpCategoryId, onBack: { home.showHome() })
+                case .chat:
+                    chatPage
+                }
+            }
+        } else {
+            chatPage
+        }
+    }
+
+    private var chatPage: some View {
         VStack(spacing: 0) {
             // Header
             headerView
@@ -145,49 +227,6 @@ public struct ChatView: View {
             }
         }
         .background(conferBot.customizations.surface.map { Color(hex: $0) } ?? Color(UIColor.systemBackground))
-        // A theme set to "auto" follows the phone's light / dark setting.
-        .onAppear { conferBot.setSystemDarkMode(colorScheme == .dark) }
-        .onChange(of: colorScheme) { conferBot.setSystemDarkMode($0 == .dark) }
-        .task {
-            if !isSessionStarted {
-                isSessionStarted = true
-                try? await conferBot.startSession()
-            }
-        }
-        // A source or article card in the chat opens its article in the
-        // help centre (the web's openArticle): the Help tab, or a sheet when
-        // the host hid the tab.
-        .onChange(of: conferBot.helpArticleToOpen) { id in
-            guard let id = id else { return }
-            if showsHelpCentre {
-                withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .knowledgeBase }
-            } else {
-                conferBot.helpArticleOpened()
-                sheetArticle = SheetArticle(id: id)
-            }
-        }
-        .sheet(item: $sheetArticle) { item in
-            KnowledgeBaseView(articleId: item.id)
-        }
-        // A wait's article with the help centre off, fetched by id (#83).
-        .background(EmptyView().standaloneArticleSheet(conferBot))
-        // "Your requests" over the chat, from the menu.
-        .overlay(RequestsPortalView())
-        // A live chat file: the system picker, uploaded and sent as the web widget sends it
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result {
-                uploadError = nil
-                conferBot.sendLiveFile(fileURL: url) { error in uploadError = error }
-            }
-        }
-        .onAppear {
-            conferBot.setChatVisible(true)
-            waiting.setDrawing(true)
-        }
-        .onDisappear {
-            conferBot.setChatVisible(false)
-            waiting.setDrawing(false)
-        }
     }
 
     @ViewBuilder
@@ -206,6 +245,7 @@ public struct ChatView: View {
         let look = conferBot.customizations
         let ink = Color(hex: look.headerText)
         return HStack(spacing: 10) {
+            backToHome(ink: ink)
             if !look.hideLogo, let logo = URL(string: look.logo) {
                 AsyncImage(url: logo) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .frame(width: 38, height: 38)
@@ -280,8 +320,25 @@ public struct ChatView: View {
                                       personInChat: personHere, agentBot: conferBot.agentBot != nil)
     }
 
+    /// The header's ‹: back to the home screen (only while the owner has one).
+    @ViewBuilder
+    private func backToHome(ink: Color) -> some View {
+        if home.isOn {
+            Button(action: { home.showHome() }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(ink)
+                    .frame(width: 28, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Home.Text.back)
+        }
+    }
+
     private var hostHeaderView: some View {
         HStack {
+            backToHome(ink: .primary)
             if conferBot.customization?.showAvatar ?? true {
                 if let avatarURL = conferBot.customization?.avatarURL {
                     AsyncImage(url: avatarURL) { image in
