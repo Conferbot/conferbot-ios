@@ -37,16 +37,17 @@ public enum WaitArticles {
     public static let solveTimeoutMs: Double = 8000
 
     public enum Text {
-        public static let label = "While you wait"
-        public static let title = "While you wait, this might help"
+        // In the active language (web wait.*, handover.articlesTitle, common.read).
+        public static var label: String { I18n.t("wait.label") }
+        public static var title: String { I18n.t("wait.title") }
         /// Once nobody is waiting any more (web handover.articlesTitle).
-        public static let settledTitle = "Articles that might help"
-        public static let read = "Read"
-        public static let solved = "That solved it"
-        public static let done = "Glad that helped. You have left the queue."
+        public static var settledTitle: String { I18n.t("handover.articlesTitle") }
+        public static var read: String { I18n.t("common.read") }
+        public static var solved: String { I18n.t("wait.solved") }
+        public static var done: String { I18n.t("wait.done") }
         /// The line drawn for a queue left this way (web queue.leftHelped).
-        public static let leftHelped = "You left the queue. Glad that helped."
-        /// What the record keeps (web special.ts leave()).
+        public static var leftHelped: String { I18n.t("queue.leftHelped") }
+        /// What the record keeps, in English (web special.ts leave()).
         public static let recordText = "Resolved while waiting"
     }
 
