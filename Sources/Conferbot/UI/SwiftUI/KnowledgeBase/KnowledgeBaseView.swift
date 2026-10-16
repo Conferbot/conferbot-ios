@@ -442,6 +442,14 @@ struct ArticleSearchResultRow: View {
                     .fontWeight(.medium)
                     .lineLimit(2)
 
+                // The matching text the server found (search-kb-articles), as the web shows it.
+                if let snippet = article.snippet?.trimmingCharacters(in: .whitespacesAndNewlines), !snippet.isEmpty {
+                    Text(snippet)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+
                 HStack(spacing: 8) {
                     if let categoryName = article.categoryName {
                         Text(categoryName)
