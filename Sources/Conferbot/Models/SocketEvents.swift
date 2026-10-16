@@ -134,6 +134,12 @@ public struct SocketEvents {
     public static let queueLeft = "queue-left"
     /// Client to server (with acknowledgement): where the live chat stands after a restart.
     public static let liveChatState = "live-chat-state"
+    /// Server to client: the agent left and the chat is back in the queue.
+    public static let liveChatRequeued = "live-chat-requeued"
+    /// Server to client: the chat was transferred (an entry for the record).
+    public static let liveChatTransferred = "live-chat-transferred"
+    /// Server to client: the workspace blocked this visitor.
+    public static let visitorBlocked = "visitor-blocked"
 
     // GPT node events - Server to client
     public static let gptNodeResponse = "gpt-node-response"
