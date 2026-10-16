@@ -194,13 +194,13 @@ public struct KnowledgeBaseArticle: Codable, Identifiable, Equatable, Hashable {
     /// Calculate estimated reading time based on content length
     public var readingTime: String {
         if let minutes = _readingMinutes, minutes > 0, content.isEmpty {
-            return minutes == 1 ? "1 min read" : "\(minutes) min read"
+            return I18n.t("kb.minRead", ["n": minutes])
         }
         let wordCount = content.components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .count
         let minutes = max(1, Int(ceil(Double(wordCount) / 200.0)))
-        return minutes == 1 ? "1 min read" : "\(minutes) min read"
+        return I18n.t("kb.minRead", ["n": minutes])
     }
 
     /// Formatted published date string
