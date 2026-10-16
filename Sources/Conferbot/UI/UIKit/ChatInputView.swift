@@ -22,6 +22,8 @@ public class ChatInputView: UIView {
     private let sendButton = UIButton(type: .system)
     private let placeholderLabel = UILabel()
     private let containerView = UIView()
+    /// Why a typed answer was refused (an e-mail that isn't one...), over the box.
+    private let errorLabel = UILabel()
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private let maxHeight: CGFloat = 100
@@ -32,6 +34,15 @@ public class ChatInputView: UIView {
         sendButton.isEnabled = enabled && !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         placeholderLabel.text = enabled ? "Type a message..." : "Replies are turned off for now"
         alpha = enabled ? 1 : 0.7
+    }
+
+    /// After a send: a refused answer goes back in the box with the step's
+    /// reason over it; nil clears the reason.
+    public func restore(_ text: String?, error: String?) {
+        errorLabel.text = error
+        guard let text = text else { return }
+        textView.text = text
+        textViewDidChange(textView)
     }
 
     public override init(frame: CGRect) {
@@ -71,6 +82,13 @@ public class ChatInputView: UIView {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(containerView)
 
+        // The reason a typed answer was refused, in red over the box
+        errorLabel.font = .preferredFont(forTextStyle: .caption1)
+        errorLabel.textColor = .systemRed
+        errorLabel.numberOfLines = 0
+        errorLabel.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(errorLabel)
+
         // Text view
         textView.font = .systemFont(ofSize: 16)
         textView.backgroundColor = .systemGray6
@@ -107,7 +125,10 @@ public class ChatInputView: UIView {
             containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            textView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8),
+            errorLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
+            errorLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+            errorLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+            textView.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 4),
             textView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
             textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
             textView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8),
