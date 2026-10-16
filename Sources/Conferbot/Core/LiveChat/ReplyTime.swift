@@ -201,4 +201,24 @@ public enum ReplyTime {
         let words = phraseOf(rt)
         return Line(words.isEmpty ? I18n.t("reply.usuallyInstantly") : I18n.t("reply.usually", ["phrase": words]), .online)
     }
+    /// The usual wait, per bucket, in the active language (web reply.wait.*).
+    public static var waits: [String: String] {
+        Dictionary(uniqueKeysWithValues: buckets.map { ($0, I18n.t("reply.wait.\($0)")) })
+    }
+
+    private static func waitOf(_ bucket: String?, _ fallback: String?) -> String {
+        if let b = bucket, buckets.contains(b) { return I18n.t("reply.wait.\(b)") }
+        return fallback?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// "Typical wait: a few minutes" for the wait card (web replyTime.ts
+    /// typicalWait): the routed team's usual first reply (queue-status
+    /// `typical`), else the workspace's (customizations.replyTime). nil when
+    /// the owner chose Fixed or Hide, or there is no data.
+    public static func typicalWait(_ rt: [String: Any]?, queueTypical: [String: Any]? = nil) -> String? {
+        if let rt = rt, rt["mode"] as? String == "hide" || !fixedOf(rt).isEmpty { return nil }
+        var w = waitOf(queueTypical?["bucket"] as? String, queueTypical?["wait"] as? String)
+        if w.isEmpty, let rt = rt { w = waitOf(rt["bucket"] as? String, rt["wait"] as? String) }
+        return w.isEmpty ? nil : I18n.t("reply.typicalWait", ["wait": w])
+    }
 }
