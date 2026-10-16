@@ -31,6 +31,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Greet by name** - `{{first_name|there}}` in your greeting and home texts is filled from the signed-in user
 - **Your requests** - the visitor's own conversations with your team: where each stands in plain words ("We replied", "We're on it", "Solved"), the conversation, and a reply box (a reply to a solved one opens it again). In the chat menu once the visitor has one ("Your requests · New reply" when a reply is unread), and `ConferBot.shared.requests` for your own screens and badge
 - **Email me this chat** - From the chat menu (the header's ... in SwiftUI, the bar button in UIKit) the visitor gets the whole conversation in their inbox (`POST /api/v1/mobile/chat/transcript-email`)
+- **Widget languages** - the SDK's own words in English, Dutch, French, German or Spanish, chosen as the web widget chooses (see [Languages](#languages))
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
 - **Push notifications** - APNs token registration and notification handling
@@ -216,7 +217,8 @@ let config = ConferBotConfig(
     enableNotifications: true,                          // default: true
     enableOfflineMode: true,                            // default: true
     apiBaseURL: ConferBotEndpoints.apiBaseURL,          // default: https://wdt.conferbot.com/api/v1/mobile
-    socketURL: ConferBotEndpoints.socketURL             // default: https://wdt.conferbot.com
+    socketURL: ConferBotEndpoints.socketURL,            // default: https://wdt.conferbot.com
+    widgetLanguage: nil                                 // "en", "nl", "fr", "de", "es" or "auto"; nil = the bot's setting
 )
 
 ConferBot.shared.initialize(
@@ -262,6 +264,20 @@ try await ConferBot.shared.startSession(forceNew: true)
 // Log out / wipe the stored session
 ConferBot.shared.clearStoredSession()
 ```
+
+### Languages
+
+The SDK draws its own words (buttons, hints, errors, the handover lines, the queue card, the help centre, "Helpful?", the requests, the home screen, the games, the greeting card, the step cards and their checks, "5 min ago") in English, Dutch, French, German or Spanish, as the web widget does. The language is the owner's choice (dashboard: `widgetLanguage`); with "auto", or a bot that never chose, it is the phone's first supported language (`Locale.preferredLanguages`), else English. `ConferBotConfig(widgetLanguage:)` overrides both. What the owner wrote (greetings, messages, buttons in the flow) is shown as written; the stock English defaults a new bot comes with ("Hi there 👋") are shown in the language. Dates and numbers follow the language, keeping the phone's region when it matches (nl-BE).
+
+```swift
+ConferBot.shared.initialize(apiKey: "conf_YOUR_API_KEY", botId: "YOUR_BOT_ID",
+                            config: ConferBotConfig(widgetLanguage: "de"))
+
+ConferBot.shared.widgetLanguage   // .de (published, for your own views)
+I18n.t("chat.composer.send")      // "Senden"
+```
+
+The words come from the React Native SDK's `scripts/parity/i18n/strings.json` (the web widget's tables plus the SDK-only words), bundled as `Resources/i18n-strings.json`; `scripts/sync-i18n.sh` copies a newer one.
 
 ## Passing User Identity
 
