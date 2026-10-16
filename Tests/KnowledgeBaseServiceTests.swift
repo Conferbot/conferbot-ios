@@ -704,9 +704,7 @@ final class KnowledgeBaseServiceTests: XCTestCase {
     }
 
     private func setupMockCategories() {
-        // Manually set categories for local search tests
-        // This is a workaround since we cannot easily mock the internal state
-        // In a real test, we might need to fetch first or use dependency injection
+        // Categories for the local search tests
         let articles = [
             KnowledgeBaseArticle(
                 id: "article-1",
@@ -733,7 +731,7 @@ final class KnowledgeBaseServiceTests: XCTestCase {
             articles: articles
         )
 
-        // Access the internal categories property through reflection or make it testable
-        // For now, we'll work around this limitation
+        // The help centre as the connect payload sets it (fetched-chatbot-data)
+        sut.apply(KnowledgeBaseData(categories: [category]))
     }
 }
