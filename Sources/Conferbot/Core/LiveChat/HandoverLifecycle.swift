@@ -36,6 +36,9 @@ public final class HandoverLifecycle {
         var setLive: (Bool) -> Void
         var setAgent: (Agent?, AgentDetails?) -> Void
         var save: () -> Void
+        /// A restored wait for a person: the server's seconds left of its max
+        /// wait, for the countdown and the max-wait timer (#35).
+        var onRestoredWait: (_ remainingSeconds: Int?) -> Void = { _ in }
     }
 
     public let signals = WidgetSignalBus()
@@ -139,7 +142,7 @@ public final class HandoverLifecycle {
     /// Nothing is drawn: the server answers (handover-waiting, no-agents-available).
     private func armNudge() {
         clearNudge()
-        let data = hooks.handoverStepData()
+        let data = HandoverWait.escalationHandoverData(hooks.handoverStepData(), record: record)
         nudge = schedule(HandoverWait.aiEscalationNudgeSeconds(data?["maxWaitTime"])) { [weak self] in
             guard let self = self, let id = self.hooks.sessionId() else { return }
             self.nudge = nil
@@ -170,7 +173,8 @@ public final class HandoverLifecycle {
         if handover {
             leftThisWait = false
             connecting.start()
-            armNudge()
+            // Only an AI handing the visitor on starts the escalation's wait (#93).
+            if HandoverWait.startsEscalationWait(data) { armNudge() }
             // Passed on to a person: what may help while they wait (web special.ts agent-left).
             waitStart()
             // The same escalation again: one line is enough.
@@ -241,6 +245,36 @@ public final class HandoverLifecycle {
         let waiting = inWait
         settle(.ended)
         if waiting { waitOver("ended") } else { clearNudge() }
+    }
+
+    /// ai-agent-inactive-close (web agentListeners.ts, server
+    /// aiInactivityHandler.js): the wait and the nudge end, a Connecting line
+    /// settles as ended, and "Chat paused" (the visitor's next message picks
+    /// it back up: live mode stays on) or, for continue_flow on a flow bot,
+    /// "Chat ended" and the flow carries on from its handover step along the
+    /// next edge, no survey (LiveEvents.inactiveClosePlan). Recorded here
+    /// only, once, with `paused` so a restart draws the same line (#32).
+    @discardableResult
+    func onInactiveClose(_ data: [String: Any]?, agentBot: Bool) -> LiveEvents.InactiveClosePlan? {
+        guard own(data) else { return nil }
+        onChatEnded(data)
+        clearNudge()
+        let plan = LiveEvents.inactiveClosePlan(data, agentBotChat: agentBot)
+        var entry = LiveEvents.inactiveCloseEntry(data, agentBotChat: agentBot)
+        let id = entry["id"] as? String ?? Self.entryId(LiveEvents.inactiveCloseType)
+        let line = LiveEvents.inactiveCloseLine(paused: plan.paused)
+        entry.removeValue(forKey: "_id")
+        entry.removeValue(forKey: "shape")
+        add(SystemMessageRecord(id: id, time: Date(), text: line.text, kind: LiveEvents.inactiveCloseType, paused: plan.paused), server: entry)
+        if plan.continueFlow {
+            hooks.setAgent(nil, nil)
+            hooks.setLive(false)
+            if let engine = hooks.engine(), engine.isAtHandover {
+                Task { @MainActor in await engine.continueAfterHandover() }
+            }
+        }
+        hooks.save()
+        return plan
     }
 
     /// Left the queue from another device of this chat.
@@ -432,12 +466,13 @@ public final class HandoverLifecycle {
                     addJoin(details, raw: nil, plan: .init(ai: false, outcome: .joined, announce: true, afterAI: r.afterAI, humanJoined: true))
                 }
             }
-            if r.status == .waiting {
-                connecting.start()
-                armNudge()
-            }
+            // Still waiting after an AI escalation: the server owns that
+            // wait, so no nudge is armed again (RN #43, #93).
+            if r.status == .waiting { connecting.start() }
         case .wait:
             if let engine = engine, let id = nodeId {
+                // The countdown and the max wait go on from where the server is.
+                hooks.onRestoredWait(r.remainingSeconds)
                 Task { @MainActor in engine.waitAt(id, uiState: .humanHandover(message: message)) }
                 connecting.start()
                 // Still waiting with no AI agent first: the help card comes 6s in, as live.
