@@ -209,12 +209,19 @@ public class ChatViewController: UIViewController {
             }
             .store(in: &cancellables)
 
-        // Replies off while the agent locked the conversation or turned them off
-        ConferBot.shared.liveChat.$lockedBy
-            .combineLatest(ConferBot.shared.liveChat.$visitorInputEnabled)
+        // Replies off while the agent locked the conversation or turned them
+        // off, or the chat is closed (blocked, or ended with nothing going on, #40)
+        let live = ConferBot.shared.liveChat
+        live.$lockedBy.map { _ in () }
+            .merge(with: live.$visitorInputEnabled.map { _ in () }, live.$blocked.map { _ in () },
+                   ConferBot.shared.$messages.map { _ in () }, ConferBot.shared.$currentUIState.map { _ in () },
+                   ConferBot.shared.$isLiveChatMode.map { _ in () })
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] locked, inputOn in
-                self?.chatInputView.setRepliesEnabled(locked == nil && inputOn)
+            .sink { [weak self] _ in
+                let closed = ConferBot.shared.closedState
+                self?.chatInputView.setRepliesEnabled(live.lockedBy == nil && live.visitorInputEnabled && closed?.inputOff != true,
+                                                      reason: closed?.inputOff == true ? closed?.text : nil)
+                self?.updateConnectionStatus()
             }
             .store(in: &cancellables)
 
@@ -302,12 +309,24 @@ public class ChatViewController: UIViewController {
 
     private func updateConnectionStatus() {
         if ConferBot.shared.isConnected {
-            navigationItem.rightBarButtonItem = nil
+            navigationItem.rightBarButtonItem = chatMenuItem()
         } else {
             let indicator = UIActivityIndicatorView(style: .medium)
             indicator.startAnimating()
             navigationItem.rightBarButtonItem = UIBarButtonItem(customView: indicator)
         }
+    }
+
+    /// The chat menu: "Email me this chat" while there is a conversation and
+    /// the visitor is not blocked (#39). The card shows in the live strip.
+    private func chatMenuItem() -> UIBarButtonItem? {
+        guard #available(iOS 14.0, *), ConferBot.shared.currentSession != nil, ConferBot.shared.liveChat.blocked == nil else { return nil }
+        let email = UIAction(title: EmailTranscript.Copy.menu, image: UIImage(systemName: "envelope")) { _ in
+            ConferBot.shared.openEmailTranscript()
+        }
+        let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: UIMenu(children: [email]))
+        item.accessibilityLabel = "Chat menu"
+        return item
     }
 
     private func scrollToBottom(animated: Bool) {
