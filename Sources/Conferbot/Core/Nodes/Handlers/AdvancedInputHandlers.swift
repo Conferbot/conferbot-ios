@@ -79,7 +79,7 @@ public final class CalendarNodeHandler: BaseNodeHandler {
             let botDate = FlowCalendar.noonInZone(dateString, botZone)
             let visitorDate = FlowCalendar.noonInZone(dateString, visitorZone)
             let date = FlowCalendar.longDate(botDate, botZone)
-            let localDate = FlowCalendar.longDate(visitorDate, visitorZone)
+            let localDate = FlowCalendar.longDate(visitorDate, visitorZone, FlowCalendar.visitorLocale())
             let shown = localDate.isEmpty ? date : localDate
             record = ["date": shown, "selectedDate": dateString, "botTimeZone": botZone, "visitorTimeZone": visitorZone, "showTimeSelection": false]
             value = shown
@@ -89,7 +89,7 @@ public final class CalendarNodeHandler: BaseNodeHandler {
             let botDate = FlowCalendar.noonInZone(dateString, botZone)
             let visitorDate = FlowCalendar.noonInZone(FlowCalendar.dayKeyInZone(botDate, botZone), visitorZone)
             let date = FlowCalendar.longDate(botDate, botZone)
-            let localDate = FlowCalendar.longDate(visitorDate, visitorZone)
+            let localDate = FlowCalendar.longDate(visitorDate, visitorZone, FlowCalendar.visitorLocale())
             let visitorStart = FlowCalendar.hhmmInZone(FlowCalendar.wallTimeInZone(dateString, slot.start, botZone), visitorZone)
             let visitorEnd = FlowCalendar.hhmmInZone(FlowCalendar.wallTimeInZone(dateString, slot.end, botZone), visitorZone)
             let timeSlotSelected = FlowCalendar.slotLabel(slot)
@@ -100,7 +100,7 @@ public final class CalendarNodeHandler: BaseNodeHandler {
                 "showTimeSelection": true, "timeSlotSelected": timeSlotSelected, "visitorTime": visitorTime,
             ]
             value = "\(shown) \(visitorTime) (Visitor's local time) / \(timeSlotSelected) (Bot's time)"
-            FlowKit.userSay(state, "\(localDate), \(visitorTime) (Your local time)", nodeId)
+            FlowKit.userSay(state, "\(localDate), \(visitorTime) \(I18n.t("calendar.localTime"))", nodeId)
             ctx.emit("calendar-slot-selection-record", [
                 "visitorId": state.visitorId ?? (state.getVariable(name: "_visitorId") as? String) ?? state.sessionId,
                 "chatbotId": state.botId,
@@ -138,7 +138,7 @@ public final class MultipleQuestionsNodeHandler: BaseNodeHandler {
         let variable = JS.text(q["answerVariable"]).lowercased()
         let validation: InputValidation? = nil
         _ = variable
-        return .textInput(placeholder: "Type your answer...", validation: validation, nodeId: FlowKit.id(node))
+        return .textInput(placeholder: I18n.t("composer.answer"), validation: validation, nodeId: FlowKit.id(node))
     }
 
     /// Ask question `index` (2000 ms of typing first).
@@ -149,7 +149,7 @@ public final class MultipleQuestionsNodeHandler: BaseNodeHandler {
         let q = index < qs.count ? qs[index] : [:]
         await ctxOf(node, state).typing(2000)
         state.setVariable(name: indexKey(node), value: index)
-        let label = qs.count > 1 ? "Question \(index + 1) of \(qs.count)\n" : ""
+        let label = qs.count > 1 ? I18n.t("node.questionOf", ["n": index + 1, "total": qs.count]) + "\n" : ""
         FlowKit.botSay(state, text: "\(label)\(FlowKit.shownText(state, q["questionText"]))", nodeId: nodeId, nodeType: nodeType)
         let qid = JS.isNullish(q["id"]) ? String(index) : JS.str(q["id"])
         var entry: [String: Any] = [
