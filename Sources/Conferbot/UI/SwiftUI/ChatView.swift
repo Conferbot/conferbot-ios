@@ -40,6 +40,7 @@ public struct ChatView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var live = ConferBot.shared.liveChat
     @ObservedObject private var waiting = ConferBot.shared.waiting
+    @ObservedObject private var requests = ConferBot.shared.requests
     @State private var showFileImporter = false
     @State private var uploadError: String?
     @State private var inputText = ""
@@ -168,6 +169,10 @@ public struct ChatView: View {
         .sheet(item: $sheetArticle) { item in
             KnowledgeBaseView(articleId: item.id)
         }
+        // A wait's article with the help centre off, fetched by id (#83).
+        .background(EmptyView().standaloneArticleSheet(conferBot))
+        // "Your requests" over the chat, from the menu.
+        .overlay(RequestsPortalView())
         // A live chat file: the system picker, uploaded and sent as the web widget sends it
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item]) { result in
             if case .success(let url) = result {
@@ -233,16 +238,26 @@ public struct ChatView: View {
         .background(Color(hex: look.headerBg))
     }
 
-    /// The chat menu (web chat menu): "Email me this chat" while there is a
-    /// conversation and the visitor is not blocked (#39).
+    /// The chat menu (web chat menu): "Your requests" once the visitor has
+    /// one ("Your requests · New reply" when one is unread, #38), "Email me
+    /// this chat" while there is a conversation (#39); none for a blocked visitor.
     @ViewBuilder
     private func chatMenu(ink: Color) -> some View {
-        if conferBot.currentSession != nil && live.blocked == nil {
+        if live.blocked == nil && (conferBot.currentSession != nil || requests.hasRequests) {
             Menu {
-                Button {
-                    conferBot.openEmailTranscript()
-                } label: {
-                    Label(EmailTranscript.Copy.menu, systemImage: "envelope")
+                if requests.hasRequests {
+                    Button {
+                        requests.open()
+                    } label: {
+                        Label(requests.menuTitle, systemImage: "tray")
+                    }
+                }
+                if conferBot.currentSession != nil {
+                    Button {
+                        conferBot.openEmailTranscript()
+                    } label: {
+                        Label(EmailTranscript.Copy.menu, systemImage: "envelope")
+                    }
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -485,6 +500,19 @@ private struct SheetArticle: Identifiable {
     let id: String
 }
 
+@available(iOS 15.0, *)
+private extension View {
+    /// ConferBot's article shown on its own (``ConferBot/standaloneArticle``), as a sheet.
+    func standaloneArticleSheet(_ conferBot: ConferBot) -> some View {
+        sheet(item: Binding(
+            get: { conferBot.standaloneArticle },
+            set: { if $0 == nil { conferBot.closeStandaloneArticle() } }
+        )) { article in
+            ArticleDetailView(article: article, onBack: { conferBot.closeStandaloneArticle() })
+        }
+    }
+}
+
 // MARK: - Tab Button
 
 @available(iOS 15.0, *)
@@ -565,6 +593,10 @@ public struct ChatViewWithKBSheet: View {
                     })
             }
         }
+        // A wait's article with the help centre off, fetched by id (#83).
+        .background(EmptyView().standaloneArticleSheet(conferBot))
+        // "Your requests" over the chat, when the app opens them.
+        .overlay(RequestsPortalView())
     }
 
     private var headerView: some View {
