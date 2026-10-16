@@ -234,10 +234,57 @@ public final class HandoverLifecycle {
         if hooks.engine()?.isAtHandover == true && hooks.waitingForPerson() { leftQueue() }
     }
 
+    /// live-chat-requeued: the agent left and nobody else owns the chat, so
+    /// it is back in the queue (web liveTakeover.ts). "Connecting you to
+    /// another agent..." (or the team it went to), and a flow at its handover
+    /// step waits again (#41).
+    func onRequeued(_ data: [String: Any]?) {
+        guard own(data) else { return }
+        let entry = LiveEvents.requeuedEntry(data)
+        let id = entry["id"] as? String ?? LiveEvents.eventId("requeued")
+        add(SystemMessageRecord(id: id, time: Date(), text: entry["text"] as? String ?? LiveEvents.requeuedDefaultText), server: entry)
+        hooks.setAgent(nil, nil)
+        leftThisWait = false
+        if let engine = hooks.engine(), engine.isAtHandover, let nodeId = engine.currentNodeId {
+            hooks.setLive(false)
+            Task { @MainActor in engine.waitAt(nodeId, uiState: .humanHandover(message: nil)) }
+        }
+        connecting.start()
+        hooks.save()
+    }
+
+    /// live-chat-transferred: the transfer line the server wrote, kept in
+    /// this copy of the record so the next write keeps it. Not drawn (#41).
+    func onTransferred(_ data: [String: Any]?) {
+        guard own(data), let entry = LiveEvents.transferEntry(data) else { return }
+        hooks.chatState().pushServerEntry(entry)
+        hooks.save()
+    }
+
+    /// Blocked by the workspace (web closedState.ts): a Connecting line stops
+    /// its dots; the wait, the nudge and the flow are over (#40).
+    func onBlocked() {
+        connecting.end()
+        clearNudge()
+        settle(.ended)
+        hooks.setLive(false)
+        hooks.setAgent(nil, nil)
+        if let engine = hooks.engine() { Task { @MainActor in engine.halt() } }
+        hooks.save()
+    }
+
     func setupListeners(on socket: SocketClient) {
         socket.on(SocketEvents.handoverWaiting) { [weak self] data, _ in
             let d = data.first as? [String: Any]
             DispatchQueue.main.async { self?.onHandoverWaiting(d) }
+        }
+        socket.on(SocketEvents.liveChatRequeued) { [weak self] data, _ in
+            let d = data.first as? [String: Any]
+            DispatchQueue.main.async { self?.onRequeued(d) }
+        }
+        socket.on(SocketEvents.liveChatTransferred) { [weak self] data, _ in
+            let d = data.first as? [String: Any]
+            DispatchQueue.main.async { self?.onTransferred(d) }
         }
         socket.on(SocketEvents.queueLeft) { [weak self] data, _ in
             let d = data.first as? [String: Any]
@@ -350,6 +397,11 @@ public final class HandoverLifecycle {
         switch step {
         case .live:
             hooks.setLive(true)
+            // On the handover step with nothing drawn: when the person ends
+            // the chat, the flow carries on from it (#66).
+            if let engine = engine, let id = nodeId {
+                Task { @MainActor in engine.standAt(id) }
+            }
             if let p = r.agent {
                 let details = AgentDetails(id: p.id, name: p.name, email: p.email ?? "", isAIAgent: false)
                 hooks.setAgent(Agent(id: p.id, name: p.name, email: p.email), details)
@@ -375,8 +427,11 @@ public final class HandoverLifecycle {
                     server: ["id": entryId, "_id": entryId, "type": "agent-chat-ended", "time": Self.now()])
             }
             hooks.setLive(false)
+            let endedLive = r.status == .ended
             Task { @MainActor in
-                if engine.waitAt(id, uiState: .humanHandover(message: message)) { await engine.continueAfterHandover() }
+                guard engine.waitAt(id, uiState: .humanHandover(message: message)) else { return }
+                // Ended by the person: the step's post-chat survey first, as live (#66).
+                if endedLive { await engine.handoverEnded() } else { await engine.continueAfterHandover() }
             }
         case .ask:
             if let engine = engine, let id = nodeId {
