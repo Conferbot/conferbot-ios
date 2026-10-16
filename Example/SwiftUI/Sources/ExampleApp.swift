@@ -9,10 +9,47 @@
 //
 
 import SwiftUI
+import UserNotifications
 import Conferbot
+
+/// Push notifications (README "Push notifications"): the APNs token goes to
+/// the SDK, a tapped Conferbot notification opens its chat, one that arrives
+/// in the foreground only counts as unread. Try it on a simulator with
+/// `xcrun simctl push booted com.conferbot.example payload.apns`.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else { return }
+            DispatchQueue.main.async { application.registerForRemoteNotifications() }
+        }
+        return true
+    }
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        ConferBot.shared.setPushToken(deviceToken)
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        ConferBot.shared.handlePushNotification(response.notification.request.content.userInfo)
+        completionHandler()
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let ours = ConferBot.shared.handlePushNotification(notification.request.content.userInfo, open: false)
+        completionHandler(ours ? [] : [.banner, .sound])
+    }
+}
 
 @main
 struct ExampleApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // ------------------------------------------------------------------
