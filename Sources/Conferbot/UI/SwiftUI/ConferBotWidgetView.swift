@@ -824,8 +824,10 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         bot.resetUnreadCount()
     }
 
-    /// The visitor's words, once the chat has opened.
+    /// The visitor's words, once the chat has opened. With the owner's home
+    /// screen they go past it to the conversation, asked there.
     private func send(_ text: String) {
+        if bot.home.isOn { return bot.home.showChat(text) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             Task { try? await bot.sendMessage(text) }
         }
