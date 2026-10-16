@@ -76,7 +76,8 @@ public enum Launcher {
     public static let shapes = ["circle", "squircle", "bubble", "tab", "peek"]
     public static let styles = ["icon", "label", "avatar", "mascot"]
     public static let labelMax = 24
-    public static let defaultLabel = "Chat with us"
+    /// "Chat with us" in the active language (web i18n home.chatWithUs).
+    public static var defaultLabel: String { I18n.t("home.chatWithUs") }
     /// The web folds the label back to the round button at this width and under.
     public static let labelMinWidth: Double = 480
 
