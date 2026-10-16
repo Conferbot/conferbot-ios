@@ -219,9 +219,12 @@ private struct ConferBotFABButton: View {
     @State private var idleTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Nothing moves for an image or avatar launcher, or when the phone asks for reduced motion.
+    /// The owner's mascot on a soft light button (launcherStyle.ts "mascot"), unless an image was uploaded.
+    private var mascotStyle: Bool { customizations.look.style == "mascot" && customizations.iconImageUrl == nil }
+
+    /// Nothing moves for an image, avatar or mascot launcher (the mascot has its own moods), or when the phone asks for reduced motion.
     private var still: Bool {
-        reduceMotion || customizations.iconImageUrl != nil || customizations.look.style == "avatar" || !ConferBot.shared.hasServerLook
+        reduceMotion || customizations.iconImageUrl != nil || customizations.look.style == "avatar" || mascotStyle || !ConferBot.shared.hasServerLook
     }
 
     var body: some View {
@@ -349,6 +352,13 @@ private struct ConferBotFABButton: View {
             .frame(width: customizations.fabWidth, height: size)
             // A soft glow in the header colour (0 0 4px), as the web draws it.
             .shadow(color: Color(hex: look.glow).opacity(0.9), radius: 4, x: 0, y: 0)
+            // The mascot's soft light button while closed; open, the brand colour with its cross.
+            if mascotStyle && !isOpen {
+                Canvas { ctx, sz in FxSvg.draw(ctx, mascotButtonXml(look.mascot.light), sz.width, sz.height) }
+                    .frame(width: customizations.fabWidth, height: size)
+                    .clipShape(shape)
+                    .allowsHitTesting(false)
+            }
             gloss(shape)
                 .frame(width: customizations.fabWidth, height: size)
             }
@@ -361,6 +371,9 @@ private struct ConferBotFABButton: View {
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
                     .frame(width: iconSize, height: iconSize)
                     .clipShape(Circle())
+            } else if mascotStyle {
+                // Its bust over the rim, blinking; a reply landing makes it hop and smile.
+                LauncherMascotView(mascot: look.mascot, width: customizations.fabWidth, height: size, unread: unreadCount, chatOpen: isOpen)
             } else if let url = avatar.flatMap(URL.init(string:)) {
                 // The photo fills the button inside a thin ring of its colour, with an online dot.
                 AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.white }
@@ -477,6 +490,35 @@ private struct LauncherFxMotion: ViewModifier {
     }
 }
 
+/// The greeting card kept on screen while it leaves (RN ConferBotWidget's
+/// leavingCard): the card last shown, and why it went (its x: close; else
+/// open). Read and updated while the launcher draws.
+final class GreetingLeave {
+    private var last: GreetingCardData?
+    private var leaving: (card: GreetingCardData, reason: String)?
+    /// The x was tapped: the card that goes next is closed, not opened.
+    var closing = false
+
+    /// The card to draw: the one shown, else the one leaving and why.
+    func drawn(_ shown: GreetingCardData?) -> (card: GreetingCardData, leaving: String?)? {
+        if let s = shown {
+            last = s
+            leaving = nil
+            closing = false
+            return (s, nil)
+        }
+        if let l = last {
+            leaving = (l, closing ? "close" : "open")
+            last = nil
+            closing = false
+        }
+        return leaving.map { ($0.card, $0.reason) }
+    }
+
+    /// Its leaving moves are over.
+    func gone() { leaving = nil }
+}
+
 /// Where the launcher sits on the screen (global pt), before its effects move it.
 private struct LauncherRectKey: PreferenceKey {
     static var defaultValue: CGRect? = nil
@@ -496,8 +538,6 @@ final class LauncherFxModel: ObservableObject {
     @Published var launcher: CGRect?
     /// An idle or message moment is playing (the attention loop pauses for it).
     @Published var inMoment = false
-    var mascot: MascotArt.Layers?
-    var mascotKey = ""
 
     init() {
         let bump: () -> Void = { [weak self] in
@@ -514,14 +554,9 @@ final class LauncherFxModel: ObservableObject {
         idle.dispose()
     }
 
-    /// The mascot drawn for this call (its colour and arm pose).
-    func mascotFor(_ perf: LauncherIdleCall.Performance, color: String, accent: String) -> MascotArt.Layers {
-        let key = "\(color) \(perf.mascot.arm) \(accent)"
-        if key != mascotKey || mascot == nil {
-            mascotKey = key
-            mascot = MascotArt.layers(color, arm: perf.mascot.arm, accentIn: accent)
-        }
-        return mascot!
+    /// The owner's mascot drawn for this call (its look, the launcher's colour, the arm pose).
+    func mascotFor(_ perf: LauncherIdleCall.Performance, look: MascotArt.Look, accent: String) -> MascotArt.Layers {
+        MascotDraw.layers(accent, arm: perf.mascot.arm, look: look, bust: false)
     }
 }
 
@@ -533,6 +568,8 @@ private struct LauncherFxStage: View {
     let attentionOn: Bool
     let perf: LauncherIdleCall.Performance?
     let mascot: MascotArt.Layers?
+    /// The owner's mascot's character (its joints).
+    var shape = "blob"
     let live: Bool
 
     var body: some View {
@@ -551,7 +588,7 @@ private struct LauncherFxStage: View {
                         if shadow, let v = fx.attention.part("shadow", fx.attention.elapsed) {
                             LauncherFxDraw.bounceShadow(c, r.width, r.height, v)
                         }
-                        if drawsMascot { LauncherFxDraw.idleCall(c, perf!, mascot!, fx.idle.elapsed) }
+                        if drawsMascot { LauncherFxDraw.idleCall(c, perf!, mascot!, shape: shape, fx.idle.elapsed) }
                         if drawsPlan { LauncherFxDraw.entrance(c, plan!, fx.entrance.elapsed) }
                     }
                 }
@@ -624,6 +661,9 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
     @StateObject private var greeting = GreetingController()
     /// The entrance, attention loop and idle call (Core/Customization/LauncherFxControllers).
     @StateObject private var fx = LauncherFxModel()
+    /// The greeting card stays drawn while it leaves (its collapse or fade, the figure's hand-off or bow).
+    @State private var cardLeave = GreetingLeave()
+    @State private var cardGone = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let content: Content
@@ -682,13 +722,15 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         let cardEdge = max(8, c.offsetX - c.tucked)
         let attentionOn = fx.attention.running && !isChatOpen
         let perf = isChatOpen ? nil : fx.idle.perf
-        let mascot = perf.map { fx.mascotFor($0, color: MascotArt.color(bot.serverCustomizations, launcher: c.look.solid), accent: c.look.solid) }
+        let mascot = perf.map { fx.mascotFor($0, look: c.look.mascot.look, accent: c.look.solid) }
         let fxLive = fx.entrance.active || attentionOn || perf != nil
+        let _ = cardGone
+        let drawn = cardLeave.drawn(isChatOpen ? nil : greeting.card)
 
         ZStack {
             content
 
-            if let card = greeting.card, !isChatOpen {
+            if let card = drawn?.card {
                 VStack {
                     Spacer()
                     HStack {
@@ -702,15 +744,23 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                             GreetingCardView(
                                 card: card,
                                 alignLeft: c.position == .left,
-                                onPress: { pressGreeting(card) },
+                                onPress: { if greeting.card != nil { pressGreeting(card) } },
                                 onClose: {
+                                    cardLeave.closing = true
                                     greeting.dismiss()
                                     fx.idle.greetingClosed()
                                 },
                                 onStarter: { text in
+                                    guard greeting.card != nil else { return }
                                     greeting.closeForNow()
                                     openChat()
                                     send(text)
+                                },
+                                leaving: drawn?.leaving,
+                                launcher: fx.launcher?.size,
+                                onGone: {
+                                    cardLeave.gone()
+                                    cardGone += 1
                                 }
                             )
                             // The wave: a waving hand on the card's corner, unless its text has its own.
@@ -732,13 +782,14 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                     .padding(c.position == .right ? .trailing : .leading, cardEdge)
                     .padding(.bottom, c.offsetBottom + c.fabSize + 12)
                 }
-                .transition(.asymmetric(insertion: .identity, removal: .opacity.combined(with: .offset(y: 6)).combined(with: .scale(scale: 0.98, anchor: c.position == .right ? .bottomTrailing : .bottomLeading))))
+                // It leaves on its own moves (GreetingCardView `leaving`).
+                .transition(.identity)
                 .zIndex(1)
             }
 
             // Behind the launcher: the bounce's shadow, the idle call's mascot, the portal.
             if !isChatOpen {
-                LauncherFxStage(fx: fx, front: false, attentionOn: attentionOn, perf: perf, mascot: mascot, live: fxLive)
+                LauncherFxStage(fx: fx, front: false, attentionOn: attentionOn, perf: perf, mascot: mascot, shape: c.look.mascot.look.shape, live: fxLive)
                     .zIndex(2)
             }
 
@@ -775,7 +826,7 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
 
             // In front of the launcher: a knock / tap mascot and the other entrances.
             if !isChatOpen {
-                LauncherFxStage(fx: fx, front: true, attentionOn: attentionOn, perf: perf, mascot: mascot, live: fxLive)
+                LauncherFxStage(fx: fx, front: true, attentionOn: attentionOn, perf: perf, mascot: mascot, shape: c.look.mascot.look.shape, live: fxLive)
                     .zIndex(4)
             }
 
