@@ -39,6 +39,9 @@ public final class HandoverLifecycle {
     }
 
     public let signals = WidgetSignalBus()
+    /// Where a wait for a person begins and ends, for the help card that
+    /// comes 6s in (WaitingExtras; web special.ts waitForPerson). ConferBot sets it.
+    var waitHooks: (start: () -> Void, end: () -> Void)?
     private let hooks: Hooks
     private let schedule: ConnectingSignal.Schedule
     private(set) lazy var connecting = ConnectingSignal(
@@ -103,8 +106,12 @@ public final class HandoverLifecycle {
         })
     }
 
+    private func waitStart() { waitHooks?.start() }
+    private func waitEnd() { waitHooks?.end() }
+
     /// The wait ended without a person: no waiting signal, no nudge, and cb:wait-over.
     private func waitOver(_ reason: String) {
+        waitEnd()
         connecting.end()
         clearNudge()
         signals.emit(.waitOver, WidgetSignalDetail(reason: reason))
@@ -119,7 +126,10 @@ public final class HandoverLifecycle {
     func flowWaitStarted(nodeData: [String: Any]?) {
         leftThisWait = false
         let ai = (nodeData?["assignedAIAgents"] as? [Any]) ?? []
-        if ai.isEmpty { connecting.start() }
+        if ai.isEmpty {
+            connecting.start()
+            waitStart()
+        }
     }
 
     // MARK: - AI escalation's max wait (#36)
@@ -161,6 +171,8 @@ public final class HandoverLifecycle {
             leftThisWait = false
             connecting.start()
             armNudge()
+            // Passed on to a person: what may help while they wait (web special.ts agent-left).
+            waitStart()
             // The same escalation again: one line is enough.
             if HandoverState.hasPendingLine(record) { return kind }
         }
@@ -183,6 +195,7 @@ public final class HandoverLifecycle {
     @discardableResult
     func onAccepted(_ data: [String: Any]?) -> HandoverState.AcceptedPlan {
         let plan = HandoverState.acceptedPlan(record, data: data)
+        waitEnd()
         connecting.end()
         clearNudge()
         settle(plan.outcome)
@@ -209,6 +222,7 @@ public final class HandoverLifecycle {
     /// its cb:waiting-for-human, never ours as well.
     func onHandoverWaiting(_ data: [String: Any]?) {
         guard own(data) else { return }
+        waitEnd()
         connecting.end()
         clearNudge()
         settle(.unavailable)
@@ -223,6 +237,7 @@ public final class HandoverLifecycle {
     /// chat-ended or ai-agent-inactive-close: a wait still going ends with the chat.
     func onChatEnded(_ data: [String: Any]?) {
         guard own(data) else { return }
+        waitEnd()
         let waiting = inWait
         settle(.ended)
         if waiting { waitOver("ended") } else { clearNudge() }
@@ -264,6 +279,7 @@ public final class HandoverLifecycle {
     /// Blocked by the workspace (web closedState.ts): a Connecting line stops
     /// its dots; the wait, the nudge and the flow are over (#40).
     func onBlocked() {
+        waitEnd()
         connecting.end()
         clearNudge()
         settle(.ended)
@@ -295,20 +311,27 @@ public final class HandoverLifecycle {
     // MARK: - Leaving the queue (#34)
 
     /// Out of the queue: the line, the record, the signal, the flow moves on.
-    private func leftQueue() {
+    /// `helped`: a help article solved it ("That solved it", web special.ts
+    /// _wireQueue leave()): "You left the queue. Glad that helped.",
+    /// recorded as "Resolved while waiting".
+    private func leftQueue(helped: Bool = false) {
         guard !leftThisWait else { return }
         leftThisWait = true
         waitOver("cancelled")
         settle(.cancelled)
         let id = Self.entryId("queue-self-resolved")
-        let text = HandoverState.text(.cancelled)
+        let text = helped ? WaitArticles.Text.leftHelped : HandoverState.text(.cancelled)
         add(SystemMessageRecord(id: id, time: Date(), text: text),
-            server: ["id": id, "_id": id, "type": "queue-self-resolved", "time": Self.now(), "text": text])
+            server: ["id": id, "_id": id, "type": "queue-self-resolved", "time": Self.now(),
+                     "text": helped ? WaitArticles.Text.recordText : HandoverState.text(.cancelled)])
         hooks.save()
         if let engine = hooks.engine(), engine.isAtHandover {
             Task { @MainActor in await engine.continueAfterHandover() }
         }
     }
+
+    /// The server let them go because an article helped (queue-self-resolve answered ok).
+    func leftQueueHelped() { leftQueue(helped: true) }
 
     /// The visitor leaves the queue (the wait card's Cancel):
     /// queue-self-resolve, as the web widget does, so the team stops seeing
@@ -417,6 +440,8 @@ public final class HandoverLifecycle {
             if let engine = engine, let id = nodeId {
                 Task { @MainActor in engine.waitAt(id, uiState: .humanHandover(message: message)) }
                 connecting.start()
+                // Still waiting with no AI agent first: the help card comes 6s in, as live.
+                if ((nodeData["assignedAIAgents"] as? [Any]) ?? []).isEmpty { waitStart() }
             }
         case .continue:
             guard let engine = engine, let id = nodeId else { return }
