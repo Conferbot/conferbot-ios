@@ -253,6 +253,19 @@ public enum LiveChat {
         return out
     }
 
+    /// The handover step's own survey as submit-chat-rating (the server has
+    /// no handover:survey): thumbs up is 1, numbers are an NPS 0-10, stars
+    /// and emojis a 1-5 score. nil when there is no rating to send (#59).
+    public static func surveyRatingPayload(chatSessionId: String, style: String?, response: [String: Any]?) -> [String: Any]? {
+        guard !chatSessionId.isEmpty, let rating = int(response?["rating"]) else { return nil }
+        let feedback = (response?["feedback"] as? String) ?? (response?["comment"] as? String)
+        switch style {
+        case "thumbs": return ratingPayload(chatSessionId: chatSessionId, type: "thumbs", value: rating == 1, feedback: feedback)
+        case "numbers": return ratingPayload(chatSessionId: chatSessionId, type: "nps", value: rating, feedback: feedback)
+        default: return ratingPayload(chatSessionId: chatSessionId, type: "stars", value: rating, feedback: feedback)
+        }
+    }
+
     // "See original" / "See translation" in the visitor's language (the web
     // widget's list, ts/chat/translatedMessage.ts).
     private static let translationLabels: [String: (String, String)] = [
