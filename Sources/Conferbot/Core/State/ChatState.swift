@@ -653,9 +653,17 @@ public final class ChatState: ObservableObject {
             if let name = ctx["name"] as? String { data["visitorName"] = name }
             if let email = ctx["email"] as? String { data["visitorEmail"] = email }
         }
+        // The phone's language, as the web's visitorInsights.language.browser:
+        // the AI answers a short message ("ok", "hi") in it (#44).
+        if let insights = DeviceLanguage.visitorInsights(deviceLanguage()) {
+            data["visitorInsights"] = insights
+        }
 
         return data
     }
+
+    /// The visitor's language for the response record (the phone's; tests set their own).
+    public var deviceLanguage: () -> String = { DeviceLanguage.current }
 
     /// Push a system/agent record entry to the server record (for live chat events)
     public func pushLiveChatRecord(entryId: String, type: String, text: String? = nil, agentDetails: [String: Any]? = nil) {
