@@ -221,7 +221,9 @@ let config = ConferBotConfig(
     enableOfflineMode: true,                            // default: true
     apiBaseURL: ConferBotEndpoints.apiBaseURL,          // default: https://wdt.conferbot.com/api/v1/mobile
     socketURL: ConferBotEndpoints.socketURL,            // default: https://wdt.conferbot.com
-    widgetLanguage: nil                                 // "en", "nl", "fr", "de", "es" or "auto"; nil = the bot's setting
+    widgetLanguage: nil,                                // "en", "nl", "fr", "de", "es" or "auto"; nil = the bot's setting
+    onPostChatRedirect: nil,                            // (String) -> Bool: true = the app handled the post-chat redirect
+    disablePostChatRedirect: false                      // true = never follow the owner's post-chat redirect
 )
 
 ConferBot.shared.initialize(
@@ -547,6 +549,23 @@ ConferBot.shared.getCurrentNodeId()
 ConferBot.shared.nodeRequiresInteraction("user-input")   // Bool
 ConferBot.shared.resetFlow()                              // restart conversation, new session
 ```
+
+### Redirect after chat
+
+When the owner sets a URL in Customize > Conversations > Post-chat redirect, the SDK follows it as the web widget does: once the conversation ends (the flow reaches its end, or an agent ends the chat) and the post-chat rating is sent or put away, a quiet line reads "Taking you to example.com in 10s" with Cancel (SwiftUI `ChatView` and the UIKit chat's strip), then the URL opens in the system browser (`UIApplication.shared.open`). It stops if the visitor cancels, starts a new chat, closes the chat or the app goes to the background, and it is offered only once per conversation (remembered in UserDefaults). Only `http(s)` addresses are followed.
+
+```swift
+let config = ConferBotConfig(
+    // Open it in your own screen instead; true = handled, no countdown.
+    onPostChatRedirect: { url in
+        router.showWeb(URL(string: url)!)
+        return true
+    }
+    // Or turn it off: disablePostChatRedirect: true
+)
+```
+
+Headless: `ConferBot.shared.postChatRedirect.line` (published `RedirectLine`: `text`, `said`, `phase`, `cancelLabel`), `.cancel()`, `.continueNow()`; `PostChatRedirectLineView` draws it.
 
 ### Live agent handover
 
