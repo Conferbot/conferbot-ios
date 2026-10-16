@@ -855,6 +855,43 @@ public final class NodeFlowEngine: ObservableObject {
         await submitResponse(["action": "continue"])
     }
 
+    /// The live chat ended (chat-ended): the handover step asks its post-chat
+    /// survey when it has one, else the flow carries on from it, as the web
+    /// widget does (agentListeners.ts onChatEnded) (#66).
+    @MainActor
+    public func handoverEnded() async {
+        guard isAtHandover else { return }
+        if !isWaitingForInput { isWaitingForInput = true }
+        await submitResponse(["action": "ended"])
+    }
+
+    /// A restored chat a person still has: on its handover step with nothing
+    /// drawn (the composer talks to the person), so the end of the live chat
+    /// carries the flow on (#66). False when the step is not in the flow.
+    @MainActor
+    @discardableResult
+    public func standAt(_ nodeId: String) -> Bool {
+        guard nodesById[nodeId] != nil else { return false }
+        currentNodeId = nodeId
+        state.currentNodeId = nodeId
+        isProcessing = false
+        isWaitingForInput = true
+        state.isTyping = false
+        currentUIState = nil
+        return true
+    }
+
+    /// Stop where it is: nothing waits and nothing pending runs on (a
+    /// blocked visitor, #40). A new conversation starts the flow again.
+    @MainActor
+    public func halt() {
+        moveToken += 1
+        isProcessing = false
+        isWaitingForInput = false
+        state.isTyping = false
+        currentUIState = nil
+    }
+
     // MARK: - Server communication
 
     private func emit(_ event: String, _ payload: [String: Any]) -> Bool {
