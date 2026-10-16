@@ -150,7 +150,8 @@ final class AgentBotParserTests: XCTestCase {
 
     func testParsesListsAndParagraphs() {
         let blocks = ChatMarkdown.parse("## Plans\nWe have:\n- Pro\n2. Team\n\nBye")
-        XCTAssertEqual(blocks.count, 4)
+        // The heading is its own block (#49).
+        XCTAssertEqual(blocks.count, 5)
         XCTAssertEqual(ChatMarkdown.plainText(blocks), "Plans\nWe have:\n• Pro\n2. Team\nBye")
     }
 }
