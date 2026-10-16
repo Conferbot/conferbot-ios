@@ -774,6 +774,45 @@ public final class ChatState: ObservableObject {
         currentNodeId = nil
     }
 
+    /// The conversation's state at one moment (the answers, variables,
+    /// metadata, transcript, record and current step), in memory: what
+    /// "Edit" on an answer returns to (Core/Delight). The values are plain
+    /// dictionaries and arrays, copied on write.
+    public struct Snapshot {
+        let answerVariables: [String: Any]
+        let answerEntries: [FlowAnswerVariable]
+        let variables: [String: Any]
+        let userMetadata: [String: Any]
+        let transcript: [[String: Any]]
+        let record: [String: Any]
+        let serverRecord: [[String: Any]]
+        let currentNodeId: String?
+    }
+
+    /// The state as it is now.
+    public func snapshot() -> Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return Snapshot(answerVariables: answerVariables, answerEntries: answerEntries, variables: variables,
+                        userMetadata: userMetadata, transcript: transcript, record: record,
+                        serverRecord: serverRecord, currentNodeId: currentNodeId)
+    }
+
+    /// Puts a snapshot back in place, keeping this instance and its
+    /// subscribers (RN ChatState.restore).
+    public func restore(_ snap: Snapshot) {
+        lock.lock()
+        answerVariables = snap.answerVariables
+        answerEntries = snap.answerEntries
+        variables = snap.variables
+        userMetadata = snap.userMetadata
+        transcript = snap.transcript
+        record = snap.record
+        serverRecord = snap.serverRecord
+        currentNodeId = snap.currentNodeId
+        lock.unlock()
+    }
+
     /// Resets only the conversation state while preserving user metadata
     public func resetConversation() {
         lock.lock()
