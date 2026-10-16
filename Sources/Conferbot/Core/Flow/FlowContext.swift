@@ -188,6 +188,8 @@ public final class FlowContext {
     /// The visitor's IANA time zone.
     public let visitorTimeZone: String
     public let page: FlowPage?
+    /// The bot's bookings (the bot data's calendarBookings), for a calendar's taken slots.
+    public var calendarBookings: [[String: Any]] = []
 
     let apiFn: (String, [String: Any], Double?) async -> FlowApiReply
     let uploadFn: (FlowUploadFile) async -> (ok: Bool, url: String?)
