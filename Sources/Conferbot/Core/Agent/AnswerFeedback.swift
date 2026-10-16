@@ -45,31 +45,32 @@ public struct AnswerFeedback: Codable, Equatable {
     }
 }
 
+/// The web's "Helpful?" words (i18n helpful.*, chat.talkToPerson*), in the active language.
 public enum HelpfulText {
-    public static let ask = "Helpful?"
-    public static let groupLabel = "Was this answer helpful?"
-    public static let yes = "Yes, helpful"
-    public static let no = "No, not helpful"
-    public static let ratedUp = "Helpful"
-    public static let ratedDown = "Not helpful"
-    public static let thanks = "Thanks for letting us know!"
-    public static let sorry = "Sorry about that. What went wrong?"
-    public static let comment = "Add a comment (optional)"
-    public static let sendFeedback = "Send feedback"
-    public static let retry = "Ask another way"
-    public static let thanksComment = "Thanks, that helps us improve."
-    public static let talkToPerson = "Talk to a person"
-    public static let talkToPersonAsk = "I'd like to talk to a person, please."
+    public static var ask: String { I18n.t("helpful.ask") }
+    public static var groupLabel: String { I18n.t("helpful.groupLabel") }
+    public static var yes: String { I18n.t("helpful.yes") }
+    public static var no: String { I18n.t("helpful.no") }
+    public static var ratedUp: String { I18n.t("helpful.rated.up") }
+    public static var ratedDown: String { I18n.t("helpful.rated.down") }
+    public static var thanks: String { I18n.t("helpful.thanks") }
+    public static var sorry: String { I18n.t("helpful.sorry") }
+    public static var comment: String { I18n.t("helpful.comment") }
+    public static var sendFeedback: String { I18n.t("helpful.sendFeedback") }
+    public static var retry: String { I18n.t("helpful.retry") }
+    public static var thanksComment: String { I18n.t("helpful.thanksComment") }
+    public static var talkToPerson: String { I18n.t("chat.talkToPerson") }
+    public static var talkToPersonAsk: String { I18n.t("chat.talkToPersonAsk") }
 }
 
 public enum HelpfulRow {
 
     public enum View: String { case ask, thanks, down, rated }
 
-    /// The reasons and their words (web FEEDBACK_REASONS, i18n en).
-    public static let reasons: [(key: String, label: String)] = [
-        ("wrong", "Wrong"), ("outdated", "Outdated"), ("unanswered", "Didn't answer"), ("other", "Other"),
-    ]
+    /// The reasons and their words (web FEEDBACK_REASONS, helpful.reason.*), in the active language.
+    public static var reasons: [(key: String, label: String)] {
+        ["wrong", "outdated", "unanswered", "other"].map { ($0, I18n.t("helpful.reason.\($0)")) }
+    }
 
     /// How long "Thanks for letting us know!" shows before the rated line (web: 1800 ms).
     public static let thanksSeconds: Double = 1.8
