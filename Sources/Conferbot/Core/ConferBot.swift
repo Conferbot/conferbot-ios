@@ -1030,6 +1030,9 @@ public class ConferBot: ObservableObject {
                 guard let self = self else { return }
                 self.isFlowComplete = isComplete
                 if isComplete {
+                    // The post-chat rating, as the web asks at the flow's end
+                    // (#95); before the redirect, which waits for it.
+                    self.liveChat.flowEnded()
                     // The flow's end is the conversation's end (the post-chat redirect).
                     self.postChatRedirect.conversationEnded()
                     self.delegate?.conferBot(self, didCompleteFlow: true)
