@@ -329,7 +329,8 @@ public class ChatViewController: UIViewController {
     /// The chat menu: "Your requests" once the visitor has one ("Your
     /// requests · New reply" when one is unread, iOS 15, #38), "Email me this
     /// chat" while there is a conversation (#39; the card shows in the live
-    /// strip); none for a blocked visitor.
+    /// strip), Sound on / off when the bot has a sound (#90); none for a
+    /// blocked visitor.
     private func chatMenuItem() -> UIBarButtonItem? {
         guard #available(iOS 14.0, *), ConferBot.shared.liveChat.blocked == nil else { return nil }
         var actions: [UIAction] = []
@@ -341,6 +342,15 @@ public class ChatViewController: UIViewController {
         if ConferBot.shared.currentSession != nil {
             actions.append(UIAction(title: EmailTranscript.Copy.menu, image: UIImage(systemName: "envelope")) { _ in
                 ConferBot.shared.openEmailTranscript()
+            })
+        }
+        // The visitor's Sound on / off, when the bot has a sound (#90).
+        let sounds = ConferBot.shared.sounds
+        if sounds.hasSounds {
+            actions.append(UIAction(title: sounds.soundOn ? I18n.t("chat.menu.soundOn") : I18n.t("chat.menu.soundOff"),
+                                    image: UIImage(systemName: sounds.soundOn ? "speaker.wave.2" : "speaker.slash")) { [weak self] _ in
+                sounds.toggle()
+                self?.navigationItem.rightBarButtonItem = self?.chatMenuItem()
             })
         }
         guard !actions.isEmpty else { return nil }
@@ -374,11 +384,14 @@ public class ChatViewController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         ConferBot.shared.setChatVisible(true)
+        // The launcher sound, or the sound pack's open (Core/Sounds)
+        ConferBot.shared.chatOpened(true)
     }
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         ConferBot.shared.setChatVisible(false)
+        ConferBot.shared.chatOpened(false)
     }
 
     @objc private func closeTapped() {
