@@ -10,11 +10,15 @@
 
 import SwiftUI
 
-/// An agent message's text: the markdown subset of Utils/ChatMarkdown.swift.
+/// An agent message's text: the markdown subset of Utils/ChatMarkdown.swift,
+/// drawn as the web's agentHtml.ts: lists, headings (bold; level 3 at 1.17x,
+/// 4-6 at 1.07x), quotes with a left bar, code blocks in monospace, and
+/// tables in a sideways scroll (#49). `muted`: a fallback reply, italic at 85%.
 @available(iOS 15.0, *)
 struct ChatMarkdownText: View {
     let text: String
     let color: Color
+    var muted = false
 
     var body: some View {
         let blocks = ChatMarkdown.parse(text)
@@ -22,33 +26,55 @@ struct ChatMarkdownText: View {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .paragraph(let inlines):
-                    Text(Self.attributed(inlines))
+                    Text(Self.attributed(inlines, italic: muted))
                 case .bullet(let inlines):
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\u{2022}")
-                        Text(Self.attributed(inlines))
+                        Text(Self.attributed(inlines, italic: muted))
                     }
                 case .numbered(let n, let inlines):
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(n).")
-                        Text(Self.attributed(inlines))
+                        Text(Self.attributed(inlines, italic: muted))
                     }
+                case .heading(let level, let inlines):
+                    Text(Self.attributed(inlines, italic: muted))
+                        .font(.system(size: UIFont.preferredFont(forTextStyle: .body).pointSize * (level == 3 ? 1.17 : 1.07), weight: .bold))
+                        .accessibilityAddTraits(.isHeader)
+                case .quote(let inlines):
+                    HStack(alignment: .top, spacing: 8) {
+                        Rectangle().fill(color.opacity(0.35)).frame(width: 3)
+                        Text(Self.attributed(inlines, italic: muted)).opacity(0.85)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                case .pre(let code):
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(code)
+                            .font(.system(.footnote, design: .monospaced))
+                            .padding(8)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.08)))
+                case .table(let head, let rows):
+                    MarkdownTableView(head: head, rows: rows, color: color)
                 }
             }
         }
         .foregroundColor(color)
         .tint(color)
+        .opacity(muted ? 0.85 : 1)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    static func attributed(_ inlines: [ChatMarkdown.Inline]) -> AttributedString {
+    static func attributed(_ inlines: [ChatMarkdown.Inline], italic: Bool = false) -> AttributedString {
         var out = AttributedString()
         for inline in inlines {
             var run = AttributedString(inline.text)
+            if italic { run.inlinePresentationIntent = .emphasized }
             switch inline {
-            case .bold: run.inlinePresentationIntent = .stronglyEmphasized
+            case .bold: run.inlinePresentationIntent = italic ? [.stronglyEmphasized, .emphasized] : .stronglyEmphasized
             case .italic: run.inlinePresentationIntent = .emphasized
             case .code: run.inlinePresentationIntent = .code
+            case .strike: run.strikethroughStyle = .single
             case .link(_, let url):
                 run.link = URL(string: url)
                 run.underlineStyle = .single
@@ -57,6 +83,41 @@ struct ChatMarkdownText: View {
             out += run
         }
         return out
+    }
+}
+
+/// A markdown table in a sideways scroll: cells 5/9 padding, the head bold
+/// over a 2pt rule, rows over a hairline at 18% of the text colour (web agentHtml.ts).
+@available(iOS 15.0, *)
+private struct MarkdownTableView: View {
+    let head: [[ChatMarkdown.Inline]]
+    let rows: [[[ChatMarkdown.Inline]]]
+    let color: Color
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                row(head, bold: true)
+                Rectangle().fill(color.opacity(0.18)).frame(height: 2)
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, cells in
+                    row(cells, bold: false)
+                    if index < rows.count - 1 { Rectangle().fill(color.opacity(0.18)).frame(height: 0.5) }
+                }
+            }
+        }
+        .font(.footnote)
+    }
+
+    private func row(_ cells: [[ChatMarkdown.Inline]], bold: Bool) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                Text(ChatMarkdownText.attributed(cell))
+                    .fontWeight(bold ? .semibold : .regular)
+                    .frame(minWidth: 60, alignment: .leading)
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 9)
+            }
+        }
     }
 }
 
@@ -136,8 +197,14 @@ struct AgentReplyExtrasView: View {
     @Environment(\.openURL) private var openURL
 
     private var showHelpful: Bool {
-        message.agentDetails.isAIAgent && message.extras?.isFallback != true && !message.deleted &&
-            AgentBotParser.canRate(message.id) && AgentBotParser.answerFeedbackOn(conferBot.serverCustomizations)
+        guard Self.rateable(message), AgentBotParser.answerFeedbackOn(conferBot.serverCustomizations) else { return false }
+        // A rated answer keeps its line; only the newest unrated one asks (#43).
+        return message.feedback != nil || HelpfulRow.asksFor(message.id, in: conferBot.messages, rateable: Self.rateable)
+    }
+
+    /// An AI answer stored under its server id, not a fallback or deleted.
+    static func rateable(_ m: AgentMessageRecord) -> Bool {
+        m.agentDetails.isAIAgent && m.extras?.isFallback != true && !m.deleted && AgentBotParser.canRate(m.id)
     }
 
     var body: some View {
@@ -221,7 +288,7 @@ struct AgentReplyExtrasView: View {
                     }
                 }
 
-                if showHelpful { HelpfulView(message: message) }
+                if showHelpful { HelpfulView(message: message, accent: accent) }
             }
         }
     }
@@ -284,43 +351,119 @@ private struct ActionCardView: View {
     }
 }
 
+/// "Helpful?" under an AI answer (web ts/chat/answerFeedback.ts, #43): a No
+/// is sent at once, then the reasons, an optional comment, "Talk to a person"
+/// (only while nobody is coming or here) and "Ask another way"; the rated
+/// line's thumbs change the vote. The steps are HelpfulRow's.
 @available(iOS 15.0, *)
 private struct HelpfulView: View {
     let message: AgentMessageRecord
-    @State private var askWhy = false
+    let accent: Color
+    @ObservedObject private var conferBot = ConferBot.shared
+    @State private var row: HelpfulRow.State
+    @State private var comment = ""
+
+    init(message: AgentMessageRecord, accent: Color) {
+        self.message = message
+        self.accent = accent
+        _row = State(initialValue: HelpfulRow.start(message.feedback))
+    }
 
     var body: some View {
-        if let given = message.feedback {
-            Text(given.helpful ? "Thanks, glad it helped" : "Thanks for telling us").font(.caption2).foregroundColor(.secondary)
-        } else if askWhy {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("What was wrong?").font(.caption2).foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            switch row.view {
+            case .ask:
                 HStack(spacing: 6) {
-                    ForEach(Array(AgentBotParser.feedbackReasons.enumerated()), id: \.offset) { _, reason in
-                        smallPill(reason.label) {
-                            let id = message.id
-                            Task { @MainActor in ConferBot.shared.sendAnswerFeedback(agentMessageId: id, helpful: false, reason: reason.key) }
-                        }
-                    }
+                    Text(HelpfulText.ask).font(.caption2).foregroundColor(.secondary)
+                    thumb(up: true, pressed: false)
+                    thumb(up: false, pressed: false)
                 }
-            }
-        } else {
-            HStack(spacing: 6) {
-                Text("Helpful?").font(.caption2).foregroundColor(.secondary)
-                smallPill("Yes") {
-                    let id = message.id
-                    Task { @MainActor in ConferBot.shared.sendAnswerFeedback(agentMessageId: id, helpful: true) }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(HelpfulText.groupLabel)
+            case .thanks:
+                Text(HelpfulText.thanks).font(.caption2).foregroundColor(.secondary)
+            case .down:
+                downPanel
+            case .rated:
+                HStack(spacing: 6) {
+                    thumb(up: true, pressed: row.current?.helpful == true)
+                    thumb(up: false, pressed: row.current?.helpful == false)
+                    Text(HelpfulRow.ratedLabel(row.current)).font(.caption2).foregroundColor(.secondary)
                 }
-                smallPill("No") { askWhy = true }
             }
         }
     }
 
-    private func smallPill(_ label: String, action: @escaping () -> Void) -> some View {
+    private var downPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(HelpfulText.sorry).font(.caption2).foregroundColor(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(HelpfulRow.reasons, id: \.key) { reason in
+                        smallPill(reason.label, selected: row.current?.reason == reason.key) { tap(.reason(reason.key)) }
+                    }
+                }
+            }
+            if row.current?.reason != nil {
+                if row.commented {
+                    Text(HelpfulText.thanksComment).font(.caption2).foregroundColor(.secondary)
+                } else {
+                    HStack(spacing: 6) {
+                        TextField(HelpfulText.comment, text: $comment)
+                            .font(.caption)
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(UIColor.separator), lineWidth: 0.5))
+                            .submitLabel(.send)
+                            .onSubmit { tap(.comment(comment)) }
+                        smallPill(HelpfulText.sendFeedback) { tap(.comment(comment)) }
+                    }
+                }
+            }
+            HStack(spacing: 6) {
+                if HandoverState.talkToPersonAllowed(conferBot.chatState.getServerRecord()) {
+                    smallPill(HelpfulText.talkToPerson) { tap(.human) }
+                }
+                smallPill(HelpfulText.retry) { tap(.retry) }
+            }
+        }
+    }
+
+    private func tap(_ t: HelpfulRow.Tap) {
+        let out = HelpfulRow.step(row, t)
+        row = out.state
+        let id = message.id
+        if let fb = out.send {
+            Task { @MainActor in ConferBot.shared.sendAnswerFeedback(agentMessageId: id, feedback: fb) }
+        }
+        if let ask = out.ask {
+            Task { try? await ConferBot.shared.sendMessage(ask) }
+        }
+        if out.state.view == .thanks {
+            DispatchQueue.main.asyncAfter(deadline: .now() + HelpfulRow.thanksSeconds) {
+                row = HelpfulRow.step(row, .settle).state
+            }
+        }
+    }
+
+    private func thumb(up: Bool, pressed: Bool) -> some View {
+        Button { tap(.vote(up)) } label: {
+            Image(systemName: up ? (pressed ? "hand.thumbsup.fill" : "hand.thumbsup") : (pressed ? "hand.thumbsdown.fill" : "hand.thumbsdown"))
+                .font(.caption)
+                .foregroundColor(pressed ? accent : .secondary)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .overlay(Capsule().stroke(pressed ? accent : Color(UIColor.separator), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(up ? HelpfulText.yes : HelpfulText.no)
+        .accessibilityAddTraits(pressed ? .isSelected : [])
+    }
+
+    private func smallPill(_ label: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).font(.caption).foregroundColor(.primary)
+            Text(label).font(.caption).foregroundColor(selected ? .white : .primary)
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                .overlay(Capsule().stroke(Color(UIColor.separator), lineWidth: 1))
+                .background(Capsule().fill(selected ? accent : Color.clear))
+                .overlay(Capsule().stroke(selected ? accent : Color(UIColor.separator), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
