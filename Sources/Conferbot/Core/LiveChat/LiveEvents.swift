@@ -14,6 +14,8 @@
 //                              the same end, and draws nothing
 //    ts/chat/closedState.ts    the closed chat ("This conversation has been
 //                              closed."), index.ts _applyVisitorBlock
+//    agentListeners.ts         ai-agent-inactive-close: "Chat paused" or
+//                              "Chat ended" (server aiInactivityHandler.js)
 //
 //  Pure.
 //
@@ -90,6 +92,51 @@ public enum LiveEvents {
             if let s = shape, liveAgain.contains(s) { return false }
         }
         return false
+    }
+
+    // MARK: - Paused or ended for inactivity (ai-agent-inactive-close)
+
+    /// What the AI's inactivity close does (server closeInactiveWebChat sends
+    /// `action`, the agent's onCloseAction):
+    ///   paused        only paused: "Chat paused" with "Send a message to
+    ///                 pick up where you left off". The composer stays on and
+    ///                 the visitor's next message reopens it (server
+    ///                 resumeInactiveChat, then ai-agent-resumed). Always for
+    ///                 an agent bot (it has no flow), and for any action but
+    ///                 continue_flow.
+    ///   continueFlow  the AI moved on for good: "Chat ended", the live chat
+    ///                 is over and the flow carries on from its handover step
+    ///                 along the next edge (web _handoverProceedToNextStep:
+    ///                 no survey).
+    public struct InactiveClosePlan: Equatable {
+        public let paused: Bool
+        public let continueFlow: Bool
+    }
+
+    public static func inactiveClosePlan(_ data: [String: Any]?, agentBotChat: Bool) -> InactiveClosePlan {
+        let continueFlow = data?["action"] as? String == "continue_flow" && !agentBotChat
+        return InactiveClosePlan(paused: !continueFlow, continueFlow: continueFlow)
+    }
+
+    public static let inactiveCloseType = "ai-agent-inactive-close"
+
+    /// Its record entry: its own id (a second pause must not merge into the
+    /// first), `paused` kept so a restart draws the same line.
+    public static func inactiveCloseEntry(_ data: [String: Any]?, agentBotChat: Bool, now: Date = Date()) -> [String: Any] {
+        let id = eventId(inactiveCloseType, now: now)
+        var entry: [String: Any] = ["id": id, "_id": id, "type": inactiveCloseType, "shape": inactiveCloseType,
+                                    "time": iso(now), "paused": inactiveClosePlan(data, agentBotChat: agentBotChat).paused]
+        if let action = data?["action"] as? String { entry["action"] = action }
+        return entry
+    }
+
+    /// The line it draws, in the active language (web system.chatPaused +
+    /// system.chatPausedNote, or system.chatEnded). An entry without
+    /// `paused` (older records) is a pause.
+    public static func inactiveCloseLine(paused: Bool?) -> (text: String, note: String?, paused: Bool) {
+        paused == false
+            ? (I18n.t("system.chatEnded"), nil, false)
+            : (I18n.t("system.chatPaused"), I18n.t("system.chatPausedNote"), true)
     }
 
     // MARK: - Blocked, and the closed chat
