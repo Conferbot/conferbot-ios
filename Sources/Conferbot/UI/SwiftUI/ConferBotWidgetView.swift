@@ -434,6 +434,11 @@ private struct ConferBotFABButton: View {
         .animation(.spring(response: 0.2), value: isPressed)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        // "Open chat" / "Close chat" (web launcher aria-label), the unread count read with it.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isOpen ? ChatText.closeLauncher : ChatText.openLauncher)
+        .accessibilityValue(unreadCount > 0 && !isOpen ? "\(unreadCount)" : "")
+        .accessibilityAddTraits(.isButton)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }
