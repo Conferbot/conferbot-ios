@@ -70,7 +70,7 @@ public struct ChatBottomBar: View {
     public var body: some View {
         VStack(spacing: 0) {
             // ── Input row ──
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 if let onAttach = onAttach {
                     Button(action: onAttach) {
                         Image(systemName: "paperclip")
@@ -81,33 +81,26 @@ public struct ChatBottomBar: View {
                     .disabled(!enabled)
                     .accessibilityLabel("Attach a file")
                 }
-                // Pill-shaped input with subtle border
-                ZStack(alignment: .leading) {
-                    if text.isEmpty {
-                        Text(placeholder)
-                            .foregroundColor(tokens.map { Color(hex: $0.muted) } ?? Color(hex: "4D4D4D"))
-                            .font(.system(size: 16))
-                            .padding(.horizontal, 18)
+                // Pill-shaped input with subtle border: one line, growing
+                // with the text up to five, as the web's composer (#76)
+                ComposerField(
+                    text: $text,
+                    placeholder: placeholder,
+                    placeholderColor: tokens.map { Color(hex: $0.muted) } ?? Color(hex: "4D4D4D"),
+                    textColor: tokens.map { Color(hex: $0.ink) } ?? .black
+                )
+                .frame(minHeight: 44)
+                .hideEditorBackground()
+                .background(tokens.map { Color(hex: $0.field) } ?? .white)
+                .disabled(!enabled)
+                .onChange(of: text) { newValue in
+                    if newValue.count > ConferBotConstants.maxMessageLength {
+                        text = String(newValue.prefix(ConferBotConstants.maxMessageLength))
                     }
-
-                    TextEditor(text: $text)
-                        .font(.system(size: 16))
-                        .foregroundColor(tokens.map { Color(hex: $0.ink) } ?? .black)
-                        .frame(minHeight: 44, maxHeight: 130)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .hideEditorBackground()
-                        .background(tokens.map { Color(hex: $0.field) } ?? .white)
-                        .disabled(!enabled)
-                        .onChange(of: text) { newValue in
-                            if newValue.count > ConferBotConstants.maxMessageLength {
-                                text = String(newValue.prefix(ConferBotConstants.maxMessageLength))
-                            }
-                            if !isEditing {
-                                isEditing = true
-                                onEditingChanged(true)
-                            }
-                        }
+                    if !isEditing && !newValue.isEmpty {
+                        isEditing = true
+                        onEditingChanged(true)
+                    }
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: radius)
