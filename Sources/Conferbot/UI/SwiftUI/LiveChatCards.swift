@@ -211,7 +211,11 @@ public struct HandoverWaitCard: View {
                 ProgressView().tint(accent)
                 VStack(alignment: .leading, spacing: 2) {
                     CardTitle(text: LiveChat.queueLine(live.queue))
-                    CardSub(text: LiveChat.queueSubline(live.queue))
+                    // The estimate, else the usual wait, else a calm promise (web queueCard.ts).
+                    let lines = LiveChat.waitCardLines(live.queue, typical: ReplyTime.typicalWait(
+                        ConferBot.shared.serverCustomizations?["replyTime"] as? [String: Any], queueTypical: live.queue?.typical))
+                    CardSub(text: lines.estimate)
+                    if !lines.typical.isEmpty { CardSub(text: lines.typical) }
                 }
                 if let onCancel = onCancel {
                     Spacer(minLength: 8)
