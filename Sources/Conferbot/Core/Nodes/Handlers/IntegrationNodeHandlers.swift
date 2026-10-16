@@ -280,7 +280,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         let q = qs[index]
         let ctx = ctxOf(node, state)
         await ctx.typing(2000)
-        if ctx.isStale() { return .displayUI(.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)) }
+        if ctx.isStale() { return .displayUI(.textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId)) }
         state.setVariable(name: postKey(nodeId), value: index)
         let raw = JS.text(q["questionText"])
         let question = FlowText.bubbleText(state.resolveVariables(html: raw))
@@ -288,7 +288,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         let qid = JS.str(q["id"])
         state.addRecord(["_id": qid, "id": qid, "shape": "post-chat-survey-question", "type": "post-chat-survey-question",
                          "text": raw, "time": Flow.iso(Date())])
-        return .displayUI(.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId))
+        return .displayUI(.textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId))
     }
 
     /// An answer to a post-chat question: checked, saved, then the next one or on.
@@ -299,7 +299,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         let qs = postChat(data)
         let q = index < qs.count ? qs[index] : [:]
         let value = FlowKit.typedText(response)
-        let ui = NodeUIState.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)
+        let ui = NodeUIState.textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId)
         if value.isEmpty { return .displayUI(ui) }
         let variable = JS.text(q["answerVariable"])
         if variable == "email" && !FlowInputs.isValidEmail(value) {
@@ -352,7 +352,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         }
 
         // The builder writes it as rich text (<p>...</p>).
-        let raw = FlowKit.string(data, "handoverMessage", FlowKit.string(data, "waitMessage", "Please wait while we connect you with an agent..."))
+        let raw = FlowKit.string(data, "handoverMessage", FlowKit.string(data, "waitMessage", I18n.t("sdk.flow.handoverWait")))
         let message = FlowText.bubbleText(state.resolveVariables(html: raw))
         if !message.isEmpty {
             await ctx.typing(1000)
@@ -401,7 +401,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         state.setVariable(name: preKey(nodeId), value: index)
         let question = FlowText.bubbleText(state.resolveVariables(html: JS.text(q["questionText"])))
         if !question.isEmpty { FlowKit.botSay(state, text: question, nodeId: nodeId, nodeType: nodeType) }
-        return .displayUI(.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId))
+        return .displayUI(.textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId))
     }
 
     /// An answer to a pre-chat question: checked, saved, then the next one or the handover.
@@ -412,7 +412,7 @@ public final class HumanHandoverNodeHandler: BaseNodeHandler {
         let qs = preChat(data)
         let q = index < qs.count ? qs[index] : [:]
         let value = FlowKit.typedText(response)
-        let ui = NodeUIState.textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)
+        let ui = NodeUIState.textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId)
         if value.isEmpty { return .displayUI(ui) }
         let variable = JS.text(q["answerVariable"])
         if variable == "email" && !FlowInputs.isValidEmail(value) {
