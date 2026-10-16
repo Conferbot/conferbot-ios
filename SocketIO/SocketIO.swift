@@ -69,6 +69,7 @@ public class SocketIOClient {
     public var sid: String = ""
 
     public func connect() {}
+    public func connect(withPayload payload: [String: Any]? = nil) {}
     public func disconnect() {}
     public func removeAllHandlers() {}
 
@@ -89,6 +90,7 @@ public class SocketIOClient {
 
 public class SocketManager {
     public var defaultSocket: SocketIOClient
+    public var reconnects = true
 
     public init(socketURL: URL, config: SocketIOClientConfiguration = []) {
         self.defaultSocket = SocketIOClient()
