@@ -59,8 +59,18 @@ public struct ResolvedCustomizations: Equatable {
     public var userTextColor = "#000000"
     public var optionBubbleColor = "#0b4eb8"
     public var optionTextColor = "#ffffff"
-    /// dots, wave, shimmer, pencil or mascot (pencil and mascot draw dots until mascots land).
+    /// dots, wave, shimmer, pencil or mascot.
     public var typingStyle = "dots"
+    /// The owner's mascot (art3d mascotLookOf): the idle call, the mascot typing and launcher styles, the greeting card.
+    public var mascot = MascotArt.Look()
+    /// The colour the mascot is drawn in when the owner chose none: the launcher's (widgetIconBgColor, else the header's).
+    public var mascotAccent = "#4f46e5"
+    /// The mascot greets on the greeting card, by its name, in place of the avatar.
+    public var mascotInGreeting = false
+    /// How the greeting card and its figure move: lively, subtle or off.
+    public var mascotMotion = MascotMotion.defaultMode
+    /// The mascot's size in the launcher, % of the button (70-150, default 112).
+    public var mascotLauncherScale = MascotArt.scaleDefault
     /// Send button: the theme palette's accent when it supplied the colours, else the header colour.
     public var accent = "#0b4eb8"
     /// Ink on the send button: the theme palette's, else nil (picked for contrast).
@@ -151,6 +161,11 @@ public enum Customizations {
         r.optionBubbleColor = [str(c["optionBubbleMsgColor"]), bot].first { !$0.isEmpty } ?? "#e7e4e4"
         r.optionTextColor = [str(c["optionBubbleTextColor"]), botText].first { !$0.isEmpty } ?? "#000000"
         if let t = c["typingStyle"] as? String, typingStyles.contains(t) { r.typingStyle = t }
+        r.mascot = MascotArt.lookOf(c)
+        r.mascotAccent = [str(c["widgetIconBgColor"]), str(c["headerBgColor"])].first { !$0.isEmpty } ?? "#4f46e5"
+        r.mascotInGreeting = (c["mascotInGreeting"] as? Bool) == true
+        r.mascotMotion = MascotMotion.normalize(c["mascotMotion"])
+        r.mascotLauncherScale = MascotArt.scaleOf(c)
         r.accent = [str(c["themeAccent"]), str(c["headerBgColor"])].first { !$0.isEmpty } ?? "#0b4eb8"
         r.accentInk = str(c["themeOnAccent"]).isEmpty ? nil : str(c["themeOnAccent"])
         if let theme = theme { r.theme = theme }
