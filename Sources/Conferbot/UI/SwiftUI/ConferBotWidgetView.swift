@@ -205,6 +205,10 @@ private struct ConferBotFABButton: View {
     let customizations: WidgetCustomizations
     let isOpen: Bool
     let unreadCount: Int
+    /// The entrance, attention loop and idle call (LauncherFxModel); `fxLive` while one of them moves the button.
+    @ObservedObject var fx: LauncherFxModel
+    let attentionOn: Bool
+    let fxLive: Bool
     let onTap: () -> Void
 
     @State private var isPressed = false
@@ -221,7 +225,7 @@ private struct ConferBotFABButton: View {
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: moment == nil && ripple == nil)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: moment == nil && ripple == nil && !fxLive)) { timeline in
             content(now: timeline.date)
         }
         .onAppear {
@@ -239,12 +243,14 @@ private struct ConferBotFABButton: View {
         }
         .onChange(of: isOpen) { open in
             if open {
-                launcherOpenedAt = Date()
+                LauncherFxSession.openedAt = Date().timeIntervalSince1970 * 1000
                 moment = nil
                 ripple = nil
                 idleTask?.cancel()
             }
         }
+        // The attention loop pauses while an idle or message moment plays.
+        .onChange(of: moment != nil) { fx.inMoment = $0 }
     }
 
     /// Idle moments: the first ~2s in, then the plan's pace, never after the chat was opened.
@@ -255,9 +261,10 @@ private struct ConferBotFABButton: View {
             while let wait = LauncherMotion.nextIdleDelay(mode, played: played) {
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
                 if Task.isCancelled || isOpen { return }
-                if let at = launcherOpenedAt, Date().timeIntervalSince(at) * 1000 < LauncherMotion.openedRestMs { return }
+                if LauncherFxSession.openedRecently(Date().timeIntervalSince1970 * 1000) { return }
                 played += 1
-                moment = ("idle", Date())
+                // A launcher attention is moving the button: this moment holds off (it still counts).
+                if !fx.attention.onLauncher { moment = ("idle", Date()) }
             }
         }
     }
@@ -276,12 +283,23 @@ private struct ConferBotFABButton: View {
     private func ringsAt(_ now: Date) -> [MotionRing?] {
         guard let r = ripple, !isOpen else { return [nil, nil] }
         let t = now.timeIntervalSince(r.start)
-        if t > r.delay + LauncherMotion.rippleGap + LauncherMotion.rippleDur * Double(r.iterations) {
+        // A launcher attention loop takes the place of the three ripples after load.
+        if (r.iterations > 1 && fx.attention.onLauncher) || t > r.delay + LauncherMotion.rippleGap + LauncherMotion.rippleDur * Double(r.iterations) {
             DispatchQueue.main.async { if ripple?.start == r.start { ripple = nil } }
             return [nil, nil]
         }
         return [LauncherMotion.rippleRing(t, ring: 0, iterations: r.iterations, delay: r.delay),
                 LauncherMotion.rippleRing(t, ring: 1, iterations: r.iterations, delay: r.delay)]
+    }
+
+    /// The shine's gloss sweeping across the button (the button clips it).
+    @ViewBuilder
+    private func gloss(_ shape: BubbleShape) -> some View {
+        if attentionOn, fx.attention.has("shine"), let v = fx.attention.part("shine", fx.attention.elapsed) {
+            Canvas { ctx, size in LauncherFxDraw.gloss(ctx, size.width, size.height, v) }
+                .clipShape(shape)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -297,6 +315,17 @@ private struct ConferBotFABButton: View {
         let avatar = look.style == "avatar" && customizations.iconImageUrl == nil ? look.avatar : nil
 
         ZStack {
+            // The pulse's two rings in the launcher's colour, under the button.
+            if attentionOn && fx.attention.has("ring") {
+                ForEach(["ring", "ring2"], id: \.self) { part in
+                    let v = fx.attention.part(part, fx.attention.elapsed)
+                    shape.stroke(customizations.fabColor, lineWidth: 2.5)
+                        .frame(width: customizations.fabWidth, height: size)
+                        .scaleEffect(x: v?.sx ?? 1, y: v?.sy ?? 1)
+                        .opacity(min(1, max(0, v?.o ?? 0)))
+                        .allowsHitTesting(false)
+                }
+            }
             // The ripple: rings of the launcher's colour growing out from behind it.
             ForEach(0..<2, id: \.self) { k in
                 if let ring = rings[k] {
@@ -320,6 +349,8 @@ private struct ConferBotFABButton: View {
             .frame(width: customizations.fabWidth, height: size)
             // A soft glow in the header colour (0 0 4px), as the web draws it.
             .shadow(color: Color(hex: look.glow).opacity(0.9), radius: 4, x: 0, y: 0)
+            gloss(shape)
+                .frame(width: customizations.fabWidth, height: size)
             }
 
             if isOpen {
@@ -360,6 +391,7 @@ private struct ConferBotFABButton: View {
                         }
                     }
                 )
+                .overlay(gloss(shape))
             } else {
                 // The web's launcher icons (Core/Customization/LauncherIcons).
                 LauncherIconView(iconId: customizations.iconName, ink: ink, bg: customizations.fabColor, size: iconSize, frame: frame)
@@ -384,6 +416,7 @@ private struct ConferBotFABButton: View {
                 .frame(width: customizations.fabWidth, height: size)
             }
         }
+        .modifier(LauncherFxMotion(fx: fx, attentionOn: attentionOn, isOpen: isOpen, glow: look.solid))
         .scaleEffect(isPressed ? 0.9 : 1.0)
         .animation(.spring(response: 0.2), value: isPressed)
         .contentShape(Rectangle())
@@ -396,8 +429,184 @@ private struct ConferBotFABButton: View {
     }
 }
 
-/// When the chat was last opened in this app session: idle moments rest a while after.
-private var launcherOpenedAt: Date?
+/// The launcher moved by its effects, innermost first: a knock / tap jolts
+/// it, the attention loop moves it (and the orbit's spark runs round it),
+/// the ufo's beam draws it top to bottom, and the entrance holds it hidden
+/// until its reveal, then plays its arrival.
+@available(iOS 15.0, *)
+private struct LauncherFxMotion: ViewModifier {
+    @ObservedObject var fx: LauncherFxModel
+    let attentionOn: Bool
+    let isOpen: Bool
+    let glow: String
+
+    func body(content: Content) -> some View {
+        let perf = isOpen ? nil : fx.idle.perf
+        let jolt = (perf?.launcher.isEmpty == false) ? Keyframes.evaluate(perf!.launcher, fx.idle.elapsed) : FxValues.rest()
+        let move = attentionOn && fx.attention.onLauncher ? fx.attention.part("self", fx.attention.elapsed) : nil
+        let orbit = attentionOn && fx.attention.has("orbit") ? fx.attention.part("orbit", fx.attention.elapsed) : nil
+        let look = fx.entrance.lookAt(fx.entrance.elapsed) ?? EntranceLook()
+        content
+            .scaleEffect(x: jolt.sx, y: jolt.sy)
+            .offset(x: jolt.tx, y: jolt.ty)
+            .overlay(GeometryReader { g in
+                if let v = orbit {
+                    Canvas { ctx, _ in
+                        var c = ctx
+                        c.translateBy(x: 20, y: 20)
+                        LauncherFxDraw.orbit(c, g.size.width, g.size.height, v, glow: glow)
+                    }
+                    .frame(width: g.size.width + 40, height: g.size.height + 40)
+                    .offset(x: -20, y: -20)
+                    .allowsHitTesting(false)
+                }
+            })
+            .scaleEffect(x: move?.sx ?? 1, y: move?.sy ?? 1)
+            .rotationEffect(.degrees(move?.r ?? 0))
+            .offset(x: (move?.tx ?? 0) + (move?.txp ?? 0) / 100 * (fx.launcher?.width ?? 0), y: move?.ty ?? 0)
+            // Everything above the line shows (the glow and rings reach past the button).
+            .mask(alignment: .top) {
+                Rectangle()
+                    .frame(width: 2000, height: 1000 + (look.shown < 0.999 ? max(0, (fx.launcher?.height ?? 0) * look.shown) : 1000))
+                    .offset(y: -1000)
+            }
+            .scaleEffect(x: look.sx, y: look.sy)
+            .rotationEffect(.degrees(look.r))
+            .offset(x: look.tx, y: look.ty)
+            .opacity(min(1, max(0, look.o)))
+    }
+}
+
+/// Where the launcher sits on the screen (global pt), before its effects move it.
+private struct LauncherRectKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = nextValue() ?? value }
+}
+
+/// What the launcher's effects keep between frames: the three controllers
+/// (Core/Customization/LauncherFxControllers), a version bumped when what to
+/// draw changes, where the launcher sits, and the mascot's drawing.
+@available(iOS 15.0, *)
+final class LauncherFxModel: ObservableObject {
+    let entrance = LauncherEntranceController()
+    let attention = LauncherAttentionController()
+    let idle = LauncherIdleCallController(store: DefaultsIdleCallRestStore())
+    @Published private(set) var version = 0
+    /// The launcher's box on the screen (global pt).
+    @Published var launcher: CGRect?
+    /// An idle or message moment is playing (the attention loop pauses for it).
+    @Published var inMoment = false
+    var mascot: MascotArt.Layers?
+    var mascotKey = ""
+
+    init() {
+        let bump: () -> Void = { [weak self] in
+            DispatchQueue.main.async { self?.version += 1 }
+        }
+        entrance.onChange = bump
+        attention.onChange = bump
+        idle.onChange = bump
+    }
+
+    deinit {
+        entrance.dispose()
+        attention.onChange = nil
+        idle.dispose()
+    }
+
+    /// The mascot drawn for this call (its colour and arm pose).
+    func mascotFor(_ perf: LauncherIdleCall.Performance, color: String, accent: String) -> MascotArt.Layers {
+        let key = "\(color) \(perf.mascot.arm) \(accent)"
+        if key != mascotKey || mascot == nil {
+            mascotKey = key
+            mascot = MascotArt.layers(color, arm: perf.mascot.arm, accentIn: accent)
+        }
+        return mascot!
+    }
+}
+
+/// The effects drawn round the launcher, behind it or in front of it, over the whole screen; they reach past it.
+@available(iOS 15.0, *)
+private struct LauncherFxStage: View {
+    @ObservedObject var fx: LauncherFxModel
+    let front: Bool
+    let attentionOn: Bool
+    let perf: LauncherIdleCall.Performance?
+    let mascot: MascotArt.Layers?
+    let live: Bool
+
+    var body: some View {
+        let plan = fx.entrance.phase == "play" ? fx.entrance.plan : nil
+        let shadow = !front && attentionOn && fx.attention.has("shadow")
+        let drawsMascot = perf != nil && perf!.front == front && mascot != nil
+        let drawsPlan = plan != nil && plan!.behind != front
+        if fx.launcher != nil && (shadow || drawsMascot || drawsPlan) {
+            GeometryReader { geo in
+                let origin = geo.frame(in: .global).origin
+                TimelineView(.animation(paused: !live)) { _ in
+                    Canvas { ctx, _ in
+                        guard let r = fx.launcher else { return }
+                        var c = ctx
+                        c.translateBy(x: r.minX - origin.x, y: r.minY - origin.y)
+                        if shadow, let v = fx.attention.part("shadow", fx.attention.elapsed) {
+                            LauncherFxDraw.bounceShadow(c, r.width, r.height, v)
+                        }
+                        if drawsMascot { LauncherFxDraw.idleCall(c, perf!, mascot!, fx.idle.elapsed) }
+                        if drawsPlan { LauncherFxDraw.entrance(c, plan!, fx.entrance.elapsed) }
+                    }
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The idle call's speech bubble, kept on the screen, its tail on the mascot.
+@available(iOS 15.0, *)
+private struct IdleCallBubbleLayer: View {
+    @ObservedObject var fx: LauncherFxModel
+    let perf: LauncherIdleCall.Performance
+    let line: String
+    let onOpen: () -> Void
+    @State private var size: CGSize = .zero
+
+    private func now() -> FxValues { Keyframes.evaluate([perf.bubble], fx.idle.elapsed, base: ["o": 0]) }
+
+    var body: some View {
+        if let rect = fx.launcher {
+            GeometryReader { geo in
+                let origin = geo.frame(in: .global).origin
+                let screenW = UIScreen.main.bounds.width
+                let bw = size.width, bh = size.height
+                let left = min(max(8, rect.minX + perf.sayX - bw / 2), max(8, screenW - bw - 8))
+                let tail = min(max(14, perf.sayX - (left - rect.minX)), max(14, bw - 14))
+                TimelineView(.animation(paused: fx.idle.perf == nil)) { _ in
+                    let v = now()
+                    IdleCallBubble(line: line, tail: tail) {
+                        if now().o > 0.05 {
+                            fx.idle.stop()
+                            onOpen()
+                        }
+                    }
+                    .background(GeometryReader { g in Color.clear.preference(key: BubbleSizeKey.self, value: g.size) })
+                    .scaleEffect(x: v.sx, y: v.sy)
+                    .offset(y: v.ty)
+                    .opacity(size == .zero ? 0 : min(1, max(0, v.o)))
+                    .offset(x: left - origin.x, y: rect.minY + perf.sayY - 10 - bh - origin.y)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .ignoresSafeArea()
+            .onPreferenceChange(BubbleSizeKey.self) { size = $0 }
+        }
+    }
+}
+
+private struct BubbleSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
 
 // MARK: - Public Config
 
@@ -413,6 +622,9 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
     @State private var isChatOpen = false
     /// The greeting card by the closed launcher (GreetingCardView, Core/Customization/Greeting).
     @StateObject private var greeting = GreetingController()
+    /// The entrance, attention loop and idle call (Core/Customization/LauncherFxControllers).
+    @StateObject private var fx = LauncherFxModel()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let content: Content
     private let config: ConferBotFABConfig
@@ -429,10 +641,49 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         WidgetCustomizations(customizations: bot.serverCustomizations, screenWidth: Double(UIScreen.main.bounds.width))
     }
 
+    /// The chat's state handed to the effects (each call is cheap; the controllers only report a change).
+    private func syncFx(_ c: WidgetCustomizations, hasLook: Bool, botId: String) {
+        let look = c.look
+        // Decided as the settings arrive, before the launcher is drawn with them (so it never flashes in first).
+        if hasLook {
+            fx.entrance.decide(look.entrance, botId: botId, reduced: reduceMotion, chatOpen: isChatOpen)
+            fx.idle.start(look.idleCall, delay: look.idleCallDelay, botId: botId, reduced: reduceMotion)
+        }
+        let cardShown = greeting.card != nil && !isChatOpen
+        let showLabel = look.style == "label" && c.iconImageUrl == nil
+        if hasLook {
+            fx.attention.update(mode: look.attention, enabled: true, reduced: reduceMotion, chatOpen: isChatOpen, cardShown: cardShown,
+                                moment: fx.inMoment, entranceBusy: fx.entrance.busy, hasSize: fx.launcher != nil, wide: showLabel)
+        }
+        fx.idle.chatOpen = isChatOpen
+        fx.idle.entranceBusy = fx.entrance.busy
+        fx.idle.cardShown = cardShown
+        fx.idle.width = fx.launcher.map { Double($0.width) }
+        fx.idle.height = fx.launcher.map { Double($0.height) }
+        fx.idle.position = c.position == .left ? "left" : "right"
+        if let r = fx.launcher, hasLook {
+            fx.entrance.laidOut {
+                let screen = UIScreen.main.bounds.size
+                return LauncherEntrance.stage(
+                    width: r.width, height: r.height, position: c.position == .left ? "left" : "right",
+                    screenWidth: screen.width, screenHeight: screen.height,
+                    side: c.position == .left ? r.minX : screen.width - r.maxX,
+                    bottom: screen.height - r.maxY, accent: look.solid)
+            }
+        }
+    }
+
     public var body: some View {
         let c = customizations
+        let hasLook = bot.serverCustomizations != nil
+        let _ = fx.version
+        let _ = syncFx(c, hasLook: hasLook, botId: bot.activeBotId ?? "default")
         // The greeting card: 12 above the launcher, its edge in line with it.
         let cardEdge = max(8, c.offsetX - c.tucked)
+        let attentionOn = fx.attention.running && !isChatOpen
+        let perf = isChatOpen ? nil : fx.idle.perf
+        let mascot = perf.map { fx.mascotFor($0, color: MascotArt.color(bot.serverCustomizations, launcher: c.look.solid), accent: c.look.solid) }
+        let fxLive = fx.entrance.active || attentionOn || perf != nil
 
         ZStack {
             content
@@ -442,17 +693,40 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                     Spacer()
                     HStack {
                         if c.position == .right { Spacer() }
-                        GreetingCardView(
-                            card: card,
-                            alignLeft: c.position == .left,
-                            onPress: { pressGreeting(card) },
-                            onClose: { greeting.dismiss() },
-                            onStarter: { text in
-                                greeting.closeForNow()
-                                openChat()
-                                send(text)
+                        TimelineView(.animation(paused: !fxLive)) { _ in
+                            // Hidden until the launcher lands, then fading up; the wave / float loop.
+                            let l = fx.entrance.lookAt(fx.entrance.elapsed)
+                            let selfMove = attentionOn && fx.attention.target == "greeting" ? fx.attention.part("self", fx.attention.elapsed) : nil
+                            let hand = attentionOn && fx.attention.has("hand") && !card.text.contains(LauncherAttention.wavingHand)
+                                ? fx.attention.part("hand", fx.attention.elapsed) : nil
+                            GreetingCardView(
+                                card: card,
+                                alignLeft: c.position == .left,
+                                onPress: { pressGreeting(card) },
+                                onClose: {
+                                    greeting.dismiss()
+                                    fx.idle.greetingClosed()
+                                },
+                                onStarter: { text in
+                                    greeting.closeForNow()
+                                    openChat()
+                                    send(text)
+                                }
+                            )
+                            // The wave: a waving hand on the card's corner, unless its text has its own.
+                            .overlay(alignment: .topLeading) {
+                                if let h = hand {
+                                    Text(LauncherAttention.wavingHand)
+                                        .font(.system(size: 20))
+                                        .frame(width: LauncherFxDraw.handW, height: LauncherFxDraw.handH)
+                                        .rotationEffect(.degrees(h.r), anchor: UnitPoint(x: 0.7, y: 0.8))
+                                        .offset(x: -9, y: -13)
+                                        .allowsHitTesting(false)
+                                }
                             }
-                        )
+                            .offset(x: selfMove?.tx ?? 0, y: (l?.greetingTy ?? 0) + (selfMove?.ty ?? 0))
+                            .opacity(min(1, max(0, l?.greetingO ?? 1)))
+                        }
                         if c.position == .left { Spacer() }
                     }
                     .padding(c.position == .right ? .trailing : .leading, cardEdge)
@@ -460,6 +734,12 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                 }
                 .transition(.asymmetric(insertion: .identity, removal: .opacity.combined(with: .offset(y: 6)).combined(with: .scale(scale: 0.98, anchor: c.position == .right ? .bottomTrailing : .bottomLeading))))
                 .zIndex(1)
+            }
+
+            // Behind the launcher: the bounce's shadow, the idle call's mascot, the portal.
+            if !isChatOpen {
+                LauncherFxStage(fx: fx, front: false, attentionOn: attentionOn, perf: perf, mascot: mascot, live: fxLive)
+                    .zIndex(2)
             }
 
             // FAB
@@ -471,6 +751,9 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                         customizations: c,
                         isOpen: isChatOpen,
                         unreadCount: bot.unreadCount,
+                        fx: fx,
+                        attentionOn: attentionOn,
+                        fxLive: fxLive,
                         onTap: {
                             if isChatOpen {
                                 isChatOpen = false
@@ -479,6 +762,8 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                             }
                         }
                     )
+                    // Where the launcher sits, before the effects move it.
+                    .background(GeometryReader { g in Color.clear.preference(key: LauncherRectKey.self, value: g.frame(in: .global)) })
                     if c.position == .left { Spacer() }
                 }
                 .padding(c.position == .right ? .trailing : .leading, c.offsetX)
@@ -486,6 +771,25 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
                 // Peek: the tab is tucked part-way off screen.
                 .offset(x: c.position == .right ? c.tucked : -c.tucked)
             }
+            .zIndex(3)
+
+            // In front of the launcher: a knock / tap mascot and the other entrances.
+            if !isChatOpen {
+                LauncherFxStage(fx: fx, front: true, attentionOn: attentionOn, perf: perf, mascot: mascot, live: fxLive)
+                    .zIndex(4)
+            }
+
+            // The idle call's speech bubble (none while the greeting is up).
+            if let p = perf, p.talks {
+                IdleCallBubbleLayer(fx: fx, perf: p, line: c.look.idleCallText, onOpen: openChat)
+                    .zIndex(5)
+            }
+        }
+        .onPreferenceChange(LauncherRectKey.self) { r in
+            guard let r = r else { return }
+            if let old = fx.launcher, abs(old.minX - r.minX) <= 0.5, abs(old.minY - r.minY) <= 0.5,
+               abs(old.width - r.width) <= 0.5, abs(old.height - r.height) <= 0.5 { return }
+            fx.launcher = r
         }
         .sheet(isPresented: $isChatOpen) {
             ChatView()
@@ -496,9 +800,20 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         .onReceive(bot.$agentBot) { agent in
             greeting.update(customizations: bot.serverCustomizations, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: agent)
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in fx.idle.appActive = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in fx.idle.appActive = false }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in fx.idle.keyboard = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in fx.idle.keyboard = false }
         .onChange(of: isChatOpen) { open in
             // Opening the chat: chatted, and the card rests as if closed.
-            if open { greeting.chatOpened() }
+            if open {
+                greeting.chatOpened()
+                // By any route: the entrance ends at once, and no call comes for a few days.
+                LauncherFxSession.openedAt = Date().timeIntervalSince1970 * 1000
+                fx.entrance.chatOpened()
+                fx.idle.chatOpened()
+                fx.idle.stop()
+            }
             greeting.update(customizations: bot.serverCustomizations, chatOpen: open, botId: bot.activeBotId, agentBot: bot.agentBot)
         }
     }
