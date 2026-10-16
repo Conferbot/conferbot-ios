@@ -140,17 +140,19 @@ public struct BotMessageRecord: RecordItem, Identifiable, Equatable {
         nodeData = allData
     }
 
+    /// Its node data (an image, frozen choice pills, the step) at the top
+    /// level beside the id, type, time and text, where `init(from:)` reads it
+    /// back: a restored bubble is drawn as it was (#65). The keyed and the
+    /// single-value container used to be mixed in one encode.
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(type, forKey: .type)
-        try container.encode(time, forKey: .time)
-        try container.encodeIfPresent(text, forKey: .text)
-
-        if let nodeData = nodeData {
-            var dataContainer = encoder.singleValueContainer()
-            try dataContainer.encode(nodeData)
+        var container = encoder.container(keyedBy: AnyCodingKey.self)
+        for (key, value) in nodeData ?? [:] where !["_id", "type", "time", "text"].contains(key) {
+            try container.encode(value, forKey: AnyCodingKey(key))
         }
+        try container.encode(id, forKey: AnyCodingKey("_id"))
+        try container.encode(type, forKey: AnyCodingKey("type"))
+        try container.encode(time, forKey: AnyCodingKey("time"))
+        try container.encodeIfPresent(text, forKey: AnyCodingKey("text"))
     }
 
     public static func == (lhs: BotMessageRecord, rhs: BotMessageRecord) -> Bool {
@@ -499,6 +501,15 @@ public struct SystemMessageRecord: RecordItem, Identifiable, Equatable {
     public static func == (lhs: SystemMessageRecord, rhs: SystemMessageRecord) -> Bool {
         return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time
     }
+}
+
+/// A coding key made from any string (a record's own fields).
+struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init(_ key: String) { stringValue = key }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
 }
 
 /// Helper for decoding any RecordItem from JSON
