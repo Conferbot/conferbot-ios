@@ -22,7 +22,7 @@ public struct ChatBottomBar: View {
     var primaryColor: Color = .blue
     /// Off while the agent turned replies off or locked the conversation.
     var enabled: Bool = true
-    var placeholder: String = "Type a message..."
+    var placeholder: String = I18n.t("chat.composer.placeholder")
     /// The paperclip: shown when given (a live chat that takes visitor files).
     var onAttach: (() -> Void)? = nil
     /// The widget theme's surfaces and text (nil: white, as before).
@@ -43,7 +43,7 @@ public struct ChatBottomBar: View {
         customBrand: String? = nil,
         primaryColor: Color = .blue,
         enabled: Bool = true,
-        placeholder: String = "Type a message...",
+        placeholder: String = I18n.t("chat.composer.placeholder"),
         onAttach: (() -> Void)? = nil,
         tokens: ThemeTokens? = nil,
         fieldRadius: Double = 25,
@@ -79,7 +79,7 @@ public struct ChatBottomBar: View {
                             .frame(width: 36, height: 44)
                     }
                     .disabled(!enabled)
-                    .accessibilityLabel("Attach a file")
+                    .accessibilityLabel(ChatText.attach)
                 }
                 // Pill-shaped input with subtle border: one line, growing
                 // with the text up to five, as the web's composer (#76)
@@ -120,6 +120,7 @@ public struct ChatBottomBar: View {
                             .foregroundColor(sendInk)
                     }
                 }
+                .accessibilityLabel(ChatText.send)
                 .disabled(!canSend)
             }
             .padding(.horizontal, 12)
@@ -164,7 +165,7 @@ public struct ChatBottomBar: View {
                 }
             }) {
                 HStack(spacing: 4) {
-                    Text("Powered by ")
+                    Text(ChatText.poweredBy + " ")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(muted)
 
