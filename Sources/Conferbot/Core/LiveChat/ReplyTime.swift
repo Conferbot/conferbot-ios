@@ -12,7 +12,8 @@
 //  The server works the reply time out (embed-server
 //  liveChat/replyTimeService) and sends it with the bot data as
 //  customizations.replyTime. The bot itself is always Online; the words say
-//  when people answer. The header never changes to the agent. Pure.
+//  when people answer. The header never changes to the agent. Also the
+//  home screen's "Talk to us" line (homeLine, homePeople). Pure.
 //
 
 import Foundation
@@ -97,5 +98,86 @@ public enum ReplyTime {
         if hidden { return nil }
         if personInChat { return statusOnline }
         return headerLine(rt, agent: agentBot, now: now, locale: locale, timeZone: timeZone) ?? statusOnline
+    }
+    // MARK: - The home card (web homeLine, homePeople)
+
+    public enum Tone: String, Equatable { case online, away }
+
+    /// A line and how it reads (online, or the team away).
+    public struct Line: Equatable {
+        public let text: String
+        public let tone: Tone
+        public init(_ text: String, _ tone: Tone) {
+            self.text = text
+            self.tone = tone
+        }
+    }
+
+    /// The "Talk to us" card's line: a line, or `hide` (the owner chose Hide).
+    public enum HomeLine: Equatable {
+        case line(Line)
+        case hide
+    }
+
+    private static func fixedOf(_ rt: [String: Any]) -> String {
+        guard rt["mode"] as? String == "fixed", let t = rt["text"] as? String else { return "" }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func phraseOf(_ rt: [String: Any]) -> String {
+        (rt["bucket"] as? String).flatMap { phrases[$0] } ?? (rt["phrase"] as? String) ?? ""
+    }
+
+    /// The "Talk to us" card's line (web replyTime.ts homeLine). `.hide`
+    /// means take the line away (the owner chose Hide); nil keeps the old line.
+    public static func homeLine(_ rt: [String: Any]?, agent: Bool = false, now: Date = Date(),
+                                locale: Locale = Locale(identifier: "en_US"), timeZone: TimeZone = .current) -> HomeLine? {
+        if let rt = rt, rt["mode"] as? String == "hide" { return agent ? nil : .hide }
+        guard let rt = rt, rt["handover"] as? Bool == true else { return nil }
+        let when = backWhen(rt["backAt"] as? String, now: now, locale: locale, timeZone: timeZone)
+        let fixed = fixedOf(rt)
+        let words = fixed.isEmpty ? phraseOf(rt) : fixed
+        let state = rt["state"] as? String
+        if agent {
+            // The AI answers whatever the hour; say when people are around.
+            if state == "away" { return .line(Line("Answers instantly" + (when.isEmpty ? "" : sep + "team back \(when)"), .away)) }
+            if state == "offline" || words.isEmpty { return nil }
+            return .line(Line("Answers instantly" + sep + (fixed.isEmpty ? "team replies \(words)" : fixed), .online))
+        }
+        if state == "away" { return .line(Line("We're away right now" + (when.isEmpty ? "" : sep + "back \(when)"), .away)) }
+        if state == "offline" {
+            return .line(Line(rt["leaveMessage"] as? Bool != false ? "The team is offline" + sep + "we'll reply by email" : "The team is offline right now", .away))
+        }
+        if !fixed.isEmpty { return .line(Line(fixed, .online)) }
+        return words.isEmpty ? nil : .line(Line("The team typically replies \(words)", .online))
+    }
+
+    /// The home card's promise (web replyTime.ts homePeople), read after
+    /// "Online" under the bot's name: an AI agent "Answers instantly, day or
+    /// night" (or with when the team replies / is back); a bot that never
+    /// hands over (or no data) the same; a team online "Usually replies in a
+    /// few minutes" (or the owner's Fixed words); away or offline "Team back
+    /// tomorrow 9 AM", else "Team replies by email" ("Team away right now"
+    /// with leave-a-message off); Hide: no words ("").
+    public static func homePeople(_ rt: [String: Any]?, agent: Bool = false, now: Date = Date(),
+                                  locale: Locale = Locale(identifier: "en_US"), timeZone: TimeZone = .current) -> Line {
+        let always = Line("Answers instantly, day or night", .online)
+        let line = homeLine(rt, agent: agent, now: now, locale: locale, timeZone: timeZone)
+        if agent {
+            if case .line(let l)? = line { return l }
+            return always
+        }
+        if line == .hide { return Line("", .online) }
+        guard let rt = rt, rt["handover"] as? Bool == true else { return always }
+        let state = rt["state"] as? String
+        if state == "away" || state == "offline" {
+            let when = backWhen(rt["backAt"] as? String, now: now, locale: locale, timeZone: timeZone)
+            let text = !when.isEmpty ? "Team back \(when)" : rt["leaveMessage"] as? Bool == false ? "Team away right now" : "Team replies by email"
+            return Line(text, .away)
+        }
+        let fixed = fixedOf(rt)
+        if !fixed.isEmpty { return Line(fixed, .online) }
+        let words = phraseOf(rt)
+        return Line(words.isEmpty ? "Usually replies instantly" : "Usually replies \(words)", .online)
     }
 }
