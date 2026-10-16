@@ -75,19 +75,31 @@ public struct ConferBotConfig {
     /// "auto" (the phone's languages). nil leaves it to the bot's
     /// `widgetLanguage` setting, as the web's host-page customizations do.
     public let widgetLanguage: String?
+    /// The owner's post-chat redirect (Customize > Conversations), before the
+    /// countdown starts: return true when the app handled the URL itself (or
+    /// wants no redirect), and the SDK shows no countdown. Anything else: the
+    /// SDK counts down 10 seconds with Cancel, then opens the URL in the
+    /// system browser. Only http(s) URLs reach it. Called on the main thread.
+    public let onPostChatRedirect: ((String) -> Bool)?
+    /// Never follow the owner's post-chat redirect (default false).
+    public let disablePostChatRedirect: Bool
 
     public init(
         enableNotifications: Bool = true,
         enableOfflineMode: Bool = true,
         apiBaseURL: String = ConferBotEndpoints.apiBaseURL,
         socketURL: String = ConferBotEndpoints.socketURL,
-        widgetLanguage: String? = nil
+        widgetLanguage: String? = nil,
+        onPostChatRedirect: ((String) -> Bool)? = nil,
+        disablePostChatRedirect: Bool = false
     ) {
         self.enableNotifications = enableNotifications
         self.enableOfflineMode = enableOfflineMode
         self.apiBaseURL = apiBaseURL
         self.socketURL = socketURL
         self.widgetLanguage = widgetLanguage
+        self.onPostChatRedirect = onPostChatRedirect
+        self.disablePostChatRedirect = disablePostChatRedirect
     }
 }
 
