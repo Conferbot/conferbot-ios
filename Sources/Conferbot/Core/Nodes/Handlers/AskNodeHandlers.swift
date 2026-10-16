@@ -22,7 +22,7 @@ import Foundation
 /// A composer question: shows questionText, takes typed text.
 open class BaseAskHandler: BaseNodeHandler {
     var shape: String { "user-ask-custom-question-response" }
-    var placeholder: String { "Type your answer..." }
+    var placeholder: String { I18n.t("composer.answer") }
 
     func ui(_ node: [String: Any], _ state: ChatState) -> NodeUIState {
         .textInput(placeholder: placeholder, validation: nil, nodeId: FlowKit.id(node))
@@ -63,7 +63,7 @@ open class BaseAskHandler: BaseNodeHandler {
 public final class AskNameHandler: BaseAskHandler {
     public override var nodeType: String { NodeTypes.Display.askName }
     override var shape: String { "user-ask-name-response" }
-    override var placeholder: String { "Your name" }
+    override var placeholder: String { I18n.t("composer.name") }
 
     override func after(_ value: String, _ node: [String: Any], _ state: ChatState) async -> NodeResult {
         let nodeId = FlowKit.id(node)
@@ -89,7 +89,7 @@ public final class AskNameHandler: BaseAskHandler {
 public final class AskEmailHandler: BaseAskHandler {
     public override var nodeType: String { NodeTypes.Display.askEmail }
     override var shape: String { "user-ask-email-response" }
-    override var placeholder: String { "name@company.com" }
+    override var placeholder: String { I18n.t("composer.email") }
 
     override func problem(_ value: String, _ node: [String: Any], _ state: ChatState) -> String? {
         if !FlowInputs.isValidEmail(value) {
@@ -116,7 +116,7 @@ public final class AskEmailHandler: BaseAskHandler {
 public final class AskPhoneHandler: BaseAskHandler {
     public override var nodeType: String { NodeTypes.Display.askPhone }
     override var shape: String { "user-ask-phone-number-response" }
-    override var placeholder: String { "Phone number" }
+    override var placeholder: String { I18n.t("composer.phone") }
 
     override func problem(_ value: String, _ node: [String: Any], _ state: ChatState) -> String? {
         FlowInputs.isValidPhone(value) ? nil : FlowInputs.phoneErrorText(FlowKit.data(node))
@@ -140,7 +140,7 @@ public final class AskPhoneHandler: BaseAskHandler {
 public final class AskNumberHandler: BaseAskHandler {
     public override var nodeType: String { NodeTypes.Display.askNumber }
     override var shape: String { "user-ask-number-response" }
-    override var placeholder: String { "Enter a number" }
+    override var placeholder: String { I18n.t("composer.number") }
 
     override func problem(_ value: String, _ node: [String: Any], _ state: ChatState) -> String? {
         FlowInputs.numberProblem(value, FlowKit.data(node))
@@ -176,7 +176,7 @@ public final class AskUrlHandler: BaseAskHandler {
 public final class AskLocationHandler: BaseAskHandler {
     public override var nodeType: String { "ask-location-node" }
     override var shape: String { "user-ask-location-response" }
-    override var placeholder: String { "City or address" }
+    override var placeholder: String { I18n.t("composer.location") }
 }
 
 /// ask-custom-question-node: any text.
