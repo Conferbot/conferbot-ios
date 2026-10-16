@@ -19,6 +19,20 @@ public struct QueueStatus: Equatable {
     public let ahead: Int?
     public let agentsOnline: Int?
     public let estimateLabel: String?
+    /// The server's estimate bucket (under_minute, about_1 ... longer), worded here.
+    public var estimateBucket: String? = nil
+    /// The routed team's usual first reply (embed-server replyTimeService): its bucket and words.
+    public var typicalBucket: String? = nil
+    public var typicalWait: String? = nil
+
+    /// queue-status `typical` as replyTime reads it.
+    public var typical: [String: Any]? {
+        guard typicalBucket != nil || typicalWait != nil else { return nil }
+        var t: [String: Any] = [:]
+        if let b = typicalBucket { t["bucket"] = b }
+        if let w = typicalWait { t["wait"] = w }
+        return t
+    }
 }
 
 public struct HandoverWaiting: Equatable {
@@ -95,8 +109,11 @@ public enum LiveChat {
     public static func queueStatus(_ raw: [String: Any]?) -> QueueStatus? {
         guard let raw = raw, let status = raw["status"] as? String, status == "waiting" || status == "busy" else { return nil }
         let estimate = raw["estimate"] as? [String: Any]
+        let typical = raw["typical"] as? [String: Any]
         return QueueStatus(status: status, position: int(raw["position"]), ahead: int(raw["ahead"]),
-                           agentsOnline: int(raw["agentsOnline"]), estimateLabel: str(estimate?["label"]))
+                           agentsOnline: int(raw["agentsOnline"]), estimateLabel: str(estimate?["label"]),
+                           estimateBucket: estimate?["bucket"] as? String,
+                           typicalBucket: typical?["bucket"] as? String, typicalWait: str(typical?["wait"]))
     }
 
     /// "1st", "2nd", "3rd", "11th"
@@ -124,6 +141,32 @@ public enum LiveChat {
     /// The server's label is already a phrase ("Under a minute", "About 2 min").
     public static func queueSubline(_ q: QueueStatus?) -> String {
         q?.estimateLabel ?? I18n.t("queue.soon")
+    }
+
+    /// The server's estimate buckets (embed-server liveChat/queueService), worded here (web queueCard.ts ESTIMATE_WORDS).
+    static let estimateWords: [String: String] = [
+        "under_minute": "queue.estimate.underMinute",
+        "about_1": "queue.estimate.about1",
+        "about_2": "queue.estimate.about2",
+        "about_3": "queue.estimate.about3",
+        "few": "queue.estimate.few",
+        "longer": "queue.estimate.longer",
+    ]
+
+    /// The wait card's lines under the headline (web queueCard.ts
+    /// estimateText and the card's third line): the live estimate in the
+    /// visitor's language, else the usual wait ("Typical wait: a few
+    /// minutes", ReplyTime.typicalWait), else a calm promise; then the usual
+    /// wait again under a live estimate, when it says something else.
+    public static func waitCardLines(_ q: QueueStatus?, typical: String?) -> (estimate: String, typical: String) {
+        let estimate: String
+        if let q = q, q.status == "waiting", let label = q.estimateLabel {
+            estimate = q.estimateBucket.flatMap { estimateWords[$0] }.map { I18n.t($0) } ?? label
+        } else {
+            estimate = typical ?? I18n.t("queue.soon")
+        }
+        if let typical = typical, estimate != typical { return (estimate, typical) }
+        return (estimate, "")
     }
 
     /// handover-waiting: nobody could take the chat (the AI took it back).
