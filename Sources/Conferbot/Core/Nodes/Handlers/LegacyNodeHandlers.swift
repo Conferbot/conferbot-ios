@@ -106,7 +106,7 @@ public final class UserInputNodeHandler: BaseNodeHandler {
         let type = JS.text(FlowKit.data(node)["type"])
         let nodeId = FlowKit.id(node)
         if type == "file" { return .fileUpload(allowedTypes: [], maxSize: 5_000_000, nodeId: nodeId) }
-        return .textInput(placeholder: "Type your answer...", validation: nil, nodeId: nodeId)
+        return .textInput(placeholder: I18n.t("composer.answer"), validation: nil, nodeId: nodeId)
     }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
@@ -124,9 +124,9 @@ public final class UserInputNodeHandler: BaseNodeHandler {
         if type == "file" {
             var url = (r["url"] as? String) ?? (response as? String)
             if url == nil, let file = r["file"] as? [String: Any] {
-                if JS.toNumber(file["size"]) > 5_000_000 { return .invalid("Please upload a file smaller than 5MB", uiState: ui(node), inCard: false) }
+                if JS.toNumber(file["size"]) > 5_000_000 { return .invalid(I18n.t("upload.tooBig", ["mb": 5]), uiState: ui(node), inCard: false) }
                 let up = await ctx.upload(FlowUploadFile(file))
-                guard up.ok else { return .invalid("Couldn't upload this file. Please try again.", uiState: ui(node), inCard: false) }
+                guard up.ok else { return .invalid(I18n.t("upload.failed"), uiState: ui(node), inCard: false) }
                 url = up.url
             }
             guard let u = url, !u.isEmpty else { return .displayUI(ui(node)) }
@@ -141,10 +141,10 @@ public final class UserInputNodeHandler: BaseNodeHandler {
             return .invalid(FlowInputs.ownerTextOr(data["incorrectEmailResponse"], FlowInputs.EN.emailInvalid, ["Please enter a valid email"]), uiState: ui(node), inCard: false)
         }
         if type == "number" && (value.trimmed.isEmpty || JS.parseNumber(value.trimmed).isNaN) {
-            return .invalid(FlowInputs.ownerTextOr(data["incorrectNumberResponse"], "Please enter a valid number"), uiState: ui(node), inCard: false)
+            return .invalid(FlowInputs.ownerTextOr(data["incorrectNumberResponse"], FlowInputs.EN.numberInvalid), uiState: ui(node), inCard: false)
         }
         if type == "url" && !Self.legacyUrl.test(value.lowercased()) {
-            return .invalid(FlowInputs.ownerTextOr(data["incorrectUrlResponse"], "Please enter a valid url"), uiState: ui(node), inCard: false)
+            return .invalid(FlowInputs.ownerTextOr(data["incorrectUrlResponse"], FlowInputs.EN.urlInvalid), uiState: ui(node), inCard: false)
         }
         if type == "name" { state.updateMetadata(key: "name", value: value) }
         if type == "email" { state.updateMetadata(key: "email", value: value) }
@@ -174,7 +174,7 @@ public final class UserRangeNodeHandler: BaseNodeHandler {
     public override var nodeType: String { NodeTypes.Display.userRange }
 
     private func ui(_ node: [String: Any]) -> NodeUIState {
-        .textInput(placeholder: "Enter a number", validation: nil, nodeId: FlowKit.id(node))
+        .textInput(placeholder: I18n.t("composer.number"), validation: nil, nodeId: FlowKit.id(node))
     }
 
     public override func handle(node: [String: Any], state: ChatState) async -> NodeResult {
