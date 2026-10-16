@@ -27,6 +27,7 @@ import SwiftUI
 @MainActor
 public struct HomeScreenView: View {
     @ObservedObject private var conferBot = ConferBot.shared
+    @ObservedObject private var chatFonts = ConferBot.shared.chatFont
     @ObservedObject private var home = ConferBot.shared.home
     @ObservedObject private var requests = ConferBot.shared.requests
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -73,6 +74,8 @@ public struct HomeScreenView: View {
     private var pal: Home.Palette { Home.palette(conferBot.hasServerLook ? conferBot.customizations.theme.tokens : nil) }
 
     private func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        // The owner's font, else the theme's, once loaded (Core/Fonts, #46).
+        if let f = chatFonts.font(.body, size: size, weight: weight) { return f }
         if let family = conferBot.customization?.fontFamily, !family.isEmpty { return .custom(family, size: size).weight(weight) }
         return .system(size: size, weight: weight)
     }
