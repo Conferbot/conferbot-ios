@@ -2,7 +2,8 @@
 //  ReplyTimeTests.swift
 //  The header's status (Core/LiveChat/ReplyTime), the same cases as the
 //  React Native SDK's replyTime.test.ts (the web widget's
-//  tests/replyTime.test.js), plus a person in the chat (web headerPresence.ts).
+//  tests/replyTime.test.js), plus a person in the chat (web headerPresence.ts)
+//  and the home card's homeLine / homePeople.
 //
 
 import XCTest
@@ -72,5 +73,48 @@ final class ReplyTimeTests: XCTestCase {
         XCTAssertEqual(ReplyTime.headerStatus(rt, personInChat: true), "Online")
         XCTAssertEqual(ReplyTime.headerStatus(nil), "Online")
         XCTAssertNil(ReplyTime.headerStatus(rt, hidden: true))
+    }
+    // MARK: - The home card (the web's tests/replyTime.test.js homeLine, homePeople)
+
+    private func line(_ text: String, _ tone: ReplyTime.Tone) -> ReplyTime.HomeLine { .line(.init(text, tone)) }
+
+    func testTheHomeCardLineForEachCase() {
+        XCTAssertEqual(ReplyTime.homeLine(online("few_minutes")), line("The team typically replies in a few minutes", .online))
+        XCTAssertNil(ReplyTime.homeLine(online(nil)))
+        XCTAssertNil(ReplyTime.homeLine(nil))
+        let now = date(2026, 10, 3, 20)
+        var away = online("few_minutes")
+        away["state"] = "away"
+        away["backAt"] = iso(date(2026, 10, 5, 9))
+        XCTAssertEqual(ReplyTime.homeLine(away, now: now, timeZone: utc), line("We're away right now \u{00B7} back Monday 9 AM", .away))
+        var offline = online("few_minutes")
+        offline["state"] = "offline"
+        XCTAssertEqual(ReplyTime.homeLine(offline), line("The team is offline \u{00B7} we'll reply by email", .away))
+        offline["leaveMessage"] = false
+        XCTAssertEqual(ReplyTime.homeLine(offline), line("The team is offline right now", .away))
+        XCTAssertEqual(ReplyTime.homeLine(["mode": "hide", "handover": true]), .hide)
+        XCTAssertEqual(ReplyTime.homeLine(online("few_minutes"), agent: true), line("Answers instantly \u{00B7} team replies in a few minutes", .online))
+        XCTAssertEqual(ReplyTime.homeLine(away, agent: true, now: now, timeZone: utc), line("Answers instantly \u{00B7} team back Monday 9 AM", .away))
+        XCTAssertNil(ReplyTime.homeLine(["mode": "hide", "handover": true], agent: true))
+    }
+
+    func testTheHomeCardsPromisePlainWordsNeverASpeedPromiseWhenNobodyIsThere() {
+        let now = date(2026, 10, 8, 22)
+        func p(_ rt: [String: Any]?, agent: Bool = false) -> ReplyTime.Line { ReplyTime.homePeople(rt, agent: agent, now: now, timeZone: utc) }
+        func with(_ extra: [String: Any]) -> [String: Any] { online("few_minutes").merging(extra) { $1 } }
+        let tomorrow9 = iso(date(2026, 10, 9, 9))
+        XCTAssertEqual(p(online("few_minutes")), .init("Usually replies in a few minutes", .online))
+        XCTAssertEqual(p(with(["mode": "fixed", "text": "We reply within 2 hours"])), .init("We reply within 2 hours", .online))
+        XCTAssertEqual(p(online(nil)), .init("Usually replies instantly", .online))
+        XCTAssertEqual(p(nil), .init("Answers instantly, day or night", .online))
+        XCTAssertEqual(p(with(["handover": false])), .init("Answers instantly, day or night", .online))
+        XCTAssertEqual(p(with(["state": "offline"])).text, "Team replies by email")
+        XCTAssertEqual(p(with(["state": "offline", "backAt": tomorrow9])).text, "Team back tomorrow 9 AM")
+        XCTAssertEqual(p(with(["state": "away", "backAt": tomorrow9])).text, "Team back tomorrow 9 AM")
+        XCTAssertEqual(p(with(["state": "away", "leaveMessage": false])).text, "Team away right now")
+        XCTAssertEqual(p(["mode": "hide", "handover": true]).text, "")
+        XCTAssertEqual(p(nil, agent: true), .init("Answers instantly, day or night", .online))
+        XCTAssertEqual(p(with(["state": "offline"]), agent: true), .init("Answers instantly, day or night", .online))
+        XCTAssertEqual(p(["mode": "hide", "handover": true], agent: true).text, "Answers instantly, day or night")
     }
 }
