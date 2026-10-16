@@ -640,8 +640,48 @@ public class ConferBot: ObservableObject {
     // Delegate
     public weak var delegate: ConferBotDelegate?
 
-    // Push token
-    private var pushToken: String?
+    // MARK: - Push notifications
+    // Opt-in (Core/Push, embed-server docs/mobile-push.md): the app's APNs or
+    // FCM token registered with each conversation; a tapped notification
+    // opens its conversation.
+    @MainActor
+    public private(set) lazy var push: PushNotifications = PushNotifications(hooks: .init(
+        botId: { [weak self] in self?.botId },
+        chatSessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        chatOnScreen: { [weak self] in
+            guard let self = self else { return false }
+            return self.isChatVisible && self.home.view == .chat
+        },
+        openChat: { [weak self] p in self?.openChatForPush(p) },
+        showChat: { [weak self] in
+            guard let self = self, self.home.isOn else { return }
+            self.home.showChat()
+        },
+        openRequest: { [weak self] id in self?.requests.open(requestId: id) },
+        bumpUnread: { [weak self] in
+            guard let self = self else { return }
+            self.unreadCount += 1
+            self.delegate?.conferBot(self, didUpdateUnreadCount: self.unreadCount)
+        },
+        register: { [weak self] body in
+            guard let api = self?.apiClient else { return PushRegisterResult(ok: false, error: .network) }
+            return await api.registerPushToken(body)
+        },
+        unregister: { [weak self] token in await self?.apiClient?.unregisterPushToken(token) ?? false },
+        deviceInfo: { [weak self] in self?.pushDeviceInfo() }
+    ))
+    private var pushCancellables = Set<AnyCancellable>()
+
+    /// A tapped notification's conversation, for the launcher
+    /// (`conferBotWidget()`) to open its chat on; nil once taken
+    /// (``pushOpened()``). Not set when the app handles ``onPushOpen``.
+    @Published public private(set) var pushToOpen: ConferbotPush?
+
+    /// Present your own chat screen for a tapped Conferbot notification
+    /// (UIKit, or SwiftUI without the launcher), e.g.
+    /// `ConferBot.shared.present(from:)`. The SDK has already moved the chat
+    /// to that conversation (or "Your requests"). Main thread.
+    public var onPushOpen: ((ConferbotPush) -> Void)?
 
     // The bot's flow from fetched-chatbot-data, started once a session exists.
     private var cachedNodes: [[String: Any]]?
@@ -679,6 +719,23 @@ public class ConferBot: ObservableObject {
         setupAnalytics()
         setupOfflineManager()
         watchTouches()
+        watchPush()
+    }
+
+    /// A new conversation is registered with the push token; the record
+    /// growing retries one the server did not have yet.
+    private func watchPush() {
+        $currentSession
+            .map { $0?.chatSessionId }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] id in Task { @MainActor in self?.push.sessionChanged(id) } }
+            .store(in: &pushCancellables)
+        $messages
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in Task { @MainActor in self?.push.recordChanged() } }
+            .store(in: &pushCancellables)
     }
 
     /// Get or create a persistent visitor ID that survives across sessions and app restarts.
@@ -800,6 +857,9 @@ public class ConferBot: ObservableObject {
 
         // Attempt to restore existing session
         restoreSessionIfValid()
+
+        // A notification tapped before this (the app started from it).
+        Task { @MainActor in self.push.ready() }
 
         debugPrint("[ConferBot] Initialized with botId: \(botId)")
     }
@@ -938,6 +998,8 @@ public class ConferBot: ObservableObject {
 
     /// Clear stored session data (logout/end chat)
     public func clearStoredSession() {
+        // The visitor's data goes: so do this device's pushes for it.
+        Task { @MainActor in await self.push.stop() }
         guard let session = currentSession else { return }
         sessionStorage.clearSession(sessionId: session.chatSessionId)
         hasRestoredSession = false
@@ -1099,6 +1161,8 @@ public class ConferBot: ObservableObject {
             // The last user's requests go; a list still on its way for them is
             // ignored, and the new one's is read (a hash: from any device, #86).
             Task { @MainActor in await self.requests.userChanged() }
+            // A sign-out or another user: the old conversation's pushes stop.
+            Task { @MainActor in self.push.userChanged(user?.id) }
         }
         debugPrint("[ConferBot] User \(user.map { "identified: \($0.id)" } ?? "signed out")")
     }
@@ -1945,33 +2009,69 @@ public class ConferBot: ObservableObject {
         }
     }
 
-    /// Register push notification token
-    public func registerPushToken(_ token: String) {
-        self.pushToken = token
-
-        guard let session = currentSession,
-              let apiClient = apiClient else {
-            // Store token for later registration
-            return
-        }
-
-        Task {
-            try? await apiClient.registerPushToken(token: token, chatSessionId: session.chatSessionId)
-            debugPrint("[ConferBot] Push token registered")
-        }
+    /// The app's push token, registered with the current conversation and
+    /// each new one (embed-server POST /api/v1/mobile/push/register). `type`
+    /// `.fcm` for an iOS app using Firebase Messaging, `.apns` for the APNs
+    /// device token as hex; without it a 64-character hex token is APNs.
+    /// nil unregisters.
+    public func setPushToken(_ token: String?, type: PushTokenType? = nil) {
+        Task { @MainActor in await self.push.setToken(token, type: type) }
     }
 
-    /// Handle push notification
-    public func handlePushNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
-        guard userInfo["type"] as? String == "conferbot_message" else {
-            return false
-        }
+    /// The APNs device token as `didRegisterForRemoteNotificationsWithDeviceToken` hands it.
+    public func setPushToken(_ deviceToken: Data) {
+        setPushToken(Push.hex(deviceToken), type: .apns)
+    }
 
-        // Increment unread count
-        unreadCount += 1
-        delegate?.conferBot(self, didUpdateUnreadCount: unreadCount)
+    /// Stop this device's pushes (the user turned notifications off). The
+    /// token is kept and registered again with the next conversation.
+    public func unregisterPush() {
+        Task { @MainActor in await self.push.stop() }
+    }
 
+    /// Register push notification token (the old name of ``setPushToken(_:type:)``).
+    @available(*, deprecated, renamed: "setPushToken(_:type:)")
+    public func registerPushToken(_ token: String) {
+        setPushToken(token)
+    }
+
+    /// A notification the app received or the visitor tapped (the APNs
+    /// `userInfo`). True when it is a Conferbot message for this bot; then
+    /// its conversation is opened: the chat (``pushToOpen`` for the
+    /// launcher, or ``onPushOpen``), or another of the visitor's
+    /// conversations in "Your requests". `open: false` (it arrived in the
+    /// foreground) only counts it unread, unless that conversation is on
+    /// screen. Before `initialize` a Conferbot tap is kept and opened then.
+    @discardableResult
+    public func handlePushNotification(_ userInfo: [AnyHashable: Any], open: Bool = true) -> Bool {
+        guard let p = ConferbotPush.parse(userInfo) else { return false }
+        if let botId = botId, p.botId != botId { return false }
+        Task { @MainActor in _ = self.push.handle(userInfo, open: open) }
         return true
+    }
+
+    /// The launcher took ``pushToOpen``.
+    public func pushOpened() {
+        let clear = { self.pushToOpen = nil }
+        if Thread.isMainThread { clear() } else { DispatchQueue.main.async(execute: clear) }
+    }
+
+    /// The chat comes up for a tapped notification.
+    @MainActor
+    private func openChatForPush(_ p: ConferbotPush) {
+        unreadCount = 0
+        delegate?.conferBot(self, didUpdateUnreadCount: 0)
+        if let onPushOpen = onPushOpen { onPushOpen(p) } else { pushToOpen = p }
+    }
+
+    private func pushDeviceInfo() -> [String: String] {
+        var info: [String: String] = [:]
+        #if canImport(UIKit)
+        info["model"] = UIDevice.current.model
+        info["osVersion"] = UIDevice.current.systemVersion
+        #endif
+        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String { info["appVersion"] = v }
+        return info
     }
 
     /// Get unread message count
