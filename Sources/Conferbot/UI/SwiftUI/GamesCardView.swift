@@ -289,7 +289,7 @@ private struct RpsBoardView: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Pick your hand")
+            .accessibilityLabel(I18n.t("games.rps.pick"))
         }
         .onChange(of: b.shaking) { shaking in
             guard shaking, !reduced else { return up = false }
@@ -316,8 +316,8 @@ private struct TttBoardView: View {
     let act: (GameInput) -> Void
 
     private func label(_ i: Int) -> String {
-        let who = b.cells[i] == .x ? "yours" : b.cells[i] == .o ? "the bot's" : "empty"
-        return "Row \(i / 3 + 1), column \(i % 3 + 1), \(who)"
+        let who = I18n.t(b.cells[i] == .x ? "games.ttt.yours" : b.cells[i] == .o ? "games.ttt.bots" : "games.ttt.empty")
+        return I18n.t("games.ttt.cell", ["row": i / 3 + 1, "col": i % 3 + 1, "state": who])
     }
 
     var body: some View {
@@ -343,7 +343,7 @@ private struct TttBoardView: View {
         .frame(maxWidth: 210)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tic-tac-toe board")
+        .accessibilityLabel(I18n.t("games.ttt.board"))
     }
 }
 
@@ -363,7 +363,8 @@ private struct MemoryBoardView: View {
                             let card = b.cards[i]
                             GamesTile(look: look, background: card.up ? (card.matched ? look.soft : look.fill) : look.accent,
                                       disabled: card.matched,
-                                      label: "Card \(i + 1), \(card.up ? card.face : "face down")\(card.matched ? ", matched" : "")",
+                                      label: I18n.t(card.matched ? "games.memory.cardMatched" : "games.memory.card",
+                                                    ["n": i + 1, "face": card.up ? card.face : I18n.t("games.memory.faceDown")]),
                                       action: { act(.memory(i)) }) {
                                 Text(card.up ? card.face : "?")
                                     .font(.system(size: card.up ? 24 : 18, weight: card.up ? .regular : .bold))
@@ -377,7 +378,7 @@ private struct MemoryBoardView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Memory cards")
+        .accessibilityLabel(I18n.t("games.memory.cards"))
     }
 }
 
@@ -404,7 +405,7 @@ private struct ChoiceBoardView: View {
                     .font(.system(size: 40))
                     .kerning(3)
                     .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Emoji: \(big)")
+                    .accessibilityLabel(I18n.t("games.emoji.label", ["emoji": big]))
             }
             Text(b.q)
                 .font(emoji ? .system(size: 12) : .system(size: 13.5, weight: .semibold))
@@ -527,7 +528,7 @@ private struct ScrambleBoardView: View {
             .modifier(Nudge(travel: reduced ? 0 : CGFloat(b.nope)))
             .animation(reduced ? nil : .linear(duration: 0.4), value: b.nope)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Your word, tap a letter to take it back")
+            .accessibilityLabel(I18n.t("games.scramble.slots"))
             HStack(spacing: 5) {
                 ForEach(b.letters.indices, id: \.self) { i in
                     let used = b.placed.contains(i)
@@ -543,12 +544,12 @@ private struct ScrambleBoardView: View {
                     }
                     .buttonStyle(.plain)
                     .allowsHitTesting(!(used || b.solved))
-                    .accessibilityLabel("Letter \(b.letters[i])")
+                    .accessibilityLabel(I18n.t("games.scramble.letter", ["letter": b.letters[i]]))
                 }
             }
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Letters")
+            .accessibilityLabel(I18n.t("games.scramble.letters"))
             HStack {
                 Spacer()
                 GamesFootButton(look: look, label: b.skipLabel, disabled: b.solved) { act(.skip) }
@@ -572,7 +573,7 @@ private struct ScrambleBoardView: View {
         }
         .buttonStyle(.plain)
         .allowsHitTesting(filled && !b.solved)
-        .accessibilityLabel(filled ? "Space \(i + 1), \(letter)" : "Space \(i + 1), empty")
+        .accessibilityLabel(filled ? I18n.t("games.scramble.space", ["n": i + 1, "letter": letter]) : I18n.t("games.scramble.spaceEmpty", ["n": i + 1]))
     }
 }
 
