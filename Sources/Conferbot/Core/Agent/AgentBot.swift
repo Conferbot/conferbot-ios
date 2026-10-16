@@ -106,6 +106,8 @@ public struct AgentStream: Equatable {
 public enum AgentBotParser {
     public static let defaultAgentName = "AI Assistant"
     public static let defaultGreeting = "Hi! How can I help you today?"
+    /// The greeting when the owner wrote none, in the active language (web index.ts t("agent.defaultGreeting")).
+    public static var defaultGreetingText: String { I18n.t("agent.defaultGreeting") }
     public static let maxSources = 3
     /// The "Helpful?" reasons (AnswerFeedback.swift).
     public static var feedbackReasons: [(key: String, label: String)] { HelpfulRow.reasons }
@@ -115,7 +117,7 @@ public enum AgentBotParser {
     /// the provider fails twice, so without a ceiling they would run forever.
     public static let awaitReplySeconds: Double = 45
     /// Said when that ceiling is hit, so the dots do not just vanish (web chat.replyTimeout).
-    public static let replyTimeoutText = "That took too long. Try again, or ask for a human."
+    public static var replyTimeoutText: String { I18n.t("chat.replyTimeout") }
 
     /// The notice as an on-screen line: not part of the conversation's record, as on the web.
     public static func replyTimeoutNotice(now: Date = Date()) -> SystemMessageRecord {
@@ -173,7 +175,7 @@ public enum AgentBotParser {
         }.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         var name = clean(a["displayName"], 60)
         if name.isEmpty { name = clean(chatbotData?["name"], 60) }
-        if name.isEmpty { name = defaultAgentName }
+        if name.isEmpty { name = I18n.t("agent.defaultName") }
         let avatar = (a["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentBot(
             agentId: agentId,
@@ -251,7 +253,7 @@ public enum AgentBotParser {
             let snippet = snippetText.isEmpty ? nil : snippetText
             let title = clean(m["title"], 160)
             if let id = articleId {
-                out.append(AgentSource(title: title.isEmpty ? "Help article" : title, url: httpURL(url), articleId: id, snippet: snippet))
+                out.append(AgentSource(title: title.isEmpty ? I18n.t("kb.helpArticle") : title, url: httpURL(url), articleId: id, snippet: snippet))
             } else {
                 out.append(AgentSource(title: title.isEmpty ? sourceHost(url) : title, url: url, articleId: nil, snippet: snippet))
             }
@@ -303,12 +305,12 @@ public enum AgentBotParser {
         let url = httpsURL(link?["url"])
         let label = clean(link?["label"], 24)
         return ResultCard(
-            title: nonEmpty(clean(m["title"], 50)) ?? "Done",
+            title: nonEmpty(clean(m["title"], 50)) ?? I18n.t("result.done"),
             status: status,
             tone: tone,
             rows: r,
             linkURL: url,
-            linkLabel: url == nil ? nil : (label.isEmpty ? "Open" : label)
+            linkLabel: url == nil ? nil : (label.isEmpty ? I18n.t("result.open") : label)
         )
     }
 
