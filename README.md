@@ -387,7 +387,7 @@ Whenever the socket connects, the SDK fetches your bot's configuration (the same
 - **Auto-open** (`botAutoOpen`, `botAutoOpenDelay` seconds): the floating widget opens the chat on its own for a first visit only (no conversation yet), once per app launch per bot, and not within 2 minutes of the visitor closing it.
 - **Typing preview** (`visitorDraftPreview`, on unless off): while a person (not the AI) is in the chat, they see what the visitor is typing (`visitor-draft`, at most every 300 ms, cleared on send); never from a secure field. Both chats.
 - **Booked calendar slots**: times already booked (the bot's `calendarBookings` and the step's own) are greyed out and refused; a fully booked day says so.
-- **The wait card**: the server's estimate in the visitor's language ("About 2 min"), else the team's usual wait ("Typical wait: a few minutes", from the routed team or the reply time; none for Fixed or Hide), else "Our team will be with you soon"; the usual wait again under a live estimate.
+- **The wait card**: the server's estimate in the visitor's language ("About 2 min"), else the team's usual wait ("Typical wait: a few minutes", from the routed team or the reply time; none for Fixed or Hide), else "Our team will be with you soon"; the usual wait again under a live estimate. Under them the step's max wait counts down once a second ("Max wait 1:05") and stops at 0:00; after a restart it counts from the server's time left (SwiftUI chat).
 - **Bot identity**: the bot name from the dashboard is injected into the flow state, so flow nodes that reference it render correctly.
 - **Flow content**: all flow-builder changes (messages, choices, node styling data) come from the server on every connect.
 
@@ -475,7 +475,7 @@ The help centre follows the bot owner's settings, as on the web widget:
 - `ChatView(enableKnowledgeBase:)` is the host app's override. `nil` (the default) and `true` follow the owner; `false` hides the tab even when the owner turned it on. It cannot turn the help centre on against the owner's setting.
 - Recent articles sit at the top of the help centre unless the owner hid them (`hideRecentArticles`).
 - The topics and recent articles come with the connection (`fetched-chatbot-data`), without their bodies; an article's body is fetched when it opens. Without that payload the help centre loads over REST.
-- A help article an AI answer cites (its sources) or an article card opens in the help centre by its id: the Help tab, or a sheet when the host hid the tab. `ConferBot.shared.openHelpArticle(id:)` does the same from your own UI; `HelpCentre.isOn(ConferBot.shared.serverCustomizations)` (or `ConferBot.shared.isHelpCentreOn`) tells you whether the owner has it on.
+- A help article an AI answer cites (its sources) opens in the help centre by its id while the help centre is on (the Help tab, or a sheet when the host hid the tab), else its public page; with neither it says "Help article" and does not open. An article card opens its public page when it has one, else the article in the help centre. `ConferBot.shared.openHelpArticle(id:)` does the same from your own UI; `HelpCentre.isOn(ConferBot.shared.serverCustomizations)` (or `ConferBot.shared.isHelpCentreOn`) tells you whether the owner has it on.
 
 `KnowledgeBaseView()` (or `KnowledgeBaseView(articleId:)`) can be presented standalone. For custom UIs, the async APIs on `ConferBot.shared`:
 
@@ -558,7 +558,7 @@ Agent lifecycle arrives via `agentDidJoin` / `agentDidLeave`, `isAgentTyping`, a
 
 The chat follows the handover as the web widget does:
 
-- **The Connecting line.** When an AI agent hands the visitor to the team, the chat shows "Connecting you with the team…" with typing dots. It settles to how the wait ended: "Connected with the team", "The team couldn't join just now", "You left the queue" or "Chat ended before the team joined". A person joining after the AI gets "They can see your conversation so far". An AI pausing an idle visitor draws nothing.
+- **The Connecting line.** When an AI agent hands the visitor to the team, the chat shows "Connecting you with the team…" with typing dots. It settles to how the wait ended: "Connected with the team", "The team couldn't join just now", "You left the queue" or "Chat ended before the team joined". A person joining after the AI gets "They can see your conversation so far". An AI pausing an idle visitor draws nothing on that line.
 - **The header** keeps the bot's name. Under it: the team's reply time ("Typically replies in a few minutes", "Online · team back Monday 9 AM"), then plain "Online" once a person is in the chat. An AI agent bot shows "Online" only.
 - **"Talk to a person"** (AI agent bots with the owner's switch on) is offered only while nobody is coming or here, and goes once tapped.
 - **Leaving the queue.** The wait card's Cancel tells the server (`queue-self-resolve`) and the flow carries on. A person who already accepted keeps the chat. Call it yourself with `leaveQueue`:
@@ -569,7 +569,8 @@ ConferBot.shared.leaveQueue { left in
 }
 ```
 
-- **Max wait.** A flow handover asks the server to decide once the step's max wait passes. After an AI escalation the SDK waits the max wait plus 30 seconds, then nudges the server (`handover-timeout`) and draws nothing itself.
+- **The AI's inactivity close** (`ai-agent-inactive-close`): "Chat paused" with "Send a message to pick up where you left off". The composer stays on and the visitor's next message brings the AI back. When the agent's close action is `continue_flow` on a flow bot: "Chat ended", and the flow goes on from its handover step's next edge (no post-chat survey). An AI agent bot is always only paused. The line is recorded once, so a restart shows the same line.
+- **Max wait.** A flow handover asks the server to decide once the step's max wait passes (unset or 0 is 2 minutes); the wait card counts down to that moment, and a restored wait counts from the server's time left. After an AI hands the visitor on (not a person), the SDK waits the max wait plus 30 seconds, then nudges the server (`handover-timeout`) and draws nothing itself; an AI agent bot's silent handover step gives the max wait.
 - **Restart.** A restored session asks the server where its live chat stands (`live-chat-state`): back live with the agent and the join line it missed, back on the handover step's wait without asking again, or the flow carries on. The server record and the flow's step are saved with the session for this.
 - **Waiting signals**, as the web widget's `cb:*` events:
 
