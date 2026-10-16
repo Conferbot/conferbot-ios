@@ -88,6 +88,12 @@ public class OfflineManager: ObservableObject {
     private let monitorQueue: DispatchQueue
     private var socketConnected: Bool = false
     private var flushTask: Task<Void, Never>?
+    /// One flush at a time: set when a flush is started, cleared when it ends.
+    private let flushLock = NSLock()
+    private var flushRunning = false
+
+    /// The network state tests use in place of NWPathMonitor's (nil: the monitor's).
+    internal var networkStatusOverride: Bool?
 
     /// Callback for sending messages (set by ConferBot)
     internal var sendMessageHandler: ((QueuedMessage) async throws -> Void)?
@@ -147,7 +153,7 @@ public class OfflineManager: ObservableObject {
         socketConnected = true
         debugPrint("[ConferBot OfflineManager] Socket connected")
 
-        if autoFlushOnReconnect && isOnline {
+        if autoFlushOnReconnect && (networkStatusOverride ?? isOnline) {
             flushQueue()
         }
     }
@@ -180,9 +186,7 @@ public class OfflineManager: ObservableObject {
 
         messageQueue.enqueue(message: message)
 
-        DispatchQueue.main.async {
-            self.queuedMessageCount = self.messageQueue.count
-        }
+        publishCount()
 
         delegate?.offlineManager(self, didQueueMessage: message)
         delegate?.offlineManager(self, didUpdateQueueCount: messageQueue.count)
@@ -194,7 +198,14 @@ public class OfflineManager: ObservableObject {
 
     /// Check if we can send messages (online and socket connected)
     public var canSendMessages: Bool {
-        return isOnline && socketConnected
+        return (networkStatusOverride ?? isOnline) && socketConnected
+    }
+
+    /// The queue's count, published at once on the main thread (a reader
+    /// right after a change sees it), else on main with the count then.
+    private func publishCount() {
+        let update = { self.queuedMessageCount = self.messageQueue.count }
+        if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
     }
 
     /// Flush the message queue (send all queued messages)
@@ -214,9 +225,22 @@ public class OfflineManager: ObservableObject {
             return
         }
 
-        flushTask?.cancel()
+        // A flush already started (the socket's reconnect and a manual call
+        // together) sends each message once, not twice.
+        flushLock.lock()
+        if flushRunning {
+            flushLock.unlock()
+            debugPrint("[ConferBot OfflineManager] Flush already started")
+            return
+        }
+        flushRunning = true
+        flushLock.unlock()
+
         flushTask = Task { @MainActor in
             await performFlush()
+            self.flushLock.lock()
+            self.flushRunning = false
+            self.flushLock.unlock()
         }
     }
 
@@ -302,9 +326,7 @@ public class OfflineManager: ObservableObject {
     public func clearQueue() {
         messageQueue.clear()
 
-        DispatchQueue.main.async {
-            self.queuedMessageCount = 0
-        }
+        publishCount()
 
         delegate?.offlineManager(self, didUpdateQueueCount: 0)
     }
@@ -321,9 +343,7 @@ public class OfflineManager: ObservableObject {
         let message = messageQueue.remove(byId: id)
 
         if message != nil {
-            DispatchQueue.main.async {
-                self.queuedMessageCount = self.messageQueue.count
-            }
+            publishCount()
             delegate?.offlineManager(self, didUpdateQueueCount: messageQueue.count)
         }
 
