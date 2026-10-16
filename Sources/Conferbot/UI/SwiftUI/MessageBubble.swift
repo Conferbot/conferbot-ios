@@ -775,7 +775,10 @@ public struct FileMessageBubble: View {
     }
 }
 
-/// Typing indicator view with bot avatar — matches web widget
+/// Typing indicator view with bot avatar, in the owner's typing style
+/// (chatChrome.ts typingStyle): dots, an equaliser wave, a shimmering
+/// "Typing...", a pencil writing a line, or the bot's mascot swaying beside
+/// three thought dots. Still under Reduce Motion.
 @available(iOS 15.0, *)
 public struct TypingIndicator: View {
     @State private var animating = false
@@ -810,31 +813,53 @@ public struct TypingIndicator: View {
                     .foregroundColor(.gray)
             }
 
-            // Typing dots in a bubble: the bot's colours and the web's
-            // 18/6 bubble once the bot's settings arrived.
-            HStack(spacing: look == nil ? 6 : 4) {
-                ForEach(0..<(look?.typingStyle == "wave" ? 5 : 3), id: \.self) { index in
-                    Group {
-                        if look?.typingStyle == "wave" {
-                            RoundedRectangle(cornerRadius: 1.5).fill(dotColor).frame(width: 3, height: animating ? 16 : 5)
-                        } else {
-                            Circle().fill(dotColor).frame(width: look == nil ? 8 : 6, height: look == nil ? 8 : 6)
+            // The owner's typing style in a bubble (chatChrome.ts typingStyle): the bot's
+            // colours and the web's 18/6 bubble once the bot's settings arrived.
+            let style = look?.typingStyle ?? "dots"
+            Group {
+                switch style {
+                case "mascot":
+                    TypingMascotView(look: look!.mascot, accent: look!.mascotAccent, ink: dotColor)
+                        .padding(.leading, 6)
+                        .padding(.trailing, 12)
+                        .frame(height: 42)
+                case "pencil":
+                    TypingPencilView(accent: look!.mascotAccent, ink: dotColor, inkHex: look!.botTextColor)
+                        .padding(.horizontal, 12)
+                        .frame(minWidth: 70, minHeight: 36)
+                case "shimmer":
+                    TypingShimmerView(ink: dotColor)
+                        .padding(.horizontal, 12)
+                        .frame(minWidth: 92, minHeight: 36)
+                default:
+                    HStack(spacing: look == nil ? 6 : (style == "wave" ? 3 : 4)) {
+                        ForEach(0..<(style == "wave" ? 5 : 3), id: \.self) { index in
+                            Group {
+                                if style == "wave" {
+                                    RoundedRectangle(cornerRadius: 1.5).fill(dotColor).frame(width: 3, height: animating ? 16 : 5)
+                                } else {
+                                    Circle().fill(dotColor).frame(width: look == nil ? 8 : 6, height: look == nil ? 8 : 6)
+                                }
+                            }
+                                .opacity(animating ? 0.3 : 1.0)
+                                .animation(
+                                    Animation.easeInOut(duration: 0.6)
+                                        .repeatForever()
+                                        .delay(Double(index) * 0.2),
+                                    value: animating
+                                )
                         }
                     }
-                        .opacity(animating ? 0.3 : 1.0)
-                        .animation(
-                            Animation.easeInOut(duration: 0.6)
-                                .repeatForever()
-                                .delay(Double(index) * 0.2),
-                            value: animating
-                        )
+                    .padding(.horizontal, look == nil ? 16 : 12)
+                    .frame(minWidth: look == nil ? nil : 54, minHeight: look == nil ? nil : 36)
+                    .padding(.vertical, look == nil ? 10 : 0)
                 }
             }
-            .padding(.horizontal, look == nil ? 16 : 12)
-            .frame(minWidth: look == nil ? nil : 54, minHeight: look == nil ? nil : 36)
-            .padding(.vertical, look == nil ? 10 : 0)
             .background(look.map { Color(hex: $0.botBubbleColor) } ?? Color(UIColor.systemGray5))
             .clipShape(BubbleShape(corners: look?.botBubble ?? .all(16)))
+            // "Pip is typing" when the owner named their mascot, else "Typing".
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(MascotMoods.typingLabel(style, look?.mascot.name ?? ""))
         }
         // In the bot's column, as a bot message (it was centred).
         .frame(maxWidth: .infinity, alignment: .leading)
