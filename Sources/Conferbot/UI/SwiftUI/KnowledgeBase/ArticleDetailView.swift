@@ -97,7 +97,7 @@ public struct ArticleDetailView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Back")
+                    Text(I18n.t("common.back"))
                         .font(.subheadline)
                 }
                 .foregroundColor(.accentColor)
@@ -114,7 +114,7 @@ public struct ArticleDetailView: View {
 
             // Placeholder for symmetry
             HStack(spacing: 4) {
-                Text("Back")
+                Text(I18n.t("common.back"))
                     .font(.subheadline)
                 Image(systemName: "chevron.left")
                     .font(.system(size: 14, weight: .semibold))
@@ -139,7 +139,7 @@ public struct ArticleDetailView: View {
         HStack(spacing: 4) {
             Image(systemName: "house")
                 .font(.caption)
-            Text("Help")
+            Text(I18n.t("kb.help"))
                 .font(.caption)
 
             Image(systemName: "chevron.right")
@@ -187,7 +187,7 @@ public struct ArticleDetailView: View {
                 Text("*")
                     .foregroundColor(.secondary)
 
-                Text("Updated \(article.formattedDate)")
+                Text(I18n.t("sdk.kb.updated", ["date": article.formattedDate]))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -207,7 +207,7 @@ public struct ArticleDetailView: View {
                 }
             }) {
                 HStack {
-                    Text("In this article")
+                    Text(I18n.t("kb.inArticle"))
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.primary)
@@ -303,7 +303,7 @@ public struct ArticleDetailView: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
 
-                        Text("Published on \(article.formattedDate)")
+                        Text(I18n.t("sdk.kb.publishedOn", ["date": article.formattedDate]))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -341,13 +341,13 @@ public struct ArticleDetailView: View {
                 .padding(.top, 24)
 
             if showRatingSuccess {
-                Text("Thank you for your feedback!")
+                Text(I18n.t("csat.thanks"))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .transition(.opacity)
             } else {
                 VStack(spacing: 12) {
-                    Text("Was this article helpful?")
+                    Text(I18n.t("sdk.kb.wasArticleHelpful"))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
 
@@ -370,7 +370,7 @@ public struct ArticleDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: helpful ? "hand.thumbsup" : "hand.thumbsdown")
                     .font(.subheadline)
-                Text(helpful ? "Yes" : "No")
+                Text(I18n.t(helpful ? "sdk.common.yes" : "sdk.common.no"))
                     .font(.subheadline)
             }
             .padding(.horizontal, 20)
@@ -386,7 +386,7 @@ public struct ArticleDetailView: View {
 
     private var relatedArticlesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Related Articles")
+            Text(I18n.t("kb.related"))
                 .font(.headline)
                 .padding(.horizontal)
                 .padding(.top, 24)
