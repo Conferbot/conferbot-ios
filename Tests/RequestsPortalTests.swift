@@ -110,8 +110,13 @@ final class RequestsPortalTests: XCTestCase {
         return RequestsPortal(deps)
     }
 
+    /// Lets the portal's work run: its tasks are on the main actor, so each
+    /// round also waits for the main actor, not only this test's executor.
     private func flush() async {
-        for _ in 0..<30 { await Task.yield() }
+        for _ in 0..<30 {
+            await Task.yield()
+            await MainActor.run {}
+        }
     }
 
     // MARK: - The list
