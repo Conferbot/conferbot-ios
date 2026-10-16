@@ -24,7 +24,11 @@ let package = Package(
             dependencies: [
                 .product(name: "SocketIO", package: "socket.io-client-swift")
             ],
-            path: "Sources/Conferbot"
+            path: "Sources/Conferbot",
+            resources: [
+                // The widget's words in its five languages (scripts/sync-i18n.sh, Core/I18n)
+                .copy("Resources/i18n-strings.json")
+            ]
         ),
         .testTarget(
             name: "ConferbotTests",
