@@ -44,13 +44,22 @@ public struct HomeScreenView: View {
     private let onClose: (() -> Void)?
     /// An article tapped on the home: shown over it.
     private let onArticle: (String) -> Void
-    /// Where the home's mascot will go (a later item): drawn above the greeting.
-    private let mascot: AnyView?
+    /// The app's own mascot spot, above the greeting, given the owner's mascot (look and colour).
+    /// The web's home draws none, so nothing is drawn without it.
+    private let mascot: ((Home.Mascot) -> AnyView)?
 
     public init(onClose: (() -> Void)? = nil, onArticle: ((String) -> Void)? = nil, mascot: AnyView? = nil) {
         self.onClose = onClose
         self.onArticle = onArticle ?? { id in _ = ConferBot.shared.openHelpArticle(id: id) }
-        self.mascot = mascot
+        self.mascot = mascot.map { v in { _ in v } }
+    }
+
+    /// The mascot spot drawn from the owner's mascot, e.g.
+    /// `HomeScreenView(renderMascot: { AnyView(MascotView($0, size: 72, mood: "wave")) })`.
+    public init(onClose: (() -> Void)? = nil, onArticle: ((String) -> Void)? = nil, renderMascot: @escaping (Home.Mascot) -> AnyView) {
+        self.onClose = onClose
+        self.onArticle = onArticle ?? { id in _ = ConferBot.shared.openHelpArticle(id: id) }
+        self.mascot = renderMascot
     }
 
     public var body: some View {
@@ -169,7 +178,7 @@ public struct HomeScreenView: View {
                     }
                     .padding(.bottom, 14)
                 }
-                if let mascot = mascot { mascot }
+                if let mascot = mascot { mascot(m.mascot) }
                 Text(m.hello)
                     .font(font(13.5, .semibold))
                     .foregroundColor(ink.opacity(0.82))
