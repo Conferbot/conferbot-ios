@@ -43,14 +43,10 @@ public enum LauncherIdleCall {
     /// A greeting on screen gets this long alone before the mascot may call.
     public static let greetingFirstMs = 15000.0
 
-    /// The bubble's line per style (i18n en idle.*).
-    public static let lines = [
-        "psst": "Psst!",
-        "peek": "Hey, over here!",
-        "wave": "Hi there!",
-        "knock": "Knock knock!",
-        "tap": "Got a question?",
-    ]
+    /// The bubble's line per style, in the active language (web i18n idle.*).
+    public static var lines: [String: String] {
+        Dictionary(uniqueKeysWithValues: ["psst", "peek", "wave", "knock", "tap"].map { ($0, I18n.t("idle.\($0)")) })
+    }
 
     public static func normalize(_ value: Any?) -> String {
         if let s = value as? String, modes.contains(s) { return s }
