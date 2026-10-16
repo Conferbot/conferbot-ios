@@ -6,7 +6,8 @@
 //  owner's quick actions and "Talk to a person" above the composer, the AI's
 //  follow-up email card, the queue position, the "nobody could join" email
 //  ask, leave a message, a locked conversation, an agent's dropped
-//  connection, an agent asking for a file, and the post-chat rating. State
+//  connection, an agent asking for a file, the post-chat rating, "Email me
+//  this chat" and the closed chat (blocked, or ended with a new chat). State
 //  is on ConferBot.liveChat (Core/LiveChat).
 //
 
@@ -300,7 +301,106 @@ public struct LiveChatFooterCards: View {
             if let config = live.csatConfig, live.csatOpen {
                 CsatCard(live: live, config: config, accent: accent)
             }
+            if live.emailTranscriptOpen || live.emailTranscriptSentTo != nil {
+                EmailTranscriptCard(live: live, known: knownEmail, accent: accent)
+            }
+            if let closed = conferBot.closedState {
+                ClosedChatCard(closed: closed, accent: accent) { conferBot.startNewChat() }
+            }
         }
+    }
+
+    /// The visitor's email when they gave one (user metadata, an email answer).
+    private var knownEmail: String {
+        let state = conferBot.chatState
+        if let e = state.userMetadata["email"] as? String, EmailTranscript.isEmail(e) { return e }
+        return state.userEmail.flatMap { EmailTranscript.isEmail($0) ? $0 : nil } ?? ""
+    }
+}
+
+/// "Email me this chat" (web emailTranscript.ts, #39): one card, the
+/// visitor's email filled in when known; Send, Cancel; the server's reason
+/// when it did not go; "Sent! Check your inbox at ..." once it did.
+@available(iOS 15.0, *)
+private struct EmailTranscriptCard: View {
+    @ObservedObject var live: LiveChatExtras
+    var accent: Color
+    @State private var email: String
+    @State private var busy = false
+    @State private var error: String?
+
+    init(live: LiveChatExtras, known: String, accent: Color) {
+        self.live = live
+        self.accent = accent
+        _email = State(initialValue: known)
+    }
+
+    var body: some View {
+        LiveCard {
+            if let sentTo = live.emailTranscriptSentTo {
+                CardTitle(text: EmailTranscript.Copy.sent(sentTo))
+            } else {
+                CardTitle(text: EmailTranscript.Copy.title)
+                CardSub(text: EmailTranscript.Copy.sub)
+                HStack(spacing: 8) {
+                    TextField(EmailTranscript.Copy.placeholder, text: $email)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .accessibilityLabel(EmailTranscript.Copy.label)
+                        .submitLabel(.send)
+                        .onSubmit(submit)
+                        .onChange(of: email) { _ in error = nil }
+                        .padding(10)
+                        .background(Color(UIColor.systemBackground))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor.separator), lineWidth: 0.5))
+                    PrimaryButton(label: busy ? EmailTranscript.Copy.sending : EmailTranscript.Copy.send, accent: accent, busy: busy, action: submit)
+                }
+                .padding(.top, 6)
+                if let error = error {
+                    Text(error).font(.caption).foregroundColor(.red).accessibilityAddTraits(.isStaticText)
+                }
+                Button(EmailTranscript.Copy.cancel) { live.closeEmailTranscript() }
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private func submit() {
+        guard !busy else { return }
+        guard EmailTranscript.isEmail(email) else { return error = EmailTranscript.Copy.checkEmail }
+        error = nil
+        busy = true
+        live.emailTranscript(email) { r in
+            busy = false
+            if !r.ok { error = EmailTranscript.errorText(r) }
+        }
+    }
+}
+
+/// The closed chat (LiveEvents.closedState, #40): a blocked visitor's
+/// neutral line, or, under an ended chat's own line, "Start a new chat".
+@available(iOS 15.0, *)
+private struct ClosedChatCard: View {
+    let closed: LiveEvents.ClosedState
+    var accent: Color
+    let onNewChat: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            // An ended chat's "Chat has ended" line is in the messages already.
+            if closed.kind == .blocked {
+                LiveSystemLine(closed.text)
+            }
+            if closed.newChat {
+                PrimaryButton(label: LiveEvents.newChatText, accent: accent, action: onNewChat)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
     }
 }
 
