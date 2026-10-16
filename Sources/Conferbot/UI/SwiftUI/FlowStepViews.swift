@@ -272,7 +272,7 @@ struct RatingStepView: View {
                     }
                 }
                 .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel(faces ? Rating.faceLabels[min(i, 5) - 1] : "\(i) of \(count)")
+                .accessibilityLabel(faces ? Rating.faceLabels[min(i, 5) - 1] : I18n.t("sdk.rating.rate", ["n": i, "max": count]))
             }
         }
         .disabled(picked != 0)
@@ -424,6 +424,8 @@ struct DateTimeStepView: View {
                 if mode == "time" { picker.datePickerStyle(.wheel) } else { picker.datePickerStyle(.graphical) }
             }
             .labelsHidden()
+            // Day and month names in the visitor's language (Core/I18n).
+            .environment(\.locale, I18n.locale)
             .tint(style.accent)
             StepPrimaryButton(title: submit, style: style) {
                 send(FlowStepAnswer.dateTime(FlowStepAnswer.dateTimeValue(date, mode: mode)))
@@ -479,15 +481,16 @@ struct CalendarStepView: View {
             }
             .labelsHidden()
             .datePickerStyle(.graphical)
+            .environment(\.locale, I18n.locale)
             .tint(style.accent)
             if unavailable {
-                Text("This day isn't available.").font(.caption).foregroundColor(style.muted)
+                Text(I18n.t("sdk.calendar.dayClosed")).font(.caption).foregroundColor(style.muted)
             } else if withTime {
                 let list = slots
                 if list.isEmpty {
-                    Text("No times are free on this day.").font(.caption).foregroundColor(style.muted)
+                    Text(I18n.t("sdk.calendar.noTimes")).font(.caption).foregroundColor(style.muted)
                 } else {
-                    Text("Your local time").font(.caption).foregroundColor(style.muted)
+                    Text(I18n.t("calendar.localTime")).font(.caption).foregroundColor(style.muted)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                         ForEach(list, id: \.start) { slot in
                             StepOptionButton(title: local(slot), style: style) {
@@ -497,7 +500,7 @@ struct CalendarStepView: View {
                     }
                 }
             } else {
-                StepPrimaryButton(title: "Confirm", style: style) { send(FlowStepAnswer.calendar(date: dayKey)) }
+                StepPrimaryButton(title: I18n.t("action.confirm"), style: style) { send(FlowStepAnswer.calendar(date: dayKey)) }
                     .frame(maxWidth: .infinity)
             }
         }
@@ -520,7 +523,7 @@ struct FileStepView: View {
 
     private var hint: String {
         var parts: [String] = []
-        if let max = maxBytes, max > 0 { parts.append("Up to \(ByteCountFormatter.string(fromByteCount: Int64(max), countStyle: .binary))") }
+        if let max = maxBytes, max > 0 { parts.append(I18n.t("sdk.file.upTo", ["size": ByteCountFormatter.string(fromByteCount: Int64(max), countStyle: .binary)])) }
         let types = allowedTypes.map { $0.trimmed }.filter { !$0.isEmpty }
         if !types.isEmpty { parts.append(types.joined(separator: ", ")) }
         return parts.joined(separator: " · ")
@@ -551,13 +554,13 @@ struct FileStepView: View {
             if let name = sending {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("Sending \(name)...").font(style.font).foregroundColor(style.text)
+                    Text(I18n.t("sdk.file.sendingName", ["name": name])).font(style.font).foregroundColor(style.text)
                 }
             }
             HStack(spacing: 10) {
-                StepPrimaryButton(title: sending == nil ? "Choose a file" : "Choose another", style: style) { picking = true }
+                StepPrimaryButton(title: sending == nil ? I18n.t("sdk.file.choose") : I18n.t("sdk.file.chooseAnother"), style: style) { picking = true }
                 if optional {
-                    StepOptionButton(title: "Skip", style: style) { send(FlowStepAnswer.skip) }
+                    StepOptionButton(title: I18n.t("common.skip"), style: style) { send(FlowStepAnswer.skip) }
                 }
             }
             if !hint.isEmpty {
@@ -637,7 +640,7 @@ struct CheckOptionsStepView: View {
                     if on { ticked.removeAll { $0 == o.id } } else { ticked.append(o.id) }
                 }
             }
-            StepPrimaryButton(title: "Submit", style: style, enabled: !ticked.isEmpty) {
+            StepPrimaryButton(title: I18n.t("common.submit"), style: style, enabled: !ticked.isEmpty) {
                 sent = true
                 send(FlowStepAnswer.checked(ticked))
             }
@@ -682,10 +685,10 @@ struct RankingStepView: View {
                     Spacer(minLength: 4)
                     Button { order.move(id, by: -1) } label: { Image(systemName: "chevron.up") }
                         .disabled(i == 0)
-                        .accessibilityLabel("Move \(label(id)) up")
+                        .accessibilityLabel(I18n.t("ranking.moveUp", ["item": label(id)]))
                     Button { order.move(id, by: 1) } label: { Image(systemName: "chevron.down") }
                         .disabled(i == order.ids.count - 1)
-                        .accessibilityLabel("Move \(label(id)) down")
+                        .accessibilityLabel(I18n.t("ranking.moveDown", ["item": label(id)]))
                 }
                 .buttonStyle(BorderlessButtonStyle())
                 .foregroundColor(style.accent)
@@ -721,7 +724,7 @@ struct CardsStepView: View {
                 }
             }
             if !hasPath {
-                StepPrimaryButton(title: Carousel.continueLabel, style: style) { send(FlowStepAnswer.cardsContinue) }
+                StepPrimaryButton(title: I18n.t("common.continue"), style: style) { send(FlowStepAnswer.cardsContinue) }
             }
         }
     }
@@ -816,7 +819,7 @@ struct ConsentStepView: View {
         let md = JS.text(data["consentText"])
         let plain = FlowRich.markdownLitePlain(md)
         text = (try? AttributedString(markdown: md, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(plain.isEmpty ? "I agree" : plain)
+            ?? AttributedString(plain.isEmpty ? I18n.t("sdk.consent.agree") : plain)
         continueLabel = FlowRich.consentContinueLabel(data)
         self.style = style
         self.send = send
@@ -831,7 +834,7 @@ struct ConsentStepView: View {
                         .foregroundColor(style.accent)
                 }
                 .buttonStyle(PlainButtonStyle())
-                .accessibilityLabel(agreed ? "Agreed" : "Not agreed")
+                .accessibilityLabel(agreed ? I18n.t("consent.agreed") : I18n.t("consent.declined"))
                 Text(text).font(style.font).foregroundColor(style.text).tint(style.accent)
             }
             StepPrimaryButton(title: continueLabel, style: style) { send(FlowStepAnswer.consent(agreed: agreed)) }
@@ -878,13 +881,13 @@ struct OtpStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(codeStage ? "Type the \(FlowRich.otpLength)-digit code below." : "Type your e-mail below to get a code.")
+            Text(codeStage ? I18n.t("sdk.otp.typeCode", ["n": FlowRich.otpLength]) : I18n.t("sdk.otp.typeEmail"))
                 .font(.caption)
                 .foregroundColor(style.muted)
             if codeStage || allowSkip {
                 HStack(spacing: 8) {
-                    if codeStage { StepOptionButton(title: "Resend code", style: style) { send(FlowStepAnswer.otpResend) } }
-                    if allowSkip { StepOptionButton(title: "Skip", style: style) { send(FlowStepAnswer.otpSkip) } }
+                    if codeStage { StepOptionButton(title: I18n.t("otp.resend"), style: style) { send(FlowStepAnswer.otpResend) } }
+                    if allowSkip { StepOptionButton(title: I18n.t("common.skip"), style: style) { send(FlowStepAnswer.otpSkip) } }
                 }
             }
         }
@@ -912,32 +915,32 @@ struct AddressStepView: View {
         StepCard(style: style) {
             if !manual {
                 HStack(spacing: 8) {
-                    TextField("Search for your address", text: $query)
+                    TextField(I18n.t("address.placeholder"), text: $query)
                         .textFieldStyle(.roundedBorder)
                         .textContentType(.fullStreetAddress)
                         .submitLabel(.search)
                         .onSubmit(search)
-                    StepPrimaryButton(title: "Search", style: style, enabled: query.trimmed.count >= 3, action: search)
+                    StepPrimaryButton(title: I18n.t("sdk.address.search"), style: style, enabled: query.trimmed.count >= 3, action: search)
                 }
                 if allowManual {
-                    Button("Enter it by hand") { manual = true }
+                    Button(I18n.t("address.manual")) { manual = true }
                         .font(.caption)
                         .foregroundColor(style.accent)
                 }
             } else {
                 Group {
-                    TextField("Street address", text: $line1).textContentType(.streetAddressLine1)
-                    TextField("City", text: $city).textContentType(.addressCity)
-                    TextField("State / region", text: $region).textContentType(.addressState)
-                    TextField("Postal code", text: $postal).textContentType(.postalCode)
-                    TextField("Country", text: $country).textContentType(.countryName)
+                    TextField(I18n.t("address.street"), text: $line1).textContentType(.streetAddressLine1)
+                    TextField(I18n.t("address.city"), text: $city).textContentType(.addressCity)
+                    TextField(I18n.t("address.region"), text: $region).textContentType(.addressState)
+                    TextField(I18n.t("address.postal"), text: $postal).textContentType(.postalCode)
+                    TextField(I18n.t("address.country"), text: $country).textContentType(.countryName)
                 }
                 .textFieldStyle(.roundedBorder)
                 HStack(spacing: 8) {
-                    StepPrimaryButton(title: "Save", style: style, enabled: !line1.trimmed.isEmpty) {
+                    StepPrimaryButton(title: I18n.t("sdk.address.save"), style: style, enabled: !line1.trimmed.isEmpty) {
                         send(FlowStepAnswer.addressManual(line1: line1, city: city, region: region, postal: postal, country: country))
                     }
-                    StepOptionButton(title: "Search instead", style: style) { manual = false }
+                    StepOptionButton(title: I18n.t("sdk.address.searchInstead"), style: style) { manual = false }
                 }
             }
         }
@@ -974,7 +977,7 @@ struct SignatureStepView: View {
             .background(Color(UIColor.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(style.muted.opacity(0.5), lineWidth: 1))
-            .overlay(Group { if strokes.isEmpty { Text("Sign here").font(.caption).foregroundColor(style.muted) } })
+            .overlay(Group { if strokes.isEmpty { Text(I18n.t("signature.here")).font(.caption).foregroundColor(style.muted) } })
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { g in
                     let p = CGPoint(x: min(max(g.location.x, 0), Self.size.width), y: min(max(g.location.y, 0), Self.size.height))
@@ -982,21 +985,21 @@ struct SignatureStepView: View {
                     drawing = true
                 }
                 .onEnded { _ in drawing = false })
-            .accessibilityLabel("Signature box")
+            .accessibilityLabel(I18n.t("sdk.signature.pad"))
             if config.requireName {
-                TextField("Your full name", text: $fullName)
+                TextField(I18n.t("signature.namePlaceholder"), text: $fullName)
                     .textFieldStyle(.roundedBorder)
                     .textContentType(.name)
             }
             HStack(spacing: 8) {
-                StepPrimaryButton(title: "Sign", style: style, enabled: !strokes.isEmpty) {
+                StepPrimaryButton(title: I18n.t("signature.sign"), style: style, enabled: !strokes.isEmpty) {
                     guard let png = Self.png(strokes) else { return }
                     send(FlowStepAnswer.signDrawn(png: png, width: Int(Self.size.width), height: Int(Self.size.height), fullName: config.requireName ? fullName : nil))
                 }
-                StepOptionButton(title: "Clear", style: style) { strokes = [] }
+                StepOptionButton(title: I18n.t("signature.clear"), style: style) { strokes = [] }
             }
             if config.allowTyped {
-                Text("Or type your full name below to sign.").font(.caption).foregroundColor(style.muted)
+                Text(I18n.t("sdk.signature.orType")).font(.caption).foregroundColor(style.muted)
             }
         }
     }
