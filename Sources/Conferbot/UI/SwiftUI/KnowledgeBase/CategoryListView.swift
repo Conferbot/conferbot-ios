@@ -63,11 +63,11 @@ public struct CategoryListView: View {
             }
 
             VStack(spacing: 8) {
-                Text("No Articles Yet")
+                Text(I18n.t("kb.noArticles"))
                     .font(.title2)
                     .fontWeight(.semibold)
 
-                Text("Check back later for helpful articles and guides")
+                Text(I18n.t("kb.noArticlesSub"))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -116,7 +116,7 @@ public struct CategoryListView: View {
 
     private var recentArticlesView: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recent articles")
+            Text(I18n.t("home.recentArticles"))
                 .font(.headline)
             ForEach(recentArticles) { article in
                 Button {
@@ -155,10 +155,10 @@ public struct CategoryListView: View {
 
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Browse Help Articles")
+            Text(I18n.t("sdk.kb.browseTitle"))
                 .font(.headline)
 
-            Text("Find answers to your questions by browsing our help categories")
+            Text(I18n.t("sdk.kb.browseSub"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -220,7 +220,7 @@ struct CategoryRowView: View {
 
     private var articleCountText: String {
         let count = category.articles?.count ?? category.articleCount
-        return count == 1 ? "1 article" : "\(count) articles"
+        return I18n.tPlural("kb.articles", count)
     }
 }
 
@@ -233,7 +233,7 @@ struct FeaturedCategoriesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Featured Topics")
+            Text(I18n.t("sdk.kb.featured"))
                 .font(.headline)
                 .padding(.horizontal)
 
@@ -270,7 +270,7 @@ struct FeaturedCategoryCard: View {
                     .fontWeight(.semibold)
                     .lineLimit(2)
 
-                Text("\(category.articles?.count ?? category.articleCount) articles")
+                Text(I18n.tPlural("kb.articles", category.articles?.count ?? category.articleCount))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -332,7 +332,7 @@ struct CategoryGridItem: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("\(category.articles?.count ?? category.articleCount) articles")
+                Text(I18n.tPlural("kb.articles", category.articles?.count ?? category.articleCount))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -354,10 +354,10 @@ struct AllCategoriesHeader: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("All Categories")
+                Text(I18n.t("sdk.kb.allCategories"))
                     .font(.headline)
 
-                Text("\(totalArticles) articles in \(totalCategories) categories")
+                Text(I18n.t("sdk.kb.articlesInCategories", ["articles": I18n.tPlural("kb.articles", totalArticles), "categories": I18n.tPlural("sdk.kb.categories", totalCategories)]))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
