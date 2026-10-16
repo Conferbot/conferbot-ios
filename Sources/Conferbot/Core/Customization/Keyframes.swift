@@ -19,7 +19,18 @@
 //    - delay, iterations (infinity loops) and fill (forwards / backwards /
 //      both; none: the element's own value outside the animation);
 //    - several animations on one element: the later one wins for the
-//      properties it sets.
+//      properties it sets;
+//    - the `transform` property: "scaleY(n)" (the eyelids) is the scale's
+//      y; a list ("translateY(-3px) scale(0.92, 1.14)", "rotate(-7deg)
+//      translateX(-1px)", "none") is interpolated function by function, as
+//      Chrome does for lists of the same functions (none is their
+//      identity), into tx / ty / sx / sy / r; `transformOrder` says in
+//      which order to draw them. Its values share the channels of the
+//      individual translate / scale / rotate, so an element animated both
+//      ways is drawn as two nested boxes (the individual properties
+//      outside);
+//    - CSS @keyframes (`cssKeyframes`): each selector's offsets, the
+//      animation's timing function on every keyframe, as CSS plays it.
 //
 //  The same algorithm as the React Native SDK's core/keyframes.ts, which is
 //  checked against Chrome's own animations frame by frame
@@ -259,9 +270,119 @@ public enum Keyframes {
         "strokeDashoffset": ["dash"],
         "clipPath": ["clip"],
         "left": ["left"],
-        // Only "scaleY(n)" is used (the eyelids): it is the scale's y.
+        // "scaleY(n)" (the eyelids) is the scale's y; a function list sets them all (transformListChannels).
         "transform": ["sy"],
     ]
+    private static let transformListChannels = ["tx", "ty", "sx", "sy", "r"]
+
+    private static func isScaleYOnly(_ s: String) -> Bool { firstMatch("^scaleY\\([^)]*\\)$", s) != nil }
+
+    private static func transformString(_ k: Keyframe) -> String? {
+        guard let v = k["transform"], !(v is NSNull) else { return nil }
+        return str(v).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// A track whose `transform` is a function list (not the eyelids' plain scaleY).
+    static func listTransform(_ kfs: [Keyframe]) -> Bool {
+        kfs.contains { k in transformString(k).map { !isScaleYOnly($0) } ?? false }
+    }
+
+    /// A CSS transform list as tx / ty (px), sx / sy, r (deg); "none" is the identity.
+    private static func transformList(_ s: String) -> [String: Double] {
+        var out: [String: Double] = ["tx": 0, "ty": 0, "sx": 1, "sy": 1, "r": 0]
+        if s == "none" { return out }
+        for m in allMatches("([a-zA-Z]+)\\(([^)]*)\\)", s) {
+            let args = split(m[2], "[\\s,]+").filter { !$0.isEmpty }.map { jsParseFloat($0) }
+            let a = !args.isEmpty && args[0].isFinite ? args[0] : 0
+            let b: Double? = args.count > 1 && args[1].isFinite ? args[1] : nil
+            switch m[1] {
+            case "translate": out["tx"] = a; out["ty"] = b ?? 0
+            case "translateX": out["tx"] = a
+            case "translateY": out["ty"] = a
+            case "scale": out["sx"] = a; out["sy"] = b ?? a
+            case "scaleX": out["sx"] = a
+            case "scaleY": out["sy"] = a
+            case "rotate": out["r"] = a
+            default: break
+            }
+        }
+        return out
+    }
+
+    /// The order a track's transform list draws its functions in ("t" translate,
+    /// "r" rotate, "s" scale), from its fullest list: "ts" for
+    /// "translateY(..) scale(..)", "rt" for "rotate(..) translateX(..)". The
+    /// individual properties (and a plain scaleY) draw translate, rotate, scale.
+    public static func transformOrder(_ track: Track) -> String {
+        var order = ""
+        for k in track.keyframes {
+            guard let s = transformString(k), !s.isEmpty, s != "none", !isScaleYOnly(s) else { continue }
+            var o = ""
+            for m in allMatches("([a-zA-Z]+)\\(", s) {
+                let fn = m[1]
+                let c = fn.hasPrefix("translate") ? "t" : fn.hasPrefix("scale") ? "s" : fn.hasPrefix("rotate") ? "r" : ""
+                if !c.isEmpty && !o.contains(c) { o += c }
+            }
+            if o.count > order.count { order = o }
+        }
+        for c in ["t", "r", "s"] where !order.contains(c) { order += c }
+        return order
+    }
+
+    /// A transform's values as the CSS matrix [a, b, c, d, e, f] (x' = a x + c y
+    /// + e, y' = b x + d y + f), its functions in `order` (transformOrder).
+    public static func transformMatrix(_ v: FxValues, _ order: String = "trs") -> [Double] {
+        var m: [Double] = [1, 0, 0, 1, 0, 0]
+        func mul(_ n: [Double]) {
+            let (a1, b1, c1, d1, e1, f1) = (m[0], m[1], m[2], m[3], m[4], m[5])
+            let (a2, b2, c2, d2, e2, f2) = (n[0], n[1], n[2], n[3], n[4], n[5])
+            m = [a1 * a2 + c1 * b2, b1 * a2 + d1 * b2, a1 * c2 + c1 * d2, b1 * c2 + d1 * d2, a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1]
+        }
+        for op in order {
+            switch op {
+            case "t": mul([1, 0, 0, 1, v.tx, v.ty])
+            case "s": mul([v.sx, 0, 0, v.sy, 0, 0])
+            case "r":
+                let a = v.r * .pi / 180
+                mul([cos(a), sin(a), -sin(a), cos(a), 0, 0])
+            default: break
+            }
+        }
+        return m
+    }
+
+    /// A CSS @keyframes body ("0%,100%{transform:scaleY(0)}42.6%{transform:scaleY(1)}")
+    /// as keyframes, in offset order, each eased by the animation's timing
+    /// function (CSS eases every keyframe interval with it).
+    public static func cssKeyframes(_ body: String, timing: String = "ease") -> [Keyframe] {
+        var out: [(Int, Keyframe)] = []
+        for m in allMatches("([^{}]+)\\{([^}]*)\\}", body) {
+            var props: [String: Any] = [:]
+            for decl in m[2].components(separatedBy: ";") {
+                guard let i = decl.firstIndex(of: ":") else { continue }
+                var name = decl[..<i].trimmingCharacters(in: .whitespacesAndNewlines)
+                // kebab-case to camelCase, as the web's element.animate() names them.
+                while let r = name.range(of: "-[a-z]", options: .regularExpression) {
+                    name.replaceSubrange(r, with: name[r].dropFirst().uppercased())
+                }
+                let value = decl[decl.index(after: i)...].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty && !value.isEmpty { props[name] = value }
+            }
+            for sel in m[1].components(separatedBy: ",") {
+                let t = sel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let offset = t == "from" ? 0 : t == "to" ? 1 : jsParseFloat(t) / 100
+                guard offset.isFinite else { continue }
+                var k: Keyframe = ["offset": offset, "easing": timing]
+                for (n, v) in props { k[n] = v }
+                out.append((out.count, k))
+            }
+        }
+        // A stable sort, as JavaScript's.
+        return out.sorted { a, b in
+            let x = number(a.1["offset"])!, y = number(b.1["offset"])!
+            return x != y ? x < y : a.0 < b.0
+        }.map { $0.1 }
+    }
 
     /// "12px", "-160%", "0", "calc(10% + 4px)": (px, %).
     private static func length(_ v: String) -> (Double, Double) {
@@ -286,9 +407,10 @@ public enum Keyframes {
     }
 
     /// One keyframe's value for a group, or nil when it does not set it.
-    private static func parse(_ k: Keyframe, _ g: String) -> [String: Double]? {
+    private static func parse(_ k: Keyframe, _ g: String, list: Bool = false) -> [String: Double]? {
         guard let v = k[g], !(v is NSNull) else { return nil }
         let s = str(v).trimmingCharacters(in: .whitespaces)
+        if g == "transform" && list { return transformList(s) }
         switch g {
         case "translate":
             // Split on spaces outside calc().
@@ -383,6 +505,8 @@ public enum Keyframes {
 
     struct Compiled {
         var groups: [Group]
+        /// The transform is a function list (tx / ty / sx / sy / r), not a plain scaleY.
+        var list = false
     }
 
     static func compile(_ track: Track) -> Compiled {
@@ -390,15 +514,16 @@ public enum Keyframes {
         let offs = computedOffsets(kfs)
         let first = offs.firstIndex(of: 0)
         let firstEase = first.map { easingOf(kfs[$0]["easing"] as? String) } ?? linear
+        let list = listTransform(kfs)
         var out: [Group] = []
         for g in groups {
             var pts: [Pt] = []
             for i in kfs.indices {
-                if let v = parse(kfs[i], g) { pts.append(Pt(at: offs[i], v: v, e: easingOf(kfs[i]["easing"] as? String))) }
+                if let v = parse(kfs[i], g, list: list) { pts.append(Pt(at: offs[i], v: v, e: easingOf(kfs[i]["easing"] as? String))) }
             }
             if !pts.isEmpty { out.append(Group(name: g, pts: pts, firstEase: firstEase)) }
         }
-        return Compiled(groups: out)
+        return Compiled(groups: out, list: list)
     }
 
     /// One track's values at t ms: only the channels it animates, or nil when it does not apply.
@@ -409,7 +534,7 @@ public enum Keyframes {
         if c.groups.isEmpty { return nil }
         var out: [String: Double] = [:]
         for grp in c.groups {
-            let chs = channelsOf[grp.name]!
+            let chs = grp.name == "transform" && c.list ? transformListChannels : channelsOf[grp.name]!
             let parsed = grp.pts
             // A missing 0% or 100% keyframe is the element's own value (nil here); a missing 0% eases with the 0% keyframe's easing.
             var pts: [Pt] = []
