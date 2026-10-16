@@ -100,15 +100,15 @@ private struct EmailForm: View {
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(UIColor.separator), lineWidth: 0.5))
                 PrimaryButton(label: button, accent: accent, busy: busy) {
                     if !LiveChat.isEmail(email) {
-                        error = "Please enter a valid email."
+                        error = I18n.t("sdk.form.invalidEmail")
                     } else if messagePlaceholder != nil && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        error = "Please write a short message."
+                        error = I18n.t("leave.writeMessage")
                     } else {
                         error = nil
                         busy = true
                         onSubmit(email.trimmingCharacters(in: .whitespacesAndNewlines), message.trimmingCharacters(in: .whitespacesAndNewlines)) { ok in
                             busy = false
-                            if !ok { error = "That did not go through. Please try again." }
+                            if !ok { error = I18n.t("sdk.form.notThrough") }
                         }
                     }
                 }
@@ -164,7 +164,7 @@ public struct QuickActionsStrip: View {
                             }
                         }
                         if human {
-                            pill("Talk to a person") {
+                            pill(I18n.t("chat.talkToPerson")) {
                                 humanRetired = true
                                 Task { try? await conferBot.sendMessage(LiveChat.talkToPersonAsk) }
                             }
@@ -215,10 +215,10 @@ public struct HandoverWaitCard: View {
                 }
                 if let onCancel = onCancel {
                     Spacer(minLength: 8)
-                    Button("Cancel", action: onCancel)
+                    Button(I18n.t("common.cancel"), action: onCancel)
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
-                        .accessibilityHint("Leave the queue")
+                        .accessibilityHint(I18n.t("sdk.queue.leaveHint"))
                 }
             }
             if let message = message, !message.isEmpty {
@@ -249,7 +249,7 @@ public struct LiveChatFooterCards: View {
                 LiveCard {
                     Text(LiveChat.handoverWaitingLine(waiting)).font(.system(size: 14))
                     if waiting.email == nil && waiting.askEmail {
-                        EmailForm(button: "Send", accent: accent) { email, _, done in
+                        EmailForm(button: I18n.t("common.send"), accent: accent) { email, _, done in
                             live.shareEmailForReply(email, done: done)
                         }
                     }
@@ -258,18 +258,18 @@ public struct LiveChatFooterCards: View {
             if (live.noAgentsAvailable || live.leftMessageTo != nil) && (conferBot.serverCustomizations?["chatLeaveMessage"] as? Bool) != false {
                 LiveCard {
                     if let sentTo = live.leftMessageTo {
-                        CardTitle(text: "Message sent. We'll reply to you at \(sentTo).")
-                        CardSub(text: "Replies will reach your inbox, and show here if you come back.")
+                        CardTitle(text: I18n.t("leave.sent", ["email": sentTo]))
+                        CardSub(text: I18n.t("leave.sentSub"))
                     } else {
-                        CardTitle(text: "Leave a message")
-                        CardSub(text: "No one is available right now. We'll reply by email.")
-                        EmailForm(button: "Send", messagePlaceholder: "How can we help?", accent: accent) { email, message, done in
+                        CardTitle(text: I18n.t("leave.title"))
+                        CardSub(text: I18n.t("leave.sub"))
+                        EmailForm(button: I18n.t("common.send"), messagePlaceholder: I18n.t("leave.messagePlaceholder"), accent: accent) { email, message, done in
                             live.leaveMessage(email: email, message: message) { ok in
                                 done(ok)
                                 if ok { conferBot.continueAfterLeaveMessage() }
                             }
                         }
-                        Button("Not now") { conferBot.continueAfterLeaveMessage() }
+                        Button(I18n.t("common.notNow")) { conferBot.continueAfterLeaveMessage() }
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                             .padding(.top, 4)
@@ -278,20 +278,20 @@ public struct LiveChatFooterCards: View {
             }
             if let who = live.fileRequestedBy {
                 LiveCard {
-                    Text("\(who) asked you to send a file").font(.system(size: 14))
+                    Text(I18n.t("file.requested", ["name": who])).font(.system(size: 14))
                     if let onUpload = onUpload {
-                        PrimaryButton(label: "Choose a file", accent: accent, action: onUpload).padding(.top, 6)
+                        PrimaryButton(label: I18n.t("sdk.file.choose"), accent: accent, action: onUpload).padding(.top, 6)
                     }
                 }
             }
             if live.leadCardOpen || live.leadEmail != nil {
                 LiveCard {
                     if let email = live.leadEmail {
-                        Text("Thanks! We'll follow up at \(email)").font(.system(size: 14))
+                        Text(I18n.t("lead.done", ["email": email])).font(.system(size: 14))
                     } else {
-                        CardTitle(text: "Want us to follow up?")
-                        CardSub(text: "Leave your email and the team will get back to you.")
-                        EmailForm(button: "Send", accent: accent) { email, _, done in
+                        CardTitle(text: I18n.t("lead.title"))
+                        CardSub(text: I18n.t("lead.sub"))
+                        EmailForm(button: I18n.t("common.send"), accent: accent) { email, _, done in
                             live.captureLeadEmail(email)
                             done(true)
                         }
@@ -442,10 +442,10 @@ private struct CsatCard: View {
                         .padding(.top, 8)
                 }
                 HStack(spacing: 8) {
-                    PrimaryButton(label: "Send", accent: accent, enabled: picked != nil) {
+                    PrimaryButton(label: I18n.t("common.send"), accent: accent, enabled: picked != nil) {
                         if let value = picked { live.submitRating(value, feedback: feedback) }
                     }
-                    Button("Not now") { live.dismissCsat() }
+                    Button(I18n.t("common.notNow")) { live.dismissCsat() }
                         .font(.system(size: 14))
                         .foregroundColor(.primary)
                 }
@@ -459,8 +459,8 @@ private struct CsatCard: View {
         switch config.ratingType {
         case "thumbs":
             HStack(spacing: 8) {
-                choicePill("Yes", chosen: thumbs == true) { thumbs = true }
-                choicePill("No", chosen: thumbs == false) { thumbs = false }
+                choicePill(I18n.t("sdk.csat.yes"), chosen: thumbs == true) { thumbs = true }
+                choicePill(I18n.t("sdk.csat.no"), chosen: thumbs == false) { thumbs = false }
             }
         case "nps":
             ScrollView(.horizontal, showsIndicators: false) {
@@ -480,7 +480,7 @@ private struct CsatCard: View {
                             .font(.system(size: 26))
                             .foregroundColor(n <= stars ? Color(red: 0.96, green: 0.65, blue: 0.14) : Color(UIColor.separator))
                     }
-                    .accessibilityLabel("\(n) out of 5")
+                    .accessibilityLabel(I18n.t("rating.outOf", ["n": n, "max": 5]))
                 }
             }
         }
@@ -549,10 +549,10 @@ public struct LiveChatStrip: View {
             }
             LiveChatFooterCards(accent: accent, onUpload: onUpload)
             if live.lockedBy != nil {
-                LiveSystemLine("This conversation has been locked")
+                LiveSystemLine(ChatText.locked)
             }
             if let lost = live.agentConnectionLost {
-                LiveSystemLine("\(lost)'s connection dropped. Hang on, they should be right back.")
+                LiveSystemLine(ChatText.connectionLost(lost))
             }
             QuickActionsStrip(accent: accent)
         }
