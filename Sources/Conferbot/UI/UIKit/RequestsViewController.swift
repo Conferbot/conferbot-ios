@@ -6,7 +6,8 @@
 //  (UI/SwiftUI/RequestsPortalView.swift) in a hosting controller. It opens
 //  the list (or one request) when it appears and dismisses itself when the
 //  portal closes (Back from the list, or a request that is the chat on
-//  screen). ChatViewController's menu presents it.
+//  screen). For an app's own button: ChatViewController hosts ChatView
+//  (iOS 15+, #96), whose menu and home screen open the portal themselves.
 //
 
 import UIKit
