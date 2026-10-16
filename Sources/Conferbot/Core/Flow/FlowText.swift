@@ -134,10 +134,10 @@ public enum FlowText {
     }
 
     /// The ask-name greeting by first name: none set at all is the default
-    /// "Nice to meet you, X"; one cleared in the builder is "" (no bubble).
+    /// "Nice to meet you, X" in the visitor's language (web nodeLogic.ts); one cleared in the builder is "" (no bubble).
     public static func nameGreetingHtml(_ template: Any?, _ name: Any?) -> String {
         let first = escapeHtml(firstName(name))
-        if JS.isNullish(template) { return first.isEmpty ? "" : "Nice to meet you, \(first)" }
+        if JS.isNullish(template) { return first.isEmpty ? "" : I18n.t("node.niceToMeet", ["name": first]) }
         if isBlankHtml(template) { return "" }
         let filled = Re("\\$?\\{\\{?\\s*name\\s*\\}?\\}").replace(JS.text(template)) { _ in first.isEmpty ? gap : first }
         return closeGaps(filled)
