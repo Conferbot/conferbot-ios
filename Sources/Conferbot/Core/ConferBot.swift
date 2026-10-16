@@ -73,6 +73,7 @@ public class ConferBot: ObservableObject {
     /// (WidgetTheme): the theme palette in place of the owner's colours when
     /// chosen, then the resolved look. Main thread.
     private func applyLook() {
+        applyLanguage()
         guard let raw = rawCustomizations else {
             serverCustomizations = nil
             customizations = Customizations.resolve(nil)
@@ -85,6 +86,18 @@ public class ConferBot: ObservableObject {
         let widgetTheme = WidgetTheme.resolve(themed, prefersDark: prefersDark)
         serverCustomizations = themed
         customizations = Customizations.resolve(themed, theme: widgetTheme)
+    }
+
+    /// The language the SDK's own words are drawn in (Core/I18n): the app's
+    /// `ConferBotConfig.widgetLanguage`, else the owner's `widgetLanguage`,
+    /// else the phone's languages, else English.
+    @Published public private(set) var widgetLanguage: WidgetLanguage = I18n.language
+
+    /// Picks the language before anything is drawn with the settings (web
+    /// index.ts setWidgetLanguage; a host-page setting wins). Main thread.
+    private func applyLanguage() {
+        let lang = I18n.setWidgetLanguage(config?.widgetLanguage ?? rawCustomizations?["widgetLanguage"])
+        if lang != widgetLanguage { widgetLanguage = lang }
     }
 
     // Node Flow Engine - Published properties
@@ -327,7 +340,7 @@ public class ConferBot: ObservableObject {
     /// [completion] gets an error message, or nil when it went.
     public func sendLiveFile(fileURL: URL, completion: @escaping (String?) -> Void = { _ in }) {
         guard let session = currentSession, let apiKey = apiKey, let botId = botId else {
-            return DispatchQueue.main.async { completion("Uploads are not available") }
+            return DispatchQueue.main.async { completion(I18n.t("sdk.file.pickerMissing")) }
         }
         let uploader = FileUploadService(apiKey: apiKey, botId: botId, baseURL: config?.apiBaseURL ?? ConferBotEndpoints.apiBaseURL)
         let name = fileURL.lastPathComponent
@@ -336,12 +349,12 @@ public class ConferBot: ObservableObject {
                 // The /media proxy, bound to this conversation (as the web widget uploads).
                 let url = try await uploader.uploadFile(from: fileURL, sessionId: session.chatSessionId)
                 guard !url.isEmpty else {
-                    return await MainActor.run { completion("That file can't be sent. Please try another one.") }
+                    return await MainActor.run { completion(I18n.t("upload.failed")) }
                 }
                 self.liveChat.sendLiveFile(url: url, fileName: name, mimeType: nil)
                 await MainActor.run { completion(nil) }
             } catch {
-                await MainActor.run { completion("That file can't be sent. Please try another one.") }
+                await MainActor.run { completion(I18n.t("upload.failed")) }
             }
         }
     }
@@ -514,6 +527,9 @@ public class ConferBot: ObservableObject {
         self.botId = botId
         self.config = config
         self.customization = customization
+        // The SDK's words in the app's language (or the phone's) until the
+        // bot's own setting arrives.
+        if Thread.isMainThread { applyLanguage() } else { DispatchQueue.main.async { self.applyLanguage() } }
         // The flow's steps call the bot server (/api/v1/bot/:id/gpt, otp, ai, pay...)
         flowEngine?.config.apiOrigin = NodeFlowEngine.origin(of: config.apiBaseURL)
 
@@ -2061,7 +2077,7 @@ public class ConferBot: ObservableObject {
                     id: agentMessageId,
                     time: now,
                     url: audioUrl,
-                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: "")
+                    agentDetails: agentDetails ?? AgentDetails(id: "", name: I18n.t("agent.agent"), email: "")
                 )
                 self.chatState.pushLiveChatRecord(
                     entryId: agentMessageId,
@@ -2075,7 +2091,7 @@ public class ConferBot: ObservableObject {
                     id: agentMessageId,
                     time: now,
                     text: messageText ?? "",
-                    agentDetails: agentDetails ?? AgentDetails(id: "", name: "Agent", email: ""),
+                    agentDetails: agentDetails ?? AgentDetails(id: "", name: I18n.t("agent.agent"), email: ""),
                     extras: (extras?.isEmpty == false || extras?.isFallback == true) ? extras : nil,
                     translation: LiveChat.agentTranslation(json)
                 )
@@ -2169,7 +2185,7 @@ public class ConferBot: ObservableObject {
         }
 
         agentHandoverPending = true
-        let greeting = bot.greeting.isEmpty ? AgentBotParser.defaultGreeting : bot.greeting
+        let greeting = bot.greeting.isEmpty ? AgentBotParser.defaultGreetingText : bot.greeting
         let welcomeId = shell.welcome?["id"] as? String ?? "agent-welcome"
         var welcomeData = shell.welcome?["data"] as? [String: Any] ?? [:]
         welcomeData["text"] = greeting
@@ -2252,7 +2268,7 @@ public class ConferBot: ObservableObject {
             guard let self = self, let json = data.first as? [String: Any], self.isOwnSession(json),
                   let text = json["text"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let streamId = json["streamId"] as? String else { return }
-            let details = self.agentDetails(from: json["agentDetails"]) ?? AgentDetails(id: "", name: "Agent", email: "")
+            let details = self.agentDetails(from: json["agentDetails"]) ?? AgentDetails(id: "", name: I18n.t("agent.agent"), email: "")
             let markdown = ChatMarkdown.htmlToMarkdown(text)
             Task { @MainActor in
                 self.setAwaitingReply(false)
@@ -2525,7 +2541,7 @@ public class ConferBot: ObservableObject {
             let systemMessage = SystemMessageRecord(
                 id: messageId,
                 time: Date(),
-                text: "Chat has ended"
+                text: LiveEvents.chatHasEndedText
             )
             self.messages.append(systemMessage)
             self.delegate?.conferBot(self, didReceiveMessage: systemMessage)
