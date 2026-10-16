@@ -268,6 +268,12 @@ enum FlowRich {
     }
 
     static let weekdays = FlowLogic.dayNames
+
+    /// A weekday's name in the visitor's language (0 = Sunday).
+    static func weekdayName(_ wd: Int) -> String { I18n.weekdayNames("long", english: weekdays)[wd] }
+
+    /// "Saturdays" in English; the plain day name elsewhere ("Samstag").
+    static func weekdaysName(_ wd: Int) -> String { I18n.isEnglish ? "\(weekdays[wd])s" : weekdayName(wd) }
     private static let dateRe = Re("^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
     private static let timeRe = Re("^([01][0-9]|2[0-3]):([0-5][0-9])$")
 
@@ -327,7 +333,7 @@ enum FlowRich {
             if let min = resolveDateBound(data["minDate"], today: today, zone: zone), datePart < min { return t("dates.onOrAfter", ["date": min]) }
             if let max = resolveDateBound(data["maxDate"], today: today, zone: zone), datePart > max { return t("dates.onOrBefore", ["date": max]) }
             let wd = weekdayOf(datePart)
-            if disabledWeekdays(data).contains(wd) { return t("dates.dayUnavailable", ["day": "\(weekdays[wd])s"]) }
+            if disabledWeekdays(data).contains(wd) { return t("dates.dayUnavailable", ["day": weekdaysName(wd)]) }
         }
         if mode != "date" {
             if !timeRe.test(timePart) { return t("dates.pickTime") }
