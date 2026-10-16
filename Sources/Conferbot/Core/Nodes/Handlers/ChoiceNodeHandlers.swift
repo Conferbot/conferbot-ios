@@ -96,7 +96,7 @@ public final class YesOrNoChoiceNodeHandler: BaseNodeHandler {
 
     private func options(_ node: [String: Any]) -> [[String: Any]] {
         let list = JS.dicts(FlowKit.data(node)["options"])
-        return list.isEmpty ? [["id": "1", "label": "Yes"], ["id": "2", "label": "No"]] : list
+        return list.isEmpty ? [["id": "1", "label": I18n.t("sdk.common.yes")], ["id": "2", "label": I18n.t("sdk.common.no")]] : list
     }
 
     private func ui(_ node: [String: Any], _ state: ChatState) -> NodeUIState {
@@ -125,7 +125,8 @@ public final class YesOrNoChoiceNodeHandler: BaseNodeHandler {
 enum Rating {
     /// What the faces have always recorded (web nodeKit FACE_VALUES).
     static let faceValues = ["😡", "😐", "😊", "😀", "😁"]
-    static let faceLabels = ["Very unhappy", "Unhappy", "Neutral", "Happy", "Very happy"]
+    /// The faces' words in the visitor's language (web nodeKit faceLabels).
+    static var faceLabels: [String] { (1...5).map { I18n.t("rating.face.\($0)") } }
 
     static func count(_ ratingType: Any?) -> Int {
         if JS.text(ratingType) == "smiley" { return 5 }
@@ -133,12 +134,12 @@ enum Rating {
         return max(1, min(10, n.isFinite && n != 0 ? Int(n) : 5))
     }
 
-    /// What each score means (web nodeKit ratingWords, English).
+    /// What each score means, in the visitor's language (web nodeKit ratingWords).
     static func words(_ ratingType: Any?, _ n: Int) -> [String] {
         if JS.text(ratingType) == "smiley" { return faceLabels }
-        if n == 3 { return ["Bad", "Okay", "Great"] }
-        if n == 5 { return ["Terrible", "Bad", "Okay", "Good", "Amazing"] }
-        return (1...max(1, n)).map { "\($0) out of \(n)" }
+        if n == 3 { return ["rating.bad", "rating.okay", "rating.great"].map { I18n.t($0) } }
+        if n == 5 { return ["rating.terrible", "rating.bad", "rating.okay", "rating.good", "rating.amazing"].map { I18n.t($0) } }
+        return (1...max(1, n)).map { I18n.t("rating.outOf", ["n": $0, "max": n]) }
     }
 
     /// The value a rating button records: stars, or the face.
