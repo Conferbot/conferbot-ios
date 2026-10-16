@@ -177,6 +177,48 @@ public class ConferBot: ObservableObject {
     )
     private var liveChatCancellables = Set<AnyCancellable>()
 
+    // MARK: - Post-chat redirect
+    // After the conversation ends and the rating is done: the app's
+    // onPostChatRedirect, else "Taking you to example.com in 10s" with
+    // Cancel, then the system browser (Core/LiveChat/PostChatRedirect).
+    /// The bot's redirectUrl (fetched-chatbot-data).
+    private var redirectUrl: Any?
+    public private(set) lazy var postChatRedirect: PostChatRedirectController = PostChatRedirectController(hooks: .init(
+        redirectUrl: { [weak self] in self?.redirectUrl },
+        sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        chatVisible: { [weak self] in self?.isChatVisible ?? false },
+        blocked: { [weak self] in self?.liveChat.blocked != nil },
+        // A person in the chat, or one on their way.
+        live: { [weak self] in
+            guard let self = self else { return false }
+            return self.isLiveChatMode || !HandoverState.talkToPersonAllowed(self.chatState.getServerRecord())
+        },
+        ratingPending: { [weak self] in
+            guard let live = self?.liveChat else { return false }
+            return live.csatConfig != nil && live.csatOpen && !live.csatSent
+        },
+        // The system browser, as the SDK opens a link button's page.
+        open: { href, done in
+            #if canImport(UIKit)
+            guard let url = URL(string: href) else { return done(false) }
+            DispatchQueue.main.async { UIApplication.shared.open(url, options: [:]) { done($0) } }
+            #else
+            done(false)
+            #endif
+        },
+        disabled: { [weak self] in self?.config?.disablePostChatRedirect ?? false },
+        onPostChatRedirect: { [weak self] in self?.config?.onPostChatRedirect },
+        store: { UserDefaultsRedirectStore() },
+        appInForeground: {
+            #if canImport(UIKit)
+            return UIApplication.shared.applicationState != .background
+            #else
+            return true
+            #endif
+        }
+    ))
+    private var redirectCancellables = Set<AnyCancellable>()
+
     // MARK: - Handover lifecycle
     // The "Connecting you with the team…" line and its outcome, the waiting
     // signals, the AI escalation's max-wait nudge, leaving the queue, and a
@@ -530,6 +572,7 @@ public class ConferBot: ObservableObject {
     /// visitor's delivered / seen receipts as agent messages arrive.
     private func watchLiveChat() {
         liveChatCancellables.removeAll()
+        watchPostChatRedirect()
         $currentUIState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.updateQueuePoll(state: state, live: self?.isLiveChatMode ?? false) }
@@ -547,6 +590,31 @@ public class ConferBot: ObservableObject {
                 Task { @MainActor in self.requests.recordChanged() }
             }
             .store(in: &liveChatCancellables)
+    }
+
+    /// The redirect waits for the rating, and a countdown that can no
+    /// longer go stops: the chat closed, a new conversation, a block, a
+    /// person back, the app in the background.
+    private func watchPostChatRedirect() {
+        redirectCancellables.removeAll()
+        let changes: [AnyPublisher<Void, Never>] = [
+            liveChat.$csatOpen.map { _ in () }.eraseToAnyPublisher(),
+            liveChat.$csatSent.map { _ in () }.eraseToAnyPublisher(),
+            liveChat.$blocked.map { _ in () }.eraseToAnyPublisher(),
+            $isChatVisible.map { _ in () }.eraseToAnyPublisher(),
+            $isLiveChatMode.map { _ in () }.eraseToAnyPublisher(),
+            $currentSession.map { _ in () }.eraseToAnyPublisher(),
+            $messages.map { _ in () }.eraseToAnyPublisher(),
+        ]
+        Publishers.MergeMany(changes)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.postChatRedirect.update() }
+            .store(in: &redirectCancellables)
+        #if canImport(UIKit)
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in self?.postChatRedirect.cancel() }
+            .store(in: &redirectCancellables)
+        #endif
     }
 
     // Offline Manager
@@ -962,6 +1030,8 @@ public class ConferBot: ObservableObject {
                 guard let self = self else { return }
                 self.isFlowComplete = isComplete
                 if isComplete {
+                    // The flow's end is the conversation's end (the post-chat redirect).
+                    self.postChatRedirect.conversationEnded()
                     self.delegate?.conferBot(self, didCompleteFlow: true)
                     // Finalize analytics when flow completes
                     self.analytics.finalizeChatAnalytics()
@@ -1823,6 +1893,7 @@ public class ConferBot: ObservableObject {
     public func startNewChat() {
         guard liveChat.blocked == nil else { return }
         DispatchQueue.main.async {
+            self.postChatRedirect.reset()
             self.liveChat.reset()
             self.isLiveChatMode = false
             self.currentAgent = nil
@@ -2068,6 +2139,9 @@ public class ConferBot: ObservableObject {
             // the app loaded the flow itself.
             let agentBot = AgentBotParser.parseAgentBot(chatbotData)
             self.liveChat.setChatbotData(chatbotData)
+            // The owner's post-chat redirect (checked when it is followed).
+            let redirect = chatbotData["redirectUrl"]
+            DispatchQueue.main.async { self.redirectUrl = redirect }
             let elements = (chatbotData["elements"] as? [[String: Any]])?.first
             let nodes = elements?["nodes"] as? [[String: Any]] ?? []
             let edges = elements?["edges"] as? [[String: Any]] ?? []
@@ -2745,8 +2819,11 @@ public class ConferBot: ObservableObject {
 
             // As on the web: the conversation stays on screen and the flow
             // moves to the handover step's next step - its post-chat survey
-            // questions first when it has them (#66).
+            // questions first when it has them (#66). With no flow going on
+            // from it, the conversation is over (the post-chat redirect).
+            let flowGoesOn = self.flowEngine?.isAtHandover == true
             await self.flowEngine?.handoverEnded()
+            if !flowGoesOn { self.postChatRedirect.conversationEnded() }
         }
     }
 
