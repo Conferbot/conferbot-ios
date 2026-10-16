@@ -78,11 +78,11 @@ enum LauncherFxDraw {
     }
 
     /// The idle call's mascot on its stage over the launcher (idleCall.ts
-    /// perform), each part of the drawing its own layer, and the white rings
-    /// where a knock or tap lands.
-    static func idleCall(_ ctx: GraphicsContext, _ perf: LauncherIdleCall.Performance, _ layers: MascotArt.Layers, _ t: Double) {
+    /// perform): the owner's mascot, each part of the drawing its own layer
+    /// turned about that character's joints, and the white rings where a
+    /// knock or tap lands.
+    static func idleCall(_ ctx: GraphicsContext, _ perf: LauncherIdleCall.Performance, _ layers: MascotArt.Layers, shape: String, _ t: Double) {
         let n = perf.mascot.size
-        let k = n / 100
         let box = Keyframes.evaluate(perf.selfTracks, t, base: perf.mascot.base)
         if box.o > 0.002 {
             var c = ctx
@@ -90,33 +90,10 @@ enum LauncherFxDraw {
             transform(&c, n / 2, n / 2, box.tx, box.ty, box.r, box.sx, box.sy)
             c.opacity *= box.o
             c.drawLayer { c in
-                func layer(_ c: GraphicsContext, _ svg: String?, _ part: String? = nil, _ origin: (Double, Double)? = nil) {
-                    guard let svg = svg else { return }
-                    let tracks = part.flatMap { perf.parts[$0] }
-                    let base = part.flatMap { LauncherIdleCall.partBase[$0] }
-                    let v = tracks.map { Keyframes.evaluate($0, t, base: base) } ?? FxValues.rest(base)
-                    if v.o <= 0.002 || v.sx == 0 || v.sy == 0 { return }
-                    var s = c
-                    let o = origin ?? (50, 50)
-                    transform(&s, o.0 * k, o.1 * k, v.tx * k, v.ty * k, v.r, v.sx, v.sy)
-                    s.opacity *= v.o
-                    FxSvg.draw(s, svg, n, n)
+                MascotDraw.figure(c, layers, size: n, bust: false, shape: shape) { name in
+                    guard let tracks = perf.parts[name] else { return nil }
+                    return MascotDraw.Part(v: Keyframes.evaluate(tracks, t, base: LauncherIdleCall.partBase[name]))
                 }
-                layer(c, layers.shadow)
-                // The body and everything on it move with the body.
-                let b = perf.parts["body"].map { Keyframes.evaluate($0, t) } ?? FxValues.rest()
-                var s = c
-                let bo = MascotArt.origins["body"]!
-                transform(&s, bo.0 * k, bo.1 * k, b.tx * k, b.ty * k, b.r, b.sx, b.sy)
-                layer(s, layers.armBack, "arm", MascotArt.origins["arm"])
-                layer(s, layers.body)
-                layer(s, layers.look, "look", MascotArt.origins["look"])
-                layer(s, layers.lids, "lid", MascotArt.origins["lid"])
-                layer(s, layers.brows, "brow", MascotArt.origins["brow"])
-                layer(s, layers.armFront, "arm", MascotArt.origins["arm"])
-                layer(s, layers.smile, "smile")
-                layer(s, layers.o, "o")
-                layer(s, layers.grin, "grin")
             }
         }
         for r in perf.ripples {
