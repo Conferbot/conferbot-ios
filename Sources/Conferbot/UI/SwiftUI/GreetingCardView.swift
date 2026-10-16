@@ -392,7 +392,7 @@ struct GreetingCardView: View {
             .contentShape(Rectangle().inset(by: -6))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("Dismiss"))
+        .accessibilityLabel(Text(I18n.t("common.dismiss")))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .padding(.top, top)
         .padding(.trailing, right)
@@ -463,7 +463,7 @@ struct GreetingCardView: View {
         let showStatus = h.statusText != nil || card.head.online
         let status = HStack(spacing: 5) {
             if h.dot && h.statusText == nil { dot(t) }
-            Text(h.statusText ?? "Online")
+            Text(h.statusText ?? I18n.t("status.online"))
                 .font(Font(h.status as CTFont))
                 .foregroundColor(h.statusColor)
                 .lineLimit(h.statusWraps ? 2 : 1)
@@ -740,7 +740,7 @@ struct GreetingCardView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
-            Text("Delivered")
+            Text(I18n.t("receipt.delivered"))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(Color(hex: "#8e8e93"))
                 .padding(.trailing, 6)
@@ -771,7 +771,7 @@ struct GreetingCardView: View {
         h.uppercase = true
         h.status = font(.serif, 17, .semibold, italic: true)
         h.statusColor = Color(hex: "#2b2118")
-        h.statusText = "Greetings from \(card.head.name.isEmpty ? "us" : card.head.name)"
+        h.statusText = I18n.t("greeting.from", ["name": card.head.name.isEmpty ? I18n.t("greeting.us") : card.head.name])
         h.dot = false
         h.statusWraps = true
         h.padRight = 62
@@ -986,7 +986,7 @@ struct GreetingCardView: View {
         h.uppercase = true
         h.status = font(.system, 12, .medium)
         h.statusColor = Color(hex: "#8e8e93")
-        h.statusText = "now"
+        h.statusText = I18n.t("sdk.greeting.now")
         h.dot = false
         h.row = true
         return VStack(alignment: .leading, spacing: 8) {
