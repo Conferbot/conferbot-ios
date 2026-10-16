@@ -195,8 +195,28 @@ public struct QuickActionsStrip: View {
     }
 }
 
+/// The max-wait countdown on the wait card: "Max wait 1:05", once a second,
+/// stopping at 0:00 (web queueCard.ts setRemaining, #35). Redrawn on the
+/// second's own ticks only, and not announced each second.
+@available(iOS 15.0, *)
+struct MaxWaitLine: View {
+    let endsAt: Date
+
+    /// Now, then each moment the whole seconds left drop by one, up to the deadline.
+    static func ticks(until endsAt: Date, now: Date = Date()) -> [Date] {
+        let n = min(LiveChat.secondsLeft(endsAt, now: now), 6 * 3600)
+        return [now] + (0..<n).reversed().map { endsAt.addingTimeInterval(-Double($0)) }.filter { $0 > now }
+    }
+
+    var body: some View {
+        TimelineView(.explicit(Self.ticks(until: endsAt))) { context in
+            CardSub(text: LiveChat.maxWaitText(Double(LiveChat.secondsLeft(endsAt, now: context.date))))
+        }
+    }
+}
+
 /// The handover step while it waits for a person: where they stand, about
-/// how long, and Cancel to leave the queue.
+/// how long, the max wait counting down, and Cancel to leave the queue.
 @available(iOS 15.0, *)
 public struct HandoverWaitCard: View {
     @ObservedObject var live: LiveChatExtras
@@ -216,6 +236,7 @@ public struct HandoverWaitCard: View {
                         ConferBot.shared.serverCustomizations?["replyTime"] as? [String: Any], queueTypical: live.queue?.typical))
                     CardSub(text: lines.estimate)
                     if !lines.typical.isEmpty { CardSub(text: lines.typical) }
+                    if let endsAt = live.waitEndsAt { MaxWaitLine(endsAt: endsAt) }
                 }
                 if let onCancel = onCancel {
                     Spacer(minLength: 8)
