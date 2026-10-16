@@ -39,6 +39,7 @@ public struct ChatView: View {
     @ObservedObject private var conferBot = ConferBot.shared
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var live = ConferBot.shared.liveChat
+    @ObservedObject private var waiting = ConferBot.shared.waiting
     @State private var showFileImporter = false
     @State private var uploadError: String?
     @State private var inputText = ""
@@ -174,8 +175,14 @@ public struct ChatView: View {
                 conferBot.sendLiveFile(fileURL: url) { error in uploadError = error }
             }
         }
-        .onAppear { conferBot.setChatVisible(true) }
-        .onDisappear { conferBot.setChatVisible(false) }
+        .onAppear {
+            conferBot.setChatVisible(true)
+            waiting.setDrawing(true)
+        }
+        .onDisappear {
+            conferBot.setChatVisible(false)
+            waiting.setDrawing(false)
+        }
     }
 
     @ViewBuilder
@@ -341,7 +348,10 @@ public struct ChatView: View {
                             }
                         }
                         .id(index)
+                        // While you wait: the help card and the games, at their place in the conversation.
+                        WaitingCards(anchorIndex: index)
                     }
+                    WaitingCards(anchorIndex: nil)
 
                     // Interactive choice pills for the node awaiting input
                     // (none for a blocked visitor, #40)
@@ -402,6 +412,9 @@ public struct ChatView: View {
             .onChange(of: liveCardsKey) { _ in
                 withAnimation { proxy.scrollTo("livecards", anchor: .bottom) }
             }
+            .onChange(of: waitingCardsKey) { _ in
+                withAnimation { proxy.scrollTo(waiting.gamesCard != nil ? WaitingCards.gamesId : WaitingCards.helpId, anchor: .bottom) }
+            }
             .onChange(of: conferBot.isAgentTyping) { _ in
                 withAnimation {
                     proxy.scrollTo("typing", anchor: .bottom)
@@ -440,6 +453,11 @@ public struct ChatView: View {
         _ = live.receiptMarks
         let personHere = conferBot.currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false
         return live.visitorReceipt(personHere: personHere)
+    }
+
+    /// Changes when a while-you-wait card is drawn, to bring it into view.
+    private var waitingCardsKey: String {
+        "\(waiting.helpCard?.key ?? 0)|\(waiting.gamesCard.map { ObjectIdentifier($0).hashValue } ?? 0)"
     }
 
     /// Changes when a live chat card appears or changes, to keep it in view.
@@ -533,6 +551,8 @@ public struct ChatViewWithKBSheet: View {
                 try? await conferBot.startSession()
             }
         }
+        .onAppear { conferBot.waiting.setDrawing(true) }
+        .onDisappear { conferBot.waiting.setDrawing(false) }
         // A source or article card in the chat opens its article here.
         .onChange(of: conferBot.helpArticleToOpen) { id in
             if id != nil && conferBot.isHelpCentreOn { showKnowledgeBase = true }
@@ -620,7 +640,9 @@ public struct ChatViewWithKBSheet: View {
                     ForEach(Array(conferBot.messages.enumerated()), id: \.offset) { index, message in
                         MessageBubble(message: message, customization: conferBot.customization)
                             .id(index)
+                        WaitingCards(anchorIndex: index)
                     }
+                    WaitingCards(anchorIndex: nil)
 
                     // Interactive choice pills for the node awaiting input
                     if let uiState = conferBot.currentUIState {
@@ -743,4 +765,31 @@ private var chipAccent: Color {
     if ConferBot.shared.hasServerLook { return Color(hex: ConferBot.shared.customizations.optionBubbleColor) }
     if let color = ConferBot.shared.customization?.primaryColor { return Color(color) }
     return .accentColor
+}
+
+/// The while-you-wait cards after the message they were drawn under
+/// (`anchorIndex`), or after every message (nil) when that message is gone.
+@available(iOS 15.0, *)
+struct WaitingCards: View {
+    static let helpId = "cb-wait-help"
+    static let gamesId = "cb-games"
+
+    @ObservedObject private var conferBot = ConferBot.shared
+    @ObservedObject private var waiting = ConferBot.shared.waiting
+    let anchorIndex: Int?
+
+    private func at(_ anchor: String?) -> Bool {
+        let list = conferBot.messages
+        let i = anchor.flatMap { id in list.lastIndex { $0.id == id } }
+        return i == anchorIndex
+    }
+
+    var body: some View {
+        if waiting.helpCard != nil && at(waiting.helpAnchor) {
+            WaitHelpCardView().id(Self.helpId)
+        }
+        if waiting.gamesCard != nil && at(waiting.gamesAnchor) {
+            WaitingGamesCard().id(Self.gamesId)
+        }
+    }
 }
