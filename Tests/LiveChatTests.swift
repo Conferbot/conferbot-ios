@@ -113,4 +113,29 @@ final class LiveChatTests: XCTestCase {
         XCTAssertEqual(LiveChat.waitSeconds("0.5"), 30)
         XCTAssertEqual(LiveChat.waitSeconds(nil), 120)
     }
+
+    // MARK: - The wait card's lines (web queueCard.ts)
+
+    func testKeepsTheEstimateBucketAndTheTeamsUsualWait() {
+        let q = LiveChat.queueStatus(["status": "waiting", "position": 2, "estimate": ["label": "2 min", "bucket": "about_2"], "typical": ["bucket": "few_minutes"]])
+        XCTAssertEqual(q?.estimateBucket, "about_2")
+        XCTAssertEqual(q?.typical?["bucket"] as? String, "few_minutes")
+    }
+
+    func testWordsTheWaitCardTheEstimateElseTheUsualWaitElseACalmPromise() {
+        let live = LiveChat.queueStatus(["status": "waiting", "position": 2, "estimate": ["label": "2 min", "bucket": "about_2"]])
+        var l = LiveChat.waitCardLines(live, typical: "Typical wait: a few minutes")
+        XCTAssertEqual(l.estimate, "About 2 min")
+        XCTAssertEqual(l.typical, "Typical wait: a few minutes")
+        // An unknown bucket keeps the server's label.
+        l = LiveChat.waitCardLines(LiveChat.queueStatus(["status": "waiting", "estimate": ["label": "7 min", "bucket": "new"]]), typical: nil)
+        XCTAssertEqual(l.estimate, "7 min")
+        XCTAssertEqual(l.typical, "")
+        // No estimate: the usual wait takes its place, shown once.
+        l = LiveChat.waitCardLines(LiveChat.queueStatus(["status": "waiting", "position": 1]), typical: "Typical wait: a few minutes")
+        XCTAssertEqual(l.estimate, "Typical wait: a few minutes")
+        XCTAssertEqual(l.typical, "")
+        // Nothing known: the calm promise.
+        XCTAssertEqual(LiveChat.waitCardLines(nil, typical: nil).estimate, I18n.t("queue.soon"))
+    }
 }
