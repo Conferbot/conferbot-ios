@@ -17,13 +17,18 @@ final class OfflineManagerTests: XCTestCase {
     override func setUp() {
         super.setUp()
         cancellables = []
-        // Clear the queue before each test
+        // Online whatever the simulator's network says, the socket down, and
+        // no flush left over from another test
+        OfflineManager.shared.networkStatusOverride = true
+        OfflineManager.shared.handleSocketDisconnected()
         OfflineManager.shared.clearQueue()
     }
 
     override func tearDown() {
+        OfflineManager.shared.handleSocketDisconnected()
         OfflineManager.shared.clearQueue()
         OfflineManager.shared.sendMessageHandler = nil
+        OfflineManager.shared.networkStatusOverride = nil
         cancellables = nil
         super.tearDown()
     }
@@ -196,6 +201,7 @@ final class OfflineManagerTests: XCTestCase {
         XCTAssertEqual(OfflineManager.shared.queuedMessageCount, 1)
     }
 
+    @MainActor
     func testFlushQueue_callsSendMessageHandler() async throws {
         let expectation = self.expectation(description: "Send handler called")
 
@@ -221,6 +227,7 @@ final class OfflineManagerTests: XCTestCase {
         XCTAssertEqual(sentMessages[0].content, "Test message")
     }
 
+    @MainActor
     func testFlushQueue_removesMessageOnSuccess() async throws {
         let expectation = self.expectation(description: "Flush complete")
 
@@ -345,7 +352,8 @@ final class OfflineManagerTests: XCTestCase {
             .dropFirst() // Skip initial value
             .sink { count in
                 receivedCounts.append(count)
-                if receivedCounts.count >= 1 {
+                // Fulfilled once: a second count must not fulfill it again
+                if receivedCounts.count == 1 {
                     expectation.fulfill()
                 }
             }
