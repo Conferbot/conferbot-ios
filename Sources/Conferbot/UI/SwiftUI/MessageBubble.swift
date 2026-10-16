@@ -14,10 +14,16 @@ public struct MessageBubble: View {
     let customization: ConferBotCustomization?
     /// A translated agent message shows the agent's own words when on.
     @State private var showOriginal = false
+    /// The bot's settings as the web applies them, once they arrived. Taken
+    /// when the row is made, so a bubble drawn before they came (a restored
+    /// conversation) is drawn again with the bot's avatar and bubble style
+    /// once they do (#65).
+    private let look: ResolvedCustomizations?
 
     public init(message: any RecordItem, customization: ConferBotCustomization?) {
         self.message = message
         self.customization = customization
+        self.look = ConferBot.shared.hasServerLook ? ConferBot.shared.customizations : nil
     }
 
     public var body: some View {
@@ -89,7 +95,10 @@ public struct MessageBubble: View {
                                 Text("This message was deleted").italic().opacity(0.7)
                             } else {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor)
+                                    // The server answering because the AI failed: the same
+                                    // bubble, italic and muted (web _markAgentFallbackBubble, #49).
+                                    ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor,
+                                                     muted: agentMessage.extras?.isFallback == true)
                                     // Sent in the visitor's language: the agent's own words one tap away.
                                     if let translation = agentMessage.translation {
                                         let labels = LiveChat.translationLabels(translation.to)
@@ -313,11 +322,6 @@ public struct MessageBubble: View {
         case "mp3": return "audio/mpeg"
         default: return "application/octet-stream"
         }
-    }
-
-    /// The bot's settings as the web applies them, once they arrived (Core/Customization).
-    private var look: ResolvedCustomizations? {
-        ConferBot.shared.hasServerLook ? ConferBot.shared.customizations : nil
     }
 
     /// The web's bubble corners, else the host app's radius.
