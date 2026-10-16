@@ -35,7 +35,9 @@ let package = Package(
             ],
             resources: [
                 // The shared flow-node fixtures (scripts/sync-flow-fixtures.sh)
-                .copy("Resources/flows")
+                .copy("Resources/flows"),
+                // RN's Chrome golden for the launcher effects (scripts/parity/launcherfx/golden.json)
+                .copy("Resources/launcherfx-golden.json")
             ]
         )
     ]
