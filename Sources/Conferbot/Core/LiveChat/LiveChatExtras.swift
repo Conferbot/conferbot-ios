@@ -44,6 +44,9 @@ public final class LiveChatExtras: ObservableObject {
     @Published public private(set) var emailTranscriptSentTo: String?
     /// The server's transcript email (APIClient.sendTranscriptEmail); ConferBot sets it.
     var postTranscriptEmail: ((_ chatSessionId: String, _ email: String) async -> TranscriptEmailResult)?
+    /// Every queue-status as the server sent it, the event or the poll's
+    /// answer (its `help`: WaitingExtras). ConferBot sets it.
+    var onQueueStatus: (([String: Any]) -> Void)?
 
     private let socket: () -> SocketClient?
     private let sessionId: () -> String?
@@ -92,7 +95,10 @@ public final class LiveChatExtras: ObservableObject {
         on("queue-status") { d in
             guard self.own(d) else { return }
             let q = LiveChat.queueStatus(d)
-            self.main { self.queue = q }
+            self.main {
+                self.queue = q
+                if let d = d { self.onQueueStatus?(d) }
+            }
         }
         on("handover-waiting") { d in
             guard self.own(d) else { return }
@@ -278,7 +284,12 @@ public final class LiveChatExtras: ObservableObject {
     private func askQueue() {
         guard let id = sessionId() else { return }
         socket()?.emitWithAck(event: "queue-status", data: ["chatSessionId": id], timeout: 10) { res in
-            if let q = LiveChat.queueStatus(res as? [String: Any]) { self.main { self.queue = q } }
+            guard let raw = res as? [String: Any] else { return }
+            let q = LiveChat.queueStatus(raw)
+            self.main {
+                if let q = q { self.queue = q }
+                self.onQueueStatus?(raw)
+            }
         }
     }
 
