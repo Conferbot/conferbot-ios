@@ -70,7 +70,7 @@ public struct ArticleSearchView: View {
                     .foregroundColor(.gray)
                     .font(.system(size: 16))
 
-                TextField("Search for articles...", text: $searchText)
+                TextField(I18n.t("kb.searchPlaceholder"), text: $searchText)
                     .textFieldStyle(PlainTextFieldStyle())
                     .focused($isSearchFocused)
                     .submitLabel(.search)
@@ -96,7 +96,7 @@ public struct ArticleSearchView: View {
             .cornerRadius(10)
 
             // Cancel button
-            Button("Cancel") {
+            Button(I18n.t("common.cancel")) {
                 isPresented = false
             }
             .foregroundColor(.accentColor)
@@ -124,7 +124,7 @@ public struct ArticleSearchView: View {
 
     private var popularCategoriesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Browse by Category")
+            Text(I18n.t("kb.browseTopics"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
@@ -145,7 +145,7 @@ public struct ArticleSearchView: View {
 
     private var quickSuggestionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Popular Searches")
+            Text(I18n.t("sdk.kb.popularSearches"))
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
@@ -177,11 +177,11 @@ public struct ArticleSearchView: View {
     private var popularSearchTerms: [String] {
         // These could be fetched from analytics or configured
         return [
-            "Getting started",
-            "Account settings",
-            "Billing",
-            "Integration",
-            "Troubleshooting"
+            I18n.t("sdk.kb.term.gettingStarted"),
+            I18n.t("sdk.kb.term.account"),
+            I18n.t("sdk.kb.term.billing"),
+            I18n.t("sdk.kb.term.integration"),
+            I18n.t("sdk.kb.term.troubleshooting")
         ]
     }
 
@@ -192,7 +192,7 @@ public struct ArticleSearchView: View {
             ProgressView()
                 .scaleEffect(1.1)
 
-            Text("Searching...")
+            Text(I18n.t("address.searching"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -207,24 +207,24 @@ public struct ArticleSearchView: View {
                 .font(.system(size: 48))
                 .foregroundColor(.gray)
 
-            Text("No articles found")
+            Text(I18n.t("kb.noResults"))
                 .font(.headline)
 
-            Text("Try searching with different keywords")
+            Text(I18n.t("kb.noResultsSub"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
             // Suggestions
             VStack(alignment: .leading, spacing: 8) {
-                Text("Suggestions:")
+                Text(I18n.t("sdk.kb.tips"))
                     .font(.caption)
                     .foregroundColor(.secondary)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    suggestionItem("Check your spelling")
-                    suggestionItem("Try more general terms")
-                    suggestionItem("Browse categories instead")
+                    suggestionItem(I18n.t("sdk.kb.tip.spelling"))
+                    suggestionItem(I18n.t("sdk.kb.tip.general"))
+                    suggestionItem(I18n.t("sdk.kb.tip.browse"))
                 }
             }
             .padding(.top, 8)
@@ -251,7 +251,7 @@ public struct ArticleSearchView: View {
             LazyVStack(spacing: 0) {
                 // Results count
                 HStack {
-                    Text("\(searchResults.count) result\(searchResults.count == 1 ? "" : "s")")
+                    Text(I18n.tPlural("kb.results", searchResults.count))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -290,7 +290,7 @@ public struct ArticleSearchView: View {
             // Show all results
         }) {
             HStack {
-                Text("View all \(searchResults.count) results")
+                Text(I18n.t("sdk.kb.viewAll", ["n": searchResults.count]))
                     .font(.subheadline)
                     .fontWeight(.medium)
 
