@@ -261,38 +261,40 @@ public enum Requests {
 
     // MARK: The words
 
-    /// The web's English strings (i18n en `requests.*`, `common.*`, `transcript.you`).
+    /// The web's strings (i18n `requests.*`, `common.*`, `transcript.you`), read in the active language.
     public enum Text {
-        public static let title = "Your requests"
-        public static let one = "Your request"
-        public static let back = "Back"
-        public static let loading = "Loading..."
-        public static let loadFailed = "We couldn't load this just now."
-        public static let tryAgain = "Try again"
-        public static let empty = "Nothing here yet. When you ask us something, you can follow it here."
-        public static let you = "You"
-        public static let supportTeam = "Support team"
-        public static let replyPlaceholder = "Write your reply..."
-        public static let reopenPlaceholder = "Write here to open it again..."
-        public static let yourReply = "Your reply"
-        public static let send = "Send"
-        public static let sending = "Sending..."
-        public static let notSent = "Not sent."
-        public static let locked = "This conversation is closed for replies."
-        public static let newReply = "New reply"
-        public static func newReplyFrom(_ name: String) -> String { "New reply from \(name)" }
-        public static func seeAll(_ n: Int) -> String { "See all (\(n))" }
+        public static var title: String { I18n.t("requests.title") }
+        public static var one: String { I18n.t("requests.one") }
+        public static var back: String { I18n.t("common.back") }
+        public static var loading: String { I18n.t("common.loading") }
+        public static var loadFailed: String { I18n.t("requests.loadFailed") }
+        public static var tryAgain: String { I18n.t("common.tryAgain") }
+        public static var empty: String { I18n.t("requests.empty") }
+        public static var you: String { I18n.t("transcript.you") }
+        public static var supportTeam: String { I18n.t("requests.supportTeam") }
+        public static var replyPlaceholder: String { I18n.t("requests.replyPlaceholder") }
+        public static var reopenPlaceholder: String { I18n.t("requests.reopenPlaceholder") }
+        public static var yourReply: String { I18n.t("requests.yourReply") }
+        public static var send: String { I18n.t("common.send") }
+        public static var sending: String { I18n.t("common.sending") }
+        public static var notSent: String { I18n.t("requests.notSent") }
+        public static var locked: String { I18n.t("requests.locked") }
+        public static var newReply: String { I18n.t("requests.newReply") }
+        public static func newReplyFrom(_ name: String) -> String { I18n.t("requests.newReplyFrom", ["name": name]) }
+        public static func seeAll(_ n: Int) -> String { I18n.t("requests.seeAll", ["n": n]) }
         /// The chat menu's item (the web has the home card instead).
         public static func menu(_ unread: Int) -> String { unread > 0 ? "\(title) · \(newReply)" : title }
     }
 
-    /// Each state in a few plain words, never a ticket status (web words.ts STATE_WORDS).
+    /// Each state in a few plain words, never a ticket status; read when drawn (web words.ts STATE_WORDS).
     public static func stateWords(_ s: RequestState) -> (label: String, detail: String) {
+        let name: String
         switch s {
-        case .replied: return ("We replied", "Read it below. If you need anything else, just write back.")
-        case .waiting: return ("We're on it", "We'll reply right here. You can close this - your message is safe with us.")
-        case .solved: return ("Solved", "Still need help with this? Write below and we'll pick it up again.")
+        case .replied: name = "replied"
+        case .waiting: name = "waiting"
+        case .solved: name = "solved"
         }
+        return (I18n.t("requests.\(name).label"), I18n.t("requests.\(name).detail"))
     }
 
     private static let isoFrac: ISO8601DateFormatter = {
@@ -332,24 +334,32 @@ public enum Requests {
     private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     private static let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
-    /// "Just now", "5 min ago", "3 hours ago", "Yesterday", "Monday", "3 Oct" (web whenWords, English).
+    /// "Just now", "5 min ago", "3 hours ago", "Yesterday", "Monday", "3 Oct", in the active language (web words.ts whenWords).
     public static func whenWords(_ v: String?, now: Double = Date().timeIntervalSince1970 * 1000, calendar: Calendar = .current) -> String {
         let t = ms(v)
         guard t > 0 else { return "" }
         let diff = max(0, now - t)
-        if diff < 60_000 { return "Just now" }
-        if diff < 3_600_000 { return "\(Int(diff / 60_000)) min ago" }
+        if diff < 60_000 { return I18n.t("when.justNow") }
+        if diff < 3_600_000 { return I18n.t("when.minutesAgo", ["n": Int(diff / 60_000)]) }
         let date = Date(timeIntervalSince1970: t / 1000)
         let today = Date(timeIntervalSince1970: now / 1000)
         let startOfToday = calendar.startOfDay(for: today).timeIntervalSince1970 * 1000
         if t >= startOfToday {
             let h = Int(diff / 3_600_000)
-            return h <= 1 ? "1 hour ago" : "\(h) hours ago"
+            return h <= 1 ? I18n.t("when.hourAgo") : I18n.t("when.hoursAgo", ["n": h])
         }
-        if t >= startOfToday - 86_400_000 { return "Yesterday" }
+        if t >= startOfToday - 86_400_000 { return I18n.t("when.yesterday") }
         let c = calendar.dateComponents([.year, .month, .day, .weekday], from: date)
-        if t >= startOfToday - 6 * 86_400_000 { return days[(c.weekday ?? 1) - 1] }
+        if t >= startOfToday - 6 * 86_400_000 { return I18n.weekdayNames("long", english: days)[(c.weekday ?? 1) - 1] }
         let year = calendar.component(.year, from: today)
+        if !I18n.isEnglish {
+            // The day and month as the language writes them ("3. Okt.", "3 oct.").
+            let f = DateFormatter()
+            f.locale = I18n.locale
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(c.year != year ? "dMMMy" : "dMMM")
+            return f.string(from: date)
+        }
         return "\(c.day ?? 1) \(months[(c.month ?? 1) - 1])\(c.year != year ? " \(c.year ?? year)" : "")"
     }
 
