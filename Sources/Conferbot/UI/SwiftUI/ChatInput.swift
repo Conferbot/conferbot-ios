@@ -13,15 +13,23 @@ public struct ChatInput: View {
     @Binding var text: String
     let onSend: (String) -> Void
     let onEditingChanged: (Bool) -> Void
+    /// Off for a locked or closed chat (#80): no typing, no sending.
+    let enabled: Bool
+    /// The empty field's line; nil is "Type a message...".
+    let placeholder: String?
 
     @State private var isEditing = false
 
     public init(
         text: Binding<String>,
+        enabled: Bool = true,
+        placeholder: String? = nil,
         onSend: @escaping (String) -> Void,
         onEditingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self._text = text
+        self.enabled = enabled
+        self.placeholder = placeholder
         self.onSend = onSend
         self.onEditingChanged = onEditingChanged
     }
@@ -29,8 +37,9 @@ public struct ChatInput: View {
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             // Text input: one line, growing with the text up to five (#76)
-            ComposerField(text: $text, placeholder: ChatText.placeholder, placeholderColor: .gray,
+            ComposerField(text: $text, placeholder: placeholder ?? ChatText.placeholder, placeholderColor: .gray,
                           horizontalPadding: 14, verticalPadding: 10)
+                .disabled(!enabled)
                 .frame(minHeight: 40)
                 .background(Color(UIColor.systemGray6))
                 .cornerRadius(20)
@@ -51,8 +60,9 @@ public struct ChatInput: View {
                     .foregroundColor(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
             }
             .accessibilityLabel(ChatText.send)
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!enabled || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        .opacity(enabled ? 1 : 0.6)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(UIColor.systemBackground))
@@ -61,7 +71,7 @@ public struct ChatInput: View {
     private func sendMessage() {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !trimmedText.isEmpty else { return }
+        guard enabled, !trimmedText.isEmpty else { return }
 
         onSend(trimmedText)
         text = ""
