@@ -86,6 +86,8 @@ public class ConferBot: ObservableObject {
         let widgetTheme = WidgetTheme.resolve(themed, prefersDark: prefersDark)
         serverCustomizations = themed
         customizations = Customizations.resolve(themed, theme: widgetTheme)
+        // The owner's font over the theme's, fetched once (Core/Fonts, #46).
+        Task { @MainActor in self.chatFont.update(ownerFont: themed["font"], themeFont: widgetTheme.font, themeFontRole: widgetTheme.fontRole) }
     }
 
     /// The language the SDK's own words are drawn in (Core/I18n): the app's
@@ -153,6 +155,8 @@ public class ConferBot: ObservableObject {
     /// The step answered in its own view (answerStep): its reply lines are
     /// shown as the visitor's bubbles until the flow moves past it.
     private var echoNodeId: String?
+    /// What the echoed answer answered (its score worked out from the pick).
+    private var echoStamp: [String: AnyCodable]?
     /// The socket events the flow's steps listen to (one app listener each, fanned out).
     private let flowEvents = FlowEventHub()
     private var flowEngineCancellables = Set<AnyCancellable>()
@@ -234,6 +238,151 @@ public class ConferBot: ObservableObject {
         liveChat.onQueueStatus = { [weak w] data in w?.onQueueStatus(data) }
         return w
     }()
+
+    // MARK: - Sounds, human touches, the chat's font, typing preview
+    // The owner's message sounds and sound packs, Sound on / off kept on the
+    // device (Core/Sounds, #72 iOS #90); the bot's tapback, the celebrations,
+    // the waiting nudge and "Edit" on the latest answer (Core/Delight, #91);
+    // the owner's font over the theme's (Core/Fonts, #46); the visitor's
+    // draft to a person in the chat (TypingPreview, #48).
+    @MainActor
+    public private(set) lazy var sounds: ChatSounds = ChatSounds(customizations: { [weak self] in self?.serverCustomizations })
+
+    @MainActor
+    public private(set) lazy var touches: HumanTouches = HumanTouches(hooks: .init(
+        customizations: { [weak self] in self?.serverCustomizations },
+        engine: { [weak self] in self?.flowEngine },
+        messages: { [weak self] in self?.messages ?? [] },
+        setMessages: { [weak self] rows in self?.messages = rows },
+        locked: { [weak self] in
+            guard let self = self else { return true }
+            return self.isLiveChatMode || self.agentBot != nil || HandoverState.phase(self.chatState.getServerRecord()) != .none
+        },
+        botBusy: { [weak self] in self?.isProcessingNode ?? false },
+        chatVisible: { [weak self] in
+            #if canImport(UIKit)
+            return (self?.isChatVisible ?? false) && UIApplication.shared.applicationState == .active
+            #else
+            return self?.isChatVisible ?? false
+            #endif
+        },
+        reducedMotion: {
+            #if canImport(UIKit)
+            return UIAccessibility.isReduceMotionEnabled
+            #else
+            return false
+            #endif
+        },
+        afterRewind: { [weak self] in
+            self?.echoNodeId = nil
+            self?.saveSessionState()
+        }
+    ))
+
+    /// The chat's font: the owner's, else the theme's, loaded at run time.
+    @MainActor
+    public private(set) lazy var chatFont = ChatFontLoader()
+
+    /// The bot's bookings (the bot data's calendarBookings): a calendar's taken slots.
+    @Published public private(set) var calendarBookings: [[String: Any]] = []
+
+    private var touchesCancellables = Set<AnyCancellable>()
+
+    /// The visitor's draft to the agent, at most every 300 ms (visitor-draft).
+    private lazy var draftSender = TypingPreview.DraftSender(
+        send: { [weak self] draft in
+            guard let self = self, let socket = self.socketClient, socket.isConnected,
+                  let sid = self.currentSession?.chatSessionId else { return }
+            socket.emit(event: "visitor-draft", data: ["chatSessionId": sid, "draft": draft])
+        },
+        now: { Date().timeIntervalSince1970 * 1000 },
+        setTimer: { ms, fn in
+            let item = DispatchWorkItem(block: fn)
+            DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: item)
+            return item
+        },
+        clearTimer: { ($0 as? DispatchWorkItem)?.cancel() }
+    )
+
+    /// A person (not the AI agent) is in the chat with the visitor.
+    private var chattingWithPerson: Bool {
+        isLiveChatMode && (currentAgent.map { !$0.id.hasPrefix("ai-agent-") } ?? false)
+    }
+
+    /// The composer's text changed (both chats call this): the waiting nudge
+    /// waits while something is typed, and a person in the chat sees the
+    /// draft unless the owner turned the preview off (web updateVisitorDraft).
+    /// `secure`: the field hides what is typed (never previewed).
+    public func composerChanged(_ text: String, secure: Bool = false) {
+        Task { @MainActor in
+            self.touches.setComposerValue(text)
+            if TypingPreview.draftPreviewOn(self.serverCustomizations, chattingWithPerson: self.chattingWithPerson)
+                && !TypingPreview.isSensitiveField(secure: secure) {
+                self.draftSender.update(text)
+            } else {
+                self.draftSender.clear()
+            }
+        }
+    }
+
+    /// The visitor touched or scrolled the chat (the waiting nudge waits).
+    public func noteChatActivity() {
+        Task { @MainActor in self.touches.noteActivity() }
+    }
+
+    /// "Edit" under the visitor's latest answer: back to that question.
+    public func changeAnswer() {
+        Task { @MainActor in self.touches.changeAnswer() }
+    }
+
+    /// The chat came on screen or went (ChatView, ChatViewController): the
+    /// launcher sound or the pack's open / close.
+    public func chatOpened(_ open: Bool) {
+        Task { @MainActor in self.sounds.chatOpened(open) }
+    }
+
+    /// Sounds and touches follow the conversation and the step on screen.
+    private func watchTouches() {
+        touchesCancellables.removeAll()
+        $messages
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] rows in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.sounds.messagesChanged(rows)
+                    self.touches.messagesChanged(rows)
+                }
+            }
+            .store(in: &touchesCancellables)
+        $currentUIState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ui in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.touches.uiStateChanged(ui) { id in self.flowEngine?.getNodeInfo(id)?["type"] as? String ?? "" }
+                }
+            }
+            .store(in: &touchesCancellables)
+        Publishers.CombineLatest($isProcessingNode, $isLiveChatMode)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in Task { @MainActor in self?.touches.scheduleChangeCheck() } }
+            .store(in: &touchesCancellables)
+    }
+
+    /// The `answerOf` stamp for a visitor's answer to `nodeId` (the touches read it).
+    private func answerStamp(_ nodeId: String, text: String, response: Any? = nil) -> [String: AnyCodable]? {
+        guard let type = flowEngine?.getNodeInfo(nodeId)?["type"] as? String else { return nil }
+        var scored = ""
+        if let response = response {
+            let value = Rating.picked(response)
+            switch currentUIState {
+            case .rating(let max, _, _)?: scored = Delight.scoreText(type, value, Double(max))
+            case .opinionScale(_, let max, _, _, _)?: scored = Delight.scoreText(type, value, Double(max))
+            default: break
+            }
+        }
+        return HumanTouches.stamp(nodeId: nodeId, type: type, text: scored.isEmpty ? text : scored)
+    }
 
     // MARK: - Your requests
     // The visitor's own conversations with the team: the list, one request
@@ -458,6 +607,7 @@ public class ConferBot: ObservableObject {
         setupFlowEngine()
         setupAnalytics()
         setupOfflineManager()
+        watchTouches()
     }
 
     /// Get or create a persistent visitor ID that survives across sessions and app restarts.
@@ -778,7 +928,9 @@ public class ConferBot: ObservableObject {
                   let text = entry["message"] as? String, !text.isEmpty else { return }
             Task { @MainActor in
                 guard nodeId == self.echoNodeId else { return }
-                self.messages.append(UserMessageRecord(id: "user-step-\(UUID().uuidString)", time: Date(), text: text))
+                let stamp = self.echoStamp ?? self.answerStamp(nodeId, text: text)
+                self.echoStamp = nil
+                self.messages.append(UserMessageRecord(id: "user-step-\(UUID().uuidString)", time: Date(), text: text, metadata: stamp))
             }
         }
 
@@ -1140,7 +1292,8 @@ public class ConferBot: ObservableObject {
             let userMessage = UserMessageRecord(
                 id: "user-input-\(UUID().uuidString)",
                 time: Date(),
-                text: inputText
+                text: inputText,
+                metadata: answerStamp(nodeId, text: inputText)
             )
             Task { @MainActor in
                 if !self.messages.contains(where: { $0.id == userMessage.id }) {
@@ -1195,6 +1348,12 @@ public class ConferBot: ObservableObject {
     ///   the input, or nil when the text was accepted/sent
     @discardableResult
     public func submitText(_ text: String) -> String? {
+        // A sound pack's send sound; the agent's typing preview goes (web
+        // messageSound.ts mountSoundPack, typingPreview.ts).
+        Task { @MainActor in
+            self.sounds.sent()
+            self.draftSender.clear()
+        }
         // Waiting for a person: "play" or "games" opens the games menu
         // instead of being sent (WaitingGames, web games/wire.ts).
         if waiting.interceptPlay(text) { return nil }
@@ -1244,7 +1403,9 @@ public class ConferBot: ObservableObject {
             text: nil,
             nodeData: [
                 "choices": AnyCodable(pillLabels),
-                "selectedChoice": AnyCodable(selectedLabel)
+                "selectedChoice": AnyCodable(selectedLabel),
+                // The step they answered ("Edit" folds them away with it)
+                "nodeId": AnyCodable(nodeId)
             ]
         )
 
@@ -1252,7 +1413,8 @@ public class ConferBot: ObservableObject {
         let userMessage = UserMessageRecord(
             id: "user-button-\(UUID().uuidString)",
             time: Date(),
-            text: selectedLabel
+            text: selectedLabel,
+            metadata: answerStamp(nodeId, text: selectedLabel)
         )
         Task { @MainActor in
             if let frozenPills = frozenPills {
@@ -1318,7 +1480,9 @@ public class ConferBot: ObservableObject {
             text: nil,
             nodeData: [
                 "choices": AnyCodable(pillLabels),
-                "selectedChoice": AnyCodable(selectedLabel)
+                "selectedChoice": AnyCodable(selectedLabel),
+                // The step they answered ("Edit" folds them away with it)
+                "nodeId": AnyCodable(nodeId)
             ]
         )
 
@@ -1326,7 +1490,8 @@ public class ConferBot: ObservableObject {
         let userMessage = UserMessageRecord(
             id: "user-choice-\(UUID().uuidString)",
             time: Date(),
-            text: selectedLabel
+            text: selectedLabel,
+            metadata: answerStamp(nodeId, text: selectedLabel)
         )
         Task { @MainActor in
             if let frozenPills = frozenPills {
@@ -1377,6 +1542,10 @@ public class ConferBot: ObservableObject {
     public func answerStep(_ response: Any, forNodeId nodeId: String) {
         guard let flowEngine = flowEngine else { return }
         echoNodeId = nodeId
+        // A score as "4/5" for the bot's tapback (Delight.scoreText); else the step's own line.
+        echoStamp = answerStamp(nodeId, text: "", response: response).flatMap { stamp in
+            ((stamp["answerOf"]?.value as? [String: Any])?["text"] as? String)?.isEmpty == false ? stamp : nil
+        }
         chatState.setAnswer(nodeId: nodeId, value: response)
         analytics.trackInteraction(type: .formSubmitted, data: ["nodeId": nodeId, "inputType": "step"])
         Task { await flowEngine.handleUserInput(response, forNodeId: nodeId) }
@@ -1404,7 +1573,8 @@ public class ConferBot: ObservableObject {
             let userMessage = UserMessageRecord(
                 id: "user-multi-choice-\(UUID().uuidString)",
                 time: Date(),
-                text: displayText
+                text: displayText,
+                metadata: answerStamp(nodeId, text: displayText)
             )
             Task { @MainActor in
                 if !self.messages.contains(where: { $0.id == userMessage.id }) {
@@ -1854,11 +2024,15 @@ public class ConferBot: ObservableObject {
 
             // Store full customizations for FAB widget
             let customizations = chatbotData["customizations"] as? [String: Any]
+            let bookings = JS.dicts(chatbotData["calendarBookings"])
             DispatchQueue.main.async {
                 self.rawCustomizations = customizations
                 self.applyLook()
                 // The steps read redactSensitive, chatLeaveMessage...
                 self.flowEngine?.setCustomizations(customizations)
+                // The bot's bookings: a calendar's taken slots (web index.ts setCalendarBookings).
+                self.calendarBookings = bookings
+                self.flowEngine?.calendarBookings = bookings
             }
             let botName = (customizations?["botName"] as? String)
                 ?? (customizations?["logoText"] as? String)
