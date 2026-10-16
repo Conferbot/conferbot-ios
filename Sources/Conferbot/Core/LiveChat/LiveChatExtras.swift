@@ -63,6 +63,8 @@ public final class LiveChatExtras: ObservableObject {
     private var restoredRemaining: Int?
     private var reportedDelivered = ""
     private var reportedSeen = ""
+    /// The conversation the flow's end already offered the rating for (#95).
+    private var flowRatingOfferedFor: String?
 
     init(socket: @escaping () -> SocketClient?,
          sessionId: @escaping () -> String?,
@@ -185,6 +187,23 @@ public final class LiveChatExtras: ObservableObject {
             self.stopQueuePoll()
             self.lockedBy = nil
             self.fileRequestedBy = nil
+            self.csatOpen = true
+            // The flow's end that may follow asks no second time (#95).
+            self.flowRatingOfferedFor = self.sessionId() ?? ""
+        }
+    }
+
+    /// The flow reached its end (web index.ts: the post-chat rating after
+    /// chat-flow-completed), not a sub-flow's: the post-chat rating when the
+    /// owner has it on, once per conversation, never for a blocked visitor
+    /// or over one already up or sent (#95). Opened at once, so the
+    /// post-chat redirect waits for it (the web waits 1.5 s to draw it).
+    func flowEnded() {
+        main {
+            guard self.csatConfig != nil, self.blocked == nil, !self.csatOpen, !self.csatSent else { return }
+            let id = self.sessionId() ?? ""
+            guard self.flowRatingOfferedFor != id else { return }
+            self.flowRatingOfferedFor = id
             self.csatOpen = true
         }
     }
@@ -430,6 +449,7 @@ public final class LiveChatExtras: ObservableObject {
             self.leftMessageTo = nil
             self.leadEmail = nil
             self.csatSent = false
+            self.flowRatingOfferedFor = nil
             self.blocked = nil
             self.emailTranscriptOpen = false
             self.emailTranscriptSentTo = nil
