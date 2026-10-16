@@ -28,6 +28,8 @@ public struct GreetingCardData: Equatable {
     public var linkUrl: String
     /// The card's motion (mascotMotion): "lively" (unset), "subtle" or "off".
     public var motion: String
+    /// The owner's mascot greets in place of the avatar (mascotInGreeting), by its name, in the launcher's colour.
+    public var mascot: Home.Mascot? = nil
 }
 
 public final class GreetingStore {
@@ -144,6 +146,13 @@ public final class GreetingStore {
         write(st)
         var head = Greeting.head(c)
         if let name = agentBot?.displayName, !name.isEmpty { head.name = name }
+        // The owner's mascot greets in place of the avatar, by its name (firstImpression.ts).
+        let look = MascotArt.lookOf(c)
+        let withMascot = (c["mascotInGreeting"] as? Bool) == true
+        if withMascot {
+            head.avatar = nil
+            if !look.name.isEmpty { head.name = look.name }
+        }
         let card = GreetingCardData(
             style: Greeting.normalizeStyle(c["greetingStyle"]),
             text: g.text,
@@ -155,7 +164,8 @@ public final class GreetingStore {
             firstShow: !s.typed,
             click: g.click,
             linkUrl: g.linkUrl,
-            motion: ["subtle", "off"].contains(c["mascotMotion"] as? String ?? "") ? (c["mascotMotion"] as? String ?? "") : "lively"
+            motion: MascotMotion.normalize(c["mascotMotion"]),
+            mascot: withMascot ? Home.Mascot(look: look, accent: [c["widgetIconBgColor"], c["headerBgColor"]].compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty } ?? "#4f46e5") : nil
         )
         s.typed = true
         seen = s
