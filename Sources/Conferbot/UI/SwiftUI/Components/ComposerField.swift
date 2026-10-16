@@ -28,7 +28,7 @@ struct ComposerField: View {
             // A text field that wraps and grows (iOS 16+); Return adds a line.
             TextField("", text: $text, axis: .vertical)
                 .lineLimit(1...maxLines)
-                .font(.system(size: fontSize))
+                .chatFont(.body, size: fontSize, fallback: .system(size: fontSize))
                 .foregroundColor(textColor)
                 .background(alignment: .leading) {
                     if text.isEmpty { placeholderText }
@@ -39,7 +39,7 @@ struct ComposerField: View {
             // iOS 15: the TextEditor sized by an invisible copy of its text,
             // capped at maxLines (it scrolls past that).
             Text(text.isEmpty ? " " : text + (text.hasSuffix("\n") ? " " : ""))
-                .font(.system(size: fontSize))
+                .chatFont(.body, size: fontSize, fallback: .system(size: fontSize))
                 .lineLimit(maxLines)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, horizontalPadding)
@@ -48,7 +48,7 @@ struct ComposerField: View {
                 .overlay(
                     // UITextView insets its text 8pt top / bottom and 5pt at the sides.
                     TextEditor(text: $text)
-                        .font(.system(size: fontSize))
+                        .chatFont(.body, size: fontSize, fallback: .system(size: fontSize))
                         .foregroundColor(textColor)
                         .padding(.horizontal, horizontalPadding - 5)
                         .padding(.vertical, verticalPadding - 8)
@@ -63,7 +63,7 @@ struct ComposerField: View {
 
     private var placeholderText: some View {
         Text(placeholder)
-            .font(.system(size: fontSize))
+            .chatFont(.body, size: fontSize, fallback: .system(size: fontSize))
             .foregroundColor(placeholderColor)
             .lineLimit(1)
             .allowsHitTesting(false)
