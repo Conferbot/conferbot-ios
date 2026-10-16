@@ -662,6 +662,8 @@ public struct ConferBotFABConfig {
 public struct ConferBotWidgetOverlay<Content: View>: View {
     @ObservedObject private var bot = ConferBot.shared
     @State private var isChatOpen = false
+    /// The owner's auto-open, waiting for its delay (AutoOpen).
+    @State private var autoOpen: DispatchWorkItem?
     /// The greeting card by the closed launcher (GreetingCardView, Core/Customization/Greeting).
     @StateObject private var greeting = GreetingController()
     /// The entrance, attention loop and idle call (Core/Customization/LauncherFxControllers).
@@ -852,6 +854,7 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         }
         .onReceive(bot.$serverCustomizations) { customs in
             greeting.update(customizations: customs, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: bot.agentBot)
+            planAutoOpen(customs)
         }
         .onReceive(bot.$agentBot) { agent in
             greeting.update(customizations: bot.serverCustomizations, chatOpen: isChatOpen, botId: bot.activeBotId, agentBot: agent)
@@ -861,6 +864,8 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in fx.idle.keyboard = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in fx.idle.keyboard = false }
         .onChange(of: isChatOpen) { open in
+            // A close (of any open) blocks auto-open for 2 minutes.
+            if !open { AutoOpen.Memory.noteClosed(bot.activeBotId ?? "bot") }
             // Opening the chat: chatted, and the card rests as if closed.
             if open {
                 greeting.chatOpened()
@@ -872,6 +877,30 @@ public struct ConferBotWidgetOverlay<Content: View>: View {
             }
             greeting.update(customizations: bot.serverCustomizations, chatOpen: open, botId: bot.activeBotId, agentBot: bot.agentBot)
         }
+    }
+
+    /// The owner's auto-open (botAutoOpen, botAutoOpenDelay seconds): first
+    /// visit only, once per launch of the app, not within 2 minutes of a close.
+    private func planAutoOpen(_ customs: [String: Any]?) {
+        let key = bot.activeBotId ?? "bot"
+        // A conversation they already have is theirs to reopen (web: !chatStarted).
+        let started = bot.hasValidStoredSession() || !bot.messages.isEmpty
+        guard let delay = AutoOpen.plan(customs, chatStarted: started, isOpen: isChatOpen,
+                                        alreadyAutoOpened: AutoOpen.Memory.autoOpened(key),
+                                        closedAt: AutoOpen.Memory.closedAt(key)) else {
+            autoOpen?.cancel()
+            autoOpen = nil
+            return
+        }
+        // Already waiting (the settings were only repainted): the delay runs on.
+        if let pending = autoOpen, !pending.isCancelled { return }
+        let item = DispatchWorkItem {
+            AutoOpen.Memory.noteAutoOpened(key)
+            autoOpen = nil
+            if !isChatOpen { openChat() }
+        }
+        autoOpen = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay / 1000, execute: item)
     }
 
     private func openChat() {
