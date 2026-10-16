@@ -25,6 +25,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Real-time messaging** - Socket.IO powered, same events as the Conferbot web widget
 - **Node flow engine** - Renders the full flow-builder node set (choices, buttons, ratings, dates, file uploads, and more) natively. Text questions (ask-name, ask-email, ...) are answered by typing in the single bottom input bar, and answered choice pills stay in the transcript - exactly like the web widget
 - **Live agent handover** - the web widget's handover lifecycle: the "Connecting you with the team…" line and how the wait ended, the header's reply time, leaving the queue, waiting signals, and a live chat picked back up after the app restarts
+- **While you wait** - while the visitor waits for a person: help articles for their question, the team's own pick with "That solved it", and seven small games (SwiftUI chat)
 - **AI answers as on the web** - Tables, headings, quotes, code blocks and strikethrough in replies; "Helpful?" under the newest answer (a No is sent at once, then reasons, a comment, "Talk to a person", "Ask another way"; the vote can change); "That took too long" when a reply takes more than 45s; fallback replies muted; the phone's language sent so short messages are answered in it
 - **Email me this chat** - From the chat menu (the header's ... in SwiftUI, the bar button in UIKit) the visitor gets the whole conversation in their inbox (`POST /api/v1/mobile/chat/transcript-email`)
 - **Offline support** - Automatic message queuing and replay when connectivity returns
@@ -509,6 +510,14 @@ The handover step's own settings (team email on or off, sound, assignment method
 - **The end.** The same end twice (an agent's double click) draws one "Chat has ended" line and one rating card. The flow moves to the handover step's next step, asking the step's post-chat survey questions first when it has them; this also works for a chat restored after a restart. Once the chat has ended and nothing is going on, the composer turns off and "Start a new chat" starts a fresh conversation (`startNewChat()`).
 - **Blocked visitor.** A visitor the workspace blocked sees "This conversation has been closed." (mid-chat, or at connect: the visitor id goes with the socket handshake) and can't type or start a new chat. `closedState` says which closed state the chat is in.
 - **Ending.** `endSession` leaves the queue (`queue-self-resolve`) when the visitor is still waiting; it never sends `end-chat`, which the server takes only from an agent.
+
+### While you wait
+
+While the visitor waits for a person, the SwiftUI chat (`ChatView`, `ChatViewWithKBSheet`) offers something to do, as the web widget does. Nothing to set up; the cards sit in the conversation and are never saved.
+
+- **Help articles.** 6 seconds into the wait, up to two help-centre articles that match the visitor's last real question ("While you wait, this might help"), when the help centre is on. When the server keeps a queue it sends its own pick (`queue-help`) instead, with **That solved it**: the visitor leaves the queue (`queue-self-resolve` with the article) and sees "You left the queue. Glad that helped." Once the wait is over the card stays as "Articles that might help". An article opens in the help centre, a page in the browser.
+- **Games.** 2.5 seconds after the waiting signal the owner's line ("While you wait - fancy a quick game? 🎮") offers rock paper scissors, tic-tac-toe, a quick quiz, memory match, a reflex test, emoji riddles and a word scramble, set in the dashboard (`waitingGames`). "Not now" or the x stops the offers for the app session; typing "play" or "games" while waiting opens the menu. When a person joins, an unused offer goes and a game under way is saved ("Sam's here!", "Finish my game"). Reduce Motion turns the card's motion off.
+- **In code:** `ConferBot.shared.waiting` publishes `helpCard` and `gamesCard` for a custom UI; `solveWait()`, `openHelpItem(_:)` and `interceptPlay(_:)` are the actions. A custom chat that draws the cards calls `waiting.setDrawing(true)` while it is on screen (without it the games aren't offered). The UIKit chat doesn't draw them yet.
 
 ### Goals, analytics, and raw socket events
 
