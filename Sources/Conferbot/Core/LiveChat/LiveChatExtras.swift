@@ -142,7 +142,7 @@ public final class LiveChatExtras: ObservableObject {
         }
         on("agent-connection-lost") { d in
             guard self.own(d) else { return }
-            let who = (d?["agentName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "The agent"
+            let who = (d?["agentName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? I18n.t("agent.theAgent")
             self.main { self.agentConnectionLost = who }
         }
         on("agent-connection-restored") { d in
@@ -151,7 +151,7 @@ public final class LiveChatExtras: ObservableObject {
         }
         on("file-upload-requested") { d in
             guard self.own(d) else { return }
-            let who = (d?["agentName"] as? String)?.trimmingCharacters(in: .whitespaces).nonEmpty ?? "The team"
+            let who = (d?["agentName"] as? String)?.trimmingCharacters(in: .whitespaces).nonEmpty ?? I18n.t("agent.theTeam")
             self.chatState().pushServerEntry([
                 "id": "file-request-\(Int(Date().timeIntervalSince1970 * 1000))",
                 "shape": "agent-file-request",
