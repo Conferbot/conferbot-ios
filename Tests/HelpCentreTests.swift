@@ -181,4 +181,13 @@ final class HelpCentreTests: XCTestCase {
         XCTAssertFalse(HelpCentre.canOpenArticle(["enableKnowledgeBase": true], articleId: ""))
         XCTAssertFalse(HelpCentre.canOpenArticle(["enableKnowledgeBase": false], articleId: "6ab7ac0bb03f13ff22412c87"))
     }
+
+    /// #83: a wait's article (queue-help) opens even with the help centre off, fetched by id.
+    func testWaitArticle_helpCentreWhileOnElseById() {
+        let id = "6ab7ac0bb03f13ff22412c87"
+        XCTAssertEqual(HelpCentre.waitArticleRoute(["enableKnowledgeBase": true], articleId: id), .helpCentre)
+        XCTAssertEqual(HelpCentre.waitArticleRoute(["enableKnowledgeBase": false], articleId: id), .byId)
+        XCTAssertEqual(HelpCentre.waitArticleRoute(nil, articleId: id), .byId)
+        XCTAssertEqual(HelpCentre.waitArticleRoute(["enableKnowledgeBase": true], articleId: ""), .nowhere)
+    }
 }
