@@ -92,7 +92,7 @@ public struct MessageBubble: View {
                         // Lists, bold and tappable links; an unsent message says so.
                         Group {
                             if agentMessage.deleted {
-                                Text("This message was deleted").italic().opacity(0.7)
+                                Text(ChatText.deleted).italic().opacity(0.7)
                             } else {
                                 VStack(alignment: .leading, spacing: 6) {
                                     // The server answering because the AI failed: the same
@@ -146,7 +146,7 @@ public struct MessageBubble: View {
                 }
                 .alignmentGuide(.bubbleBottom) { $0[.bottom] }
 
-                Text((message as? AgentMessageRecord)?.edited == true ? "Edited \u{00B7} \(timeString)" : timeString)
+                Text((message as? AgentMessageRecord)?.edited == true ? ChatText.editedAt(timeString) : timeString)
                     .font(.caption2)
                     .foregroundColor(look?.theme.tokens.map { Color(hex: $0.muted) } ?? .secondary)
             }
@@ -216,11 +216,11 @@ public struct MessageBubble: View {
         } else if let agentMessage = message as? AgentMessageRecord {
             return agentMessage.text
         } else if let fileMessage = message as? AgentMessageFileRecord {
-            return "File: \(fileMessage.file)"
+            return ChatText.file(fileMessage.file)
         } else if let audioMessage = message as? AgentMessageAudioRecord {
-            return "Audio message"
+            return ChatText.audio
         } else if let joinedMessage = message as? AgentJoinedMessageRecord {
-            return "\(joinedMessage.agentDetails.name) joined the chat"
+            return HandoverState.joinedText(joinedMessage.agentDetails.name)
         } else if let systemMessage = message as? SystemMessageRecord {
             return systemMessage.text
         }
@@ -359,9 +359,7 @@ public struct MessageBubble: View {
     }
 
     private var timeString: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: message.time)
+        ChatText.time(message.time)
     }
 
     private var avatarView: some View {
@@ -407,7 +405,7 @@ public struct MessageBubble: View {
         } else if let joinedMessage = message as? AgentJoinedMessageRecord {
             name = joinedMessage.agentDetails.name
         } else {
-            name = customization?.headerTitle ?? "Bot"
+            name = customization?.headerTitle ?? ChatText.bot
         }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "B" : String(trimmed.prefix(1)).uppercased()
@@ -734,6 +732,7 @@ public struct FileMessageBubble: View {
                             .font(.title)
                             .foregroundColor(.white)
                     }
+                    .accessibilityLabel(I18n.t("common.close"))
                     .padding()
                 }
                 Spacer()
