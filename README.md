@@ -37,7 +37,7 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Widget languages** - the SDK's own words in English, Dutch, French, German or Spanish, chosen as the web widget chooses (see [Languages](#languages))
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
-- **Push notifications** - APNs token registration and notification handling
+- **Push notifications** - the APNs (or FCM) token registered with each conversation; a tapped notification opens its conversation (see [Push notifications](#push-notifications))
 - **Knowledge base** - Built-in `KnowledgeBaseView` plus async APIs for categories, articles, search, ratings, and engagement tracking
 - **Analytics** - Session, message, interaction, and goal tracking via `ChatAnalytics`
 - **Theming** - Local `ConferBotCustomization` plus automatic server customizations from the dashboard
@@ -435,37 +435,62 @@ ConferBot.shared.initialize(
 
 **Precedence, precisely**: once the bot's dashboard settings arrive they win over the local `ConferBotCustomization` for the FAB, `hideBrand`, the header, bubbles and the chat background. Before they arrive (or for a bot with none), the local customization applies. Light or dark follows the bot's theme appearance; with Classic in light and no theme, the system colours stay.
 
-## Push Notifications
+## Push notifications
 
-Register for APNs and forward the device token to the SDK:
+When an agent or the AI replies while the visitor is not in the chat (the app is in the background or closed), the Conferbot server sends a push: APNs on iOS (FCM on Android). The SDK does not depend on Firebase or any push library; push is off until your app hands it a token.
 
-```swift
-func application(
-    _ application: UIApplication,
-    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-) {
-    let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-    ConferBot.shared.registerPushToken(token)
-}
-```
-
-If no chat session exists yet, the token is held in memory; call `registerPushToken` again after `startSession()` to guarantee server-side registration.
-
-Handle incoming notifications - the SDK claims only its own payloads (those with `type == "conferbot_message"`) and returns `false` for everything else:
+1. Register for remote notifications and pass the token to the SDK: the APNs device token as `Data`, or the FCM token if your app uses Firebase Messaging. It is registered with the current conversation (`POST /api/v1/mobile/push/register` with `chatSessionId` and `tokenType`), again for each new conversation, retried as the chat goes on while the server does not have the conversation yet, and unregistered on `identify(user: nil)` (or another user), `clearStoredSession()` or `unregisterPush()`.
+2. Forward notifications to `handlePushNotification`. It returns `true` when it is a Conferbot message for this bot; a tap opens its conversation (the chat, or that conversation in "Your requests" when it is an older one).
 
 ```swift
-func application(
-    _ application: UIApplication,
-    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
-    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
-) {
-    if ConferBot.shared.handlePushNotification(userInfo) {
-        completionHandler(.newData)
-    } else {
-        completionHandler(.noData)
+import UserNotifications
+
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        ConferBot.shared.initialize(apiKey: "conf_...", botId: "...")
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted { DispatchQueue.main.async { application.registerForRemoteNotifications() } }
+        }
+        return true
+    }
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        ConferBot.shared.setPushToken(deviceToken)               // APNs
+        // With Firebase Messaging instead: ConferBot.shared.setPushToken(fcmToken, type: .fcm)
+    }
+
+    // Tapped (also from a cold start: kept until initialize, then opened).
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        ConferBot.shared.handlePushNotification(response.notification.request.content.userInfo)
+        completionHandler()
+    }
+
+    // Arrived in the foreground: counted as unread instead of taking the screen.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let userInfo = notification.request.content.userInfo
+        if ConferBot.shared.handlePushNotification(userInfo, open: false) {
+            completionHandler([])                                  // or [.banner, .sound] to show it anyway
+        } else {
+            completionHandler([.banner, .sound])
+        }
     }
 }
 ```
+
+- `setPushToken(_ deviceToken: Data)` sends the APNs token as hex. `setPushToken(_ token: String?, type: PushTokenType? = nil)`: `.apns` or `.fcm` (an iOS app using Firebase Messaging passes `.fcm`); without a type a 64-character hex token is taken as APNs. `setPushToken(nil)` unregisters. A refreshed token replaces the old one. `registerPushToken(_:)` still works (deprecated): it is `setPushToken(_:)`.
+- `unregisterPush()` stops this device's pushes (e.g. the user turned notifications off); the token is registered again with the next conversation.
+- `handlePushNotification(_ userInfo:, open: Bool = true) -> Bool`. With the launcher (`conferBotWidget()`) the chat opens by itself. Without it, set `ConferBot.shared.onPushOpen = { push in ConferBot.shared.present(from: rootViewController) }` (or show your SwiftUI `ChatView`); the SDK has already moved the chat to that conversation. Before `initialize` a tap is kept and opened once the SDK is initialized with that bot.
+- `parseConferbotPush(userInfo)` / `isConferbotPush(userInfo)` say whether a notification is Conferbot's (`source: "conferbot"`, `type: "conferbot_message"`, `botId`, `chatSessionId`, `messageId`, `senderType`, `senderName`, `body`; `aps.alert` has the title and body, `thread-id` is the conversation, `mutable-content: 1` for a Notification Service Extension).
+- The SDK draws no notifications; the system does. One thread per conversation (`thread-id`, `apns-collapse-id`).
+
+Server side: sending is off until the embed-server has `MOBILE_PUSH_ENABLED=true` and the APNs (and FCM) credentials (embed-server `docs/mobile-push.md`). The credentials are platform-wide for now: pushes reach only apps built with Conferbot's bundle id / Firebase project. Your own app's bundle id needs per-workspace credentials, which are not built yet (embed-server #197); until then its tokens register but APNs refuses its pushes (`DeviceTokenNotForTopic`).
 
 ## Offline Support
 
@@ -677,8 +702,10 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | `emailTranscript(_ email: String, done: @escaping (TranscriptEmailResult) -> Void = { _ in })` | Email the transcript to this address; on success the address is kept as the visitor's |
 | `sendAnswerFeedback(agentMessageId: String, feedback: AnswerFeedback)` | A "Helpful?" vote (`helpful`, `reason`, `comment`), kept on the answer and sent as `ai-answer-feedback` |
 | `present(from viewController: UIViewController, animated: Bool = true)` | Present the UIKit chat modal |
-| `registerPushToken(_ token: String)` | Register an APNs device token |
-| `handlePushNotification(_ userInfo: [AnyHashable: Any]) -> Bool` | Handle an incoming push; returns true if it was a Conferbot message |
+| `setPushToken(_ deviceToken: Data)` / `setPushToken(_ token: String?, type: PushTokenType? = nil)` | Register the APNs (or FCM) token with each conversation; nil unregisters |
+| `unregisterPush()` | Stop this device's pushes (the token is kept for the next conversation) |
+| `handlePushNotification(_ userInfo: [AnyHashable: Any], open: Bool = true) -> Bool` | True for a Conferbot message for this bot; opens its conversation (`open: false`: only unread) |
+| `onPushOpen: ((ConferbotPush) -> Void)?` | Present your own chat for a tapped notification (without the launcher) |
 | `getUnreadCount() -> Int` / `resetUnreadCount()` | Read / reset the unread counter |
 | `clearHistory()` | Clear local chat history |
 | `disconnect()` | Disconnect the socket and release clients |
