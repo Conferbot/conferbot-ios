@@ -341,8 +341,10 @@ public struct HomeScreenView: View {
             Text(text).font(font(13.5)).foregroundColor(color(pal.muted)).multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity).padding(.top, 12).padding(.horizontal, 10).padding(.bottom, 4)
         case .ask(let q, let sub):
-            row(lead: iconBox("sparkles", accent), title: SwiftUI.Text("\(Home.Text.askQuery) ") + SwiftUI.Text("\u{201C}\(q)\u{201D}").bold(),
-                sub: sub, lines: 2, weight: .medium, chevron: false, trail: EmptyView(), a11y: "\(Home.Text.askQuery) \(q)") { runAsk(r) }
+            // "Ask “q”" / "„q“ fragen": the query bold where the language puts it.
+            let (before, after) = Home.Text.askQueryParts
+            row(lead: iconBox("sparkles", accent), title: SwiftUI.Text(before) + SwiftUI.Text("\u{201C}\(q)\u{201D}").bold() + SwiftUI.Text(after),
+                sub: sub, lines: 2, weight: .medium, chevron: false, trail: EmptyView(), a11y: I18n.t("home.askQuery", ["query": q])) { runAsk(r) }
                 .background(isFirst ? RoundedRectangle(cornerRadius: 12).fill(mix(pal.card, accent, 0.08)) : nil)
         case .article(_, let title, let sub):
             row(lead: iconBox("doc.text", accent), title: runs(title, accent), sub: sub, chevron: false, trail: EmptyView(),
