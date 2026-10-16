@@ -479,16 +479,34 @@ public struct SystemMessageRecord: RecordItem, Identifiable, Equatable {
     public let type: MessageType
     public let time: Date
     public let text: String
+    /// The event the line stands for, when it is drawn from it rather than
+    /// from `text`: "ai-agent-inactive-close" (LiveEvents.inactiveCloseLine).
+    public let kind: String?
+    /// The inactivity close only paused the chat (else it ended); saved, so
+    /// a restart draws the same line.
+    public let paused: Bool?
 
     public init(
         id: String,
         time: Date,
-        text: String
+        text: String,
+        kind: String? = nil,
+        paused: Bool? = nil
     ) {
         self.id = id
         self.type = .systemMessage
         self.time = time
         self.text = text
+        self.kind = kind
+        self.paused = paused
+    }
+
+    /// The words drawn, in the active language: the inactivity close's
+    /// "Chat paused" (with its note) or "Chat ended", else `text`.
+    public var line: (text: String, note: String?) {
+        guard kind == LiveEvents.inactiveCloseType else { return (text, nil) }
+        let l = LiveEvents.inactiveCloseLine(paused: paused)
+        return (l.text, l.note)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -496,10 +514,12 @@ public struct SystemMessageRecord: RecordItem, Identifiable, Equatable {
         case type
         case time
         case text
+        case kind
+        case paused
     }
 
     public static func == (lhs: SystemMessageRecord, rhs: SystemMessageRecord) -> Bool {
-        return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time
+        return lhs.id == rhs.id && lhs.text == rhs.text && lhs.time == rhs.time && lhs.kind == rhs.kind && lhs.paused == rhs.paused
     }
 }
 
