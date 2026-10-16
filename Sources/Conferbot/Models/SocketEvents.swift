@@ -132,6 +132,8 @@ public struct SocketEvents {
     public static let queueSelfResolve = "queue-self-resolve"
     /// Server to client: the visitor left the queue (here or on another device).
     public static let queueLeft = "queue-left"
+    /// Server to client: help articles picked for this wait (embed-server liveChat/queueHelp.js).
+    public static let queueHelp = "queue-help"
     /// Client to server (with acknowledgement): where the live chat stands after a restart.
     public static let liveChatState = "live-chat-state"
     /// Server to client: the agent left and the chat is back in the queue.
