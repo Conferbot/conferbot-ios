@@ -307,7 +307,7 @@ struct TypingShimmerView: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduced)) { tl in
             let t = tl.date.timeIntervalSince(start) * 1000
             HStack(spacing: 0) {
-                Text("Typing")
+                Text(I18n.t("typing.typing"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(reduced ? ink : .clear)
                     .overlay {
@@ -325,7 +325,7 @@ struct TypingShimmerView: View {
                                     .frame(width: bw, height: g.size.height)
                                     .offset(x: (w - bw) * p)
                             }
-                            .mask(Text("Typing").font(.system(size: 13, weight: .semibold)))
+                            .mask(Text(I18n.t("typing.typing")).font(.system(size: 13, weight: .semibold)))
                         }
                     }
                 ForEach(0..<3, id: \.self) { i in
