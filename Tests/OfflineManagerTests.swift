@@ -20,6 +20,7 @@ final class OfflineManagerTests: XCTestCase {
         // Online whatever the simulator's network says, the socket down, and
         // no flush left over from another test
         OfflineManager.shared.networkStatusOverride = true
+        OfflineManager.shared.socketStatusProvider = nil
         OfflineManager.shared.handleSocketDisconnected()
         OfflineManager.shared.clearQueue()
     }
@@ -29,6 +30,7 @@ final class OfflineManagerTests: XCTestCase {
         OfflineManager.shared.clearQueue()
         OfflineManager.shared.sendMessageHandler = nil
         OfflineManager.shared.networkStatusOverride = nil
+        OfflineManager.shared.socketStatusProvider = nil
         cancellables = nil
         super.tearDown()
     }
@@ -250,6 +252,57 @@ final class OfflineManagerTests: XCTestCase {
 
         // Message should be removed after successful send
         XCTAssertLessThan(OfflineManager.shared.queuedMessageCount, initialCount)
+    }
+
+    // MARK: - Socket Reconnecting (#101)
+
+    func testCanSendMessages_falseWhileTheSocketReconnects() {
+        // Socket.IO's reconnect fires with the socket still down: the last
+        // connect said connected, the socket itself says not.
+        OfflineManager.shared.handleSocketConnected()
+        OfflineManager.shared.socketStatusProvider = { false }
+
+        XCTAssertFalse(OfflineManager.shared.canSendMessages)
+
+        OfflineManager.shared.socketStatusProvider = { true }
+        XCTAssertTrue(OfflineManager.shared.canSendMessages)
+    }
+
+    @MainActor
+    func testFlushQueue_whileTheSocketReconnects_keepsTheMessageQueued() async throws {
+        var calls = 0
+        OfflineManager.shared.sendMessageHandler = { _ in calls += 1 }
+        OfflineManager.shared.socketStatusProvider = { false }
+
+        OfflineManager.shared.queueMessage(content: "Sent mid-reconnect")
+        OfflineManager.shared.handleSocketConnected()
+        OfflineManager.shared.flushQueue()
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(calls, 0)
+        XCTAssertEqual(OfflineManager.shared.queuedMessages.map(\.content), ["Sent mid-reconnect"])
+        XCTAssertEqual(OfflineManager.shared.queuedMessages.first?.retryCount, 0)
+    }
+
+    @MainActor
+    func testFlushQueue_aSkippedEmitKeepsTheMessageQueuedWithItsRetries() async throws {
+        var calls = 0
+        OfflineManager.shared.sendMessageHandler = { _ in
+            calls += 1
+            throw OfflineManagerError.socketNotConnected
+        }
+
+        OfflineManager.shared.queueMessage(content: "First")
+        OfflineManager.shared.queueMessage(content: "Second")
+        OfflineManager.shared.handleSocketConnected()
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        // Tried once, then left for the next connect: not retried, not dropped.
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(OfflineManager.shared.queuedMessages.map(\.content), ["First", "Second"])
+        XCTAssertEqual(OfflineManager.shared.queuedMessages.map(\.retryCount), [0, 0])
+        XCTAssertFalse(OfflineManager.shared.canSendMessages)
+        XCTAssertFalse(OfflineManager.shared.isFlushing)
     }
 
     // MARK: - Retry Logic Tests
