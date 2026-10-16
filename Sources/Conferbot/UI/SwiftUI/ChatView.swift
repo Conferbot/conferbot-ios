@@ -8,6 +8,44 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The chat screens' own words in the visitor's language (Core/I18n, the
+/// React Native SDK's ChatWidget / ChatHeader keys); the UIKit chat uses
+/// them too.
+enum ChatText {
+    static var chatTab: String { I18n.t("tabs.chat") }
+    static var help: String { I18n.t("kb.help") }
+    static var locked: String { I18n.t("system.locked") }
+    static func connectionLost(_ name: String) -> String { I18n.t("agent.connectionLost", ["name": name]) }
+    static var placeholder: String { I18n.t("chat.composer.placeholder") }
+    static var repliesOff: String { I18n.t("sdk.chat.repliesOff") }
+    static var connecting: String { I18n.t("screenshare.connecting") }
+    static var online: String { I18n.t("status.online") }
+    static var menu: String { I18n.t("sdk.chat.menu") }
+    static var supportChat: String { I18n.t("sdk.header.supportChat") }
+    static var done: String { I18n.t("common.done") }
+    static var ok: String { I18n.t("sdk.common.ok") }
+    static var send: String { I18n.t("chat.composer.send") }
+    static var attach: String { I18n.t("chat.composer.attach") }
+    static var poweredBy: String { I18n.t("chat.poweredBy") }
+    static var browseHelp: String { I18n.t("sdk.kb.browseBeforeChat") }
+    static var deleted: String { I18n.t("sdk.message.deleted") }
+    static func editedAt(_ time: String) -> String { I18n.t("sdk.message.editedAt", ["time": time]) }
+    static func file(_ name: String) -> String { I18n.t("sdk.message.file", ["name": name]) }
+    static var audio: String { I18n.t("sdk.message.audio") }
+    static var bot: String { I18n.t("transcript.bot") }
+    static var openLauncher: String { I18n.t("launcher.open") }
+    static var closeLauncher: String { I18n.t("launcher.close") }
+    static var openTheChat: String { I18n.t("launcher.openThe") }
+
+    /// A message's time ("14:05", "2:05 PM") in the widget's language and region.
+    static func time(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = I18n.locale
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
 /// Tab selection for chat view with knowledge base
 @available(iOS 15.0, *)
 public enum ChatViewTab: Int, CaseIterable {
@@ -17,9 +55,9 @@ public enum ChatViewTab: Int, CaseIterable {
     var title: String {
         switch self {
         case .chat:
-            return "Chat"
+            return ChatText.chatTab
         case .knowledgeBase:
-            return "Help"
+            return ChatText.help
         }
     }
 
@@ -170,10 +208,10 @@ public struct ChatView: View {
 
                     // Live chat: locked / connection lines and the owner's quick actions
                     if live.lockedBy != nil {
-                        LiveSystemLine("This conversation has been locked").padding(.vertical, 4)
+                        LiveSystemLine(ChatText.locked).padding(.vertical, 4)
                     }
                     if let lost = live.agentConnectionLost {
-                        LiveSystemLine("\(lost)'s connection dropped. Hang on, they should be right back.").padding(.vertical, 4)
+                        LiveSystemLine(ChatText.connectionLost(lost)).padding(.vertical, 4)
                     }
                     QuickActionsStrip(accent: pillColor)
 
@@ -216,8 +254,8 @@ public struct ChatView: View {
                             : (conferBot.customization?.primaryColor.map { Color($0) } ?? .blue),
                         enabled: !repliesOff && conferBot.closedState?.inputOff != true,
                         // Closed (blocked, or ended with nothing going on): the line says why (#40).
-                        placeholder: conferBot.closedState.map { $0.inputOff ? $0.text : "Type a message..." }
-                            ?? (repliesOff ? "Replies are turned off for now" : "Type a message..."),
+                        placeholder: conferBot.closedState.map { $0.inputOff ? $0.text : ChatText.placeholder }
+                            ?? (repliesOff ? ChatText.repliesOff : ChatText.placeholder),
                         onAttach: canAttach ? { showFileImporter = true } : nil,
                         tokens: conferBot.hasServerLook ? conferBot.customizations.theme.tokens : nil,
                         fieldRadius: conferBot.hasServerLook ? conferBot.customizations.fieldRadius : 25,
@@ -257,7 +295,7 @@ public struct ChatView: View {
                     .foregroundColor(ink)
                     .lineLimit(1)
                 if !conferBot.isConnected {
-                    Text("Connecting...").font(.caption).foregroundColor(ink.opacity(0.85))
+                    Text(ChatText.connecting).font(.caption).foregroundColor(ink.opacity(0.85))
                 } else if let tagline = look.tagline {
                     Text(tagline).font(.caption).foregroundColor(ink.opacity(0.85)).lineLimit(1)
                 } else if look.showOnline, let status = headerStatus {
@@ -306,7 +344,7 @@ public struct ChatView: View {
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("Chat menu")
+            .accessibilityLabel(ChatText.menu)
         }
     }
 
@@ -357,15 +395,15 @@ public struct ChatView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conferBot.customization?.headerTitle ?? "Support Chat")
+                Text(conferBot.customization?.headerTitle ?? ChatText.supportChat)
                     .font(.headline)
 
                 if conferBot.isConnected {
-                    Text("Online")
+                    Text(ChatText.online)
                         .font(.caption)
                         .foregroundColor(.green)
                 } else {
-                    Text("Connecting...")
+                    Text(ChatText.connecting)
                         .font(.caption)
                         .foregroundColor(.orange)
                 }
@@ -645,7 +683,7 @@ public struct ChatViewWithKBSheet: View {
         .sheet(isPresented: $showKnowledgeBase) {
             NavigationView {
                 KnowledgeBaseView()
-                    .navigationBarItems(trailing: Button("Done") {
+                    .navigationBarItems(trailing: Button(ChatText.done) {
                         showKnowledgeBase = false
                     })
             }
@@ -676,15 +714,15 @@ public struct ChatViewWithKBSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conferBot.customization?.headerTitle ?? "Support Chat")
+                Text(conferBot.customization?.headerTitle ?? ChatText.supportChat)
                     .font(.headline)
 
                 if conferBot.isConnected {
-                    Text("Online")
+                    Text(ChatText.online)
                         .font(.caption)
                         .foregroundColor(.green)
                 } else {
-                    Text("Connecting...")
+                    Text(ChatText.connecting)
                         .font(.caption)
                         .foregroundColor(.orange)
                 }
@@ -699,7 +737,7 @@ public struct ChatViewWithKBSheet: View {
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "book")
-                        Text("Help")
+                        Text(ChatText.help)
                             .font(.caption)
                     }
                     .padding(.horizontal, 12)
@@ -826,7 +864,7 @@ public struct ChatViewWithKBSheet: View {
                 Image(systemName: "lightbulb")
                     .font(.caption)
 
-                Text("Browse help articles before chatting")
+                Text(ChatText.browseHelp)
                     .font(.caption)
 
                 Spacer()
