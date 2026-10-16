@@ -332,6 +332,7 @@ public struct LiveChatFooterCards: View {
             if let closed = conferBot.closedState {
                 ClosedChatCard(closed: closed, accent: accent) { conferBot.startNewChat() }
             }
+            PostChatRedirectLineView(redirect: conferBot.postChatRedirect, accent: accent)
         }
     }
 
@@ -541,6 +542,61 @@ public struct LiveSystemLine: View {
             .background(Color(UIColor.secondarySystemBackground))
             .clipShape(Capsule())
             .frame(maxWidth: .infinity)
+    }
+}
+
+/// The owner's post-chat redirect under the ended conversation
+/// (Core/LiveChat/PostChatRedirect; web .cb-redirect): "Taking you to
+/// example.com in 10s" with Cancel. VoiceOver hears the first sentence once
+/// (an announcement); the ticking text is hidden from it. When the system
+/// could not open the URL, a "Continue to example.com" button.
+@available(iOS 15.0, *)
+public struct PostChatRedirectLineView: View {
+    @ObservedObject var redirect: PostChatRedirectController
+    var accent: Color
+
+    public init(redirect: PostChatRedirectController = ConferBot.shared.postChatRedirect, accent: Color) {
+        self.redirect = redirect
+        self.accent = accent
+    }
+
+    public var body: some View {
+        if let line = redirect.line {
+            Group {
+                if line.phase == .continueLink {
+                    Button(line.text) { redirect.continueNow() }
+                        .font(.caption)
+                        .foregroundColor(accent)
+                        .accessibilityAddTraits(.isLink)
+                        .accessibilityIdentifier("cb-redirect-go")
+                } else {
+                    HStack(spacing: 10) {
+                        Text(line.text)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityLabel(line.said)
+                            .accessibilityIdentifier("cb-redirect-text")
+                        if line.phase == .counting {
+                            Button { redirect.cancel() } label: {
+                                Text(line.cancelText).underline().font(.caption).foregroundColor(.primary)
+                            }
+                                .accessibilityLabel(line.cancelLabel)
+                                .accessibilityIdentifier("cb-redirect-cancel")
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .onAppear { announce(line.said) }
+            .onChange(of: line.phase) { _ in announce(redirect.line?.said) }
+        }
+    }
+
+    private func announce(_ text: String?) {
+        guard let text = text, !text.isEmpty else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
     }
 }
 
