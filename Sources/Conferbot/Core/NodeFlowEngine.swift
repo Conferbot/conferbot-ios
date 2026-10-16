@@ -164,6 +164,27 @@ public final class NodeFlowEngine: ObservableObject {
     private var mediaWaiters: [String: () -> Void] = [:]
     private var flowControl = FlowControl.State()
     private var nodesProcessedInCycle = 0
+    /// Questions asked, newest last, for "Edit" (only the recent past).
+    private var points: [QuestionPoint] = []
+    private var pointSeq = 0
+    /// The bot's bookings (the bot data's calendarBookings): a calendar's taken slots.
+    public var calendarBookings: [[String: Any]] = []
+
+    /// A question the visitor may go back to (web index.ts _noteQuestionPoint):
+    /// kept each time a step that waits for an answer is entered, before it
+    /// is drawn, with the conversation's state as it was.
+    public struct QuestionPoint {
+        /// Unique per point (a step asked twice has two).
+        public let id: Int
+        public let nodeId: String
+        public let type: String
+        /// Steps entered before this question.
+        let stepsLen: Int
+        /// The record's length before the question.
+        let recordLen: Int
+        let snap: ChatState.Snapshot
+        let flowControl: FlowControl.State
+    }
 
     // MARK: - Initialization
 
@@ -234,6 +255,7 @@ public final class NodeFlowEngine: ObservableObject {
 
     private func resetFlow() {
         steps = []
+        points = []
         ended = false
         nodesProcessedInCycle = 0
         flowControl = FlowControl.State()
@@ -297,6 +319,9 @@ public final class NodeFlowEngine: ObservableObject {
             return
         }
 
+        // A question: what "Edit" goes back to, before it is drawn.
+        if Delight.waitsForAnswer(type) { notePoint(nodeId, type) }
+
         moveToken += 1
         let token = moveToken
         currentNodeId = nodeId
@@ -354,6 +379,55 @@ public final class NodeFlowEngine: ObservableObject {
         let result = await runHandler(handler, node, via: via, token: token)
         if token != moveToken || ended { return }
         await handleNodeResult(result, node, token)
+    }
+
+    private func notePoint(_ nodeId: String, _ type: String) {
+        pointSeq += 1
+        points.append(QuestionPoint(id: pointSeq, nodeId: nodeId, type: type, stepsLen: steps.count,
+                                    recordLen: state.getServerRecord().count, snap: state.snapshot(), flowControl: flowControl))
+        if points.count > Delight.maxQuestionPoints { points = Array(points.suffix(Delight.maxQuestionPoints)) }
+    }
+
+    /// The questions asked so far that can still be gone back to, oldest first.
+    public var questionPoints: [QuestionPoint] { points }
+
+    /// The step types run since a question (it excluded); "agent" when a
+    /// person or the AI agent has been in the conversation since (what they
+    /// saw stays). Web index.ts typesSince.
+    public func typesSince(_ point: QuestionPoint) -> [String] {
+        let types = steps.count > point.stepsLen + 1 ? steps[(point.stepsLen + 1)...].map { JS.text($0["type"]) } : []
+        let record = state.getServerRecord()
+        let agent = record.count > point.recordLen && record[point.recordLen...].contains {
+            let kind = JS.text($0["type"]).isEmpty ? JS.text($0["shape"]) : JS.text($0["type"])
+            return kind.hasPrefix("agent")
+        }
+        return agent ? types + ["agent"] : types
+    }
+
+    /// "Edit": the conversation as it was when the question was asked, and
+    /// the question asked again exactly as the forward path asks it (web
+    /// index.ts _rewindToQuestion). False when the point is gone or the chat
+    /// ended.
+    @MainActor
+    @discardableResult
+    public func rewindTo(_ pointId: Int) async -> Bool {
+        guard let i = points.firstIndex(where: { $0.id == pointId }) else { return false }
+        let point = points[i]
+        guard let node = nodesById[point.nodeId], !ended, !JS.truthy(state.getVariable(name: "_flowComplete")) else { return false }
+        moveToken += 1
+        state.restore(point.snap)
+        if steps.count > point.stepsLen { steps.removeSubrange(point.stepsLen...) }
+        flowControl = point.flowControl
+        points = Array(points.prefix(i))
+        mediaWaiters = [:]
+        ended = false
+        isWaitingForInput = false
+        isFlowComplete = false
+        nodesProcessedInCycle = 0
+        currentUIState = nil
+        sendResponseToServer()
+        await enter(node, via: "rewind")
+        return true
     }
 
     /// A question step registers {nodeId, key, value: null} when shown.
@@ -416,7 +490,7 @@ public final class NodeFlowEngine: ObservableObject {
         let sessionId = state.sessionId
         let visitorId = state.visitorId ?? (state.getVariable(name: "_visitorId") as? String) ?? sessionId
         let stepIndex = max(0, steps.lastIndex(where: { JS.text($0["id"]) == nodeId }) ?? 0)
-        return FlowContext(
+        let ctx = FlowContext(
             botId: botId,
             sessionId: sessionId,
             via: via,
@@ -458,6 +532,8 @@ public final class NodeFlowEngine: ObservableObject {
             },
             node: { [weak self] id in self?.nodesById[id] }
         )
+        ctx.calendarBookings = calendarBookings
+        return ctx
     }
 
     private func edgesFrom(_ nodeId: String) -> [[String: Any]] {
