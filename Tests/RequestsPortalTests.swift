@@ -412,4 +412,67 @@ final class RequestsPortalTests: XCTestCase {
         XCTAssertEqual(store.sessions, ["mobile_1_abcdef"])
         defaults.removePersistentDomain(forName: "RequestsPortalTests")
     }
+    /// The list held until the test answers each ask.
+    private final class HeldSocket {
+        var pending: [(Any?) -> Void] = []
+        var asked: [[String: Any]] = []
+        let hub = RequestsEventHub()
+        var socket: RequestsSocket {
+            RequestsSocket(
+                emitWithAck: { _, d, _, done in self.asked.append(d); self.pending.append(done) },
+                emit: { _, _ in },
+                on: { e, fn in self.hub.on(e, fn) }
+            )
+        }
+    }
+
+    private func until(_ ok: () -> Bool) async {
+        for _ in 0..<200 where !ok() { await Task.yield() }
+    }
+
+    func testSignOutDropsTheListIgnoresAnAnswerForTheLastUserAndReadsForTheNextOne() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "RequestsPortalTests86"))
+        defaults.removePersistentDomain(forName: "RequestsPortalTests86")
+        let sock = HeldSocket()
+        var user: RequestsUser? = RequestsUser(id: "alice", hash: "ha")
+        let store = YourRequests(hooks: .init(
+            socket: sock.socket, isConnected: { true }, sessionId: { nil }, record: { [] },
+            user: { user }, visitorId: { "v_1" }, defaults: defaults, now: { self.now }))
+        store.load(botId: "bot1")
+        func list(_ id: String) -> [String: Any] {
+            ["ok": true, "requests": [["id": id, "title": id, "status": "open", "lastFrom": "team", "lastAt": Requests.iso(now - 1000)]]]
+        }
+
+        // Alice's list arrives.
+        let first = Task { await store.refresh(force: true) }
+        await until { sock.pending.count == 1 }
+        sock.pending[0](list("mobile_1_alice"))
+        await first.value
+        XCTAssertEqual(store.requests?.map { $0.id }, ["mobile_1_alice"])
+
+        // Alice asks again; she signs out before it answers, Bob signs in.
+        let second = Task { await store.refresh(force: true) }
+        await until { sock.pending.count == 2 }
+        user = nil
+        await store.userChanged()
+        XCTAssertNil(store.requests, "the last user's list is dropped at once")
+        user = RequestsUser(id: "bob", hash: "hb")
+        await store.userChanged()
+        sock.pending[1](list("mobile_1_alice"))
+        // Her late answer is not shown; the list is read again, for Bob.
+        await until { sock.pending.count == 3 }
+        XCTAssertNil(store.requests)
+        XCTAssertEqual((sock.asked.last?["user"] as? [String: String])?["id"], "bob")
+        sock.pending[2](list("mobile_1_bob"))
+        await second.value
+        XCTAssertEqual(store.requests?.map { $0.id }, ["mobile_1_bob"])
+
+        // Signed out with nothing on this device: nothing is asked, nothing shown.
+        user = nil
+        let asked = sock.asked.count
+        await store.userChanged()
+        XCTAssertNil(store.requests)
+        XCTAssertEqual(sock.asked.count, asked)
+        defaults.removePersistentDomain(forName: "RequestsPortalTests86")
+    }
 }
