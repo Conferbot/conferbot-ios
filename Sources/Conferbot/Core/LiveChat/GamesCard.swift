@@ -27,18 +27,18 @@ import Combine
 import OpenCombine
 #endif
 
-/// The card's words (web i18n/en.ts "games.*").
+/// The card's words (web ui.ts, "games.*"), in the active language.
 public enum GamesText {
-    public static let card = "Games while you wait"
-    public static let close = "Close games"
-    public static let pick = "Pick a game"
-    public static let again = "Play again"
-    public static let another = "Another game"
-    public static let notNow = "Not now"
-    public static func pausedNamed(_ name: String) -> String { "\(name)'s here!" }
-    public static let pausedSomeone = "Someone's here!"
-    public static let pausedSaved = "Your game is saved - finish it later?"
-    public static let resume = "Finish my game"
+    public static var card: String { I18n.t("games.card") }
+    public static var close: String { I18n.t("games.close") }
+    public static var pick: String { I18n.t("games.pick") }
+    public static var again: String { I18n.t("games.again") }
+    public static var another: String { I18n.t("games.another") }
+    public static var notNow: String { I18n.t("common.notNow") }
+    public static func pausedNamed(_ name: String) -> String { I18n.t("games.paused.named", ["name": name]) }
+    public static var pausedSomeone: String { I18n.t("games.paused.someone") }
+    public static var pausedSaved: String { I18n.t("games.paused.saved") }
+    public static var resume: String { I18n.t("games.paused.resume") }
 }
 
 public struct FootButton: Equatable {
@@ -158,6 +158,8 @@ final class GameCtx {
     var categories: [[String: Any]] = []
     var recent: [[String: Any]] = []
     var plays = 0
+    /// The language the quiz and the scramble are in.
+    var lang = "en"
     var meta: (String) -> Void = { _ in }
     var status: (String) -> Void = { _ in }
     var finish: (_ text: String, _ win: Bool) -> Void = { _, _ in }
@@ -189,10 +191,10 @@ private final class RpsGame: WaitingGame {
     init(_ ctx: GameCtx) {
         self.ctx = ctx
         show()
-        ctx.status("First to two wins. Pick your hand!")
+        ctx.status(I18n.t("games.rps.intro"))
     }
 
-    func show() { ctx.meta("You \(you) · \(botScore) Bot") }
+    func show() { ctx.meta(I18n.t("games.rps.score", ["you": you, "bot": botScore])) }
 
     func board() -> GameBoard {
         .rps(RpsBoard(you: youHand, bot: botHand, outcome: outcome, shaking: shaking, busy: busy,
@@ -215,12 +217,14 @@ private final class RpsGame: WaitingGame {
             if r == .win { you += 1 }
             if r == .lose { botScore += 1 }
             show()
-            let lower = { (h: GamesLogic.Hand) in GamesLogic.name(h).lowercased() }
-            let line = r == .draw ? "\(GamesLogic.name(mine)) and \(lower(theirs)) - a draw!"
-                : r == .win ? "\(GamesLogic.name(mine)) beats \(lower(theirs)) - point to you!"
-                : "\(GamesLogic.name(theirs)) beats \(lower(mine)) - point to the bot."
+            // German nouns keep their capital (web ui.ts handLower).
+            let lower = { (h: GamesLogic.Hand) in I18n.language == .de ? GamesLogic.name(h) : GamesLogic.name(h).lowercased() }
+            let line = r == .draw ? I18n.t("games.rps.draw", ["a": GamesLogic.name(mine), "b": lower(theirs)])
+                : r == .win ? I18n.t("games.rps.youPoint", ["a": GamesLogic.name(mine), "b": lower(theirs)])
+                : I18n.t("games.rps.botPoint", ["a": GamesLogic.name(theirs), "b": lower(mine)])
             if let w = GamesLogic.rpsWinner(you: you, bot: botScore) {
-                ctx.finish(w == "you" ? "\(line) You win \(you)-\(botScore)! 🎉" : "\(line) The bot takes it \(botScore)-\(you). Rematch? 🤖", w == "you")
+                let score: [String: Any] = ["you": you, "bot": botScore]
+                ctx.finish("\(line) \(I18n.t(w == "you" ? "games.rps.youWin" : "games.rps.botWins", score))", w == "you")
                 return
             }
             ctx.status(line)
@@ -230,7 +234,7 @@ private final class RpsGame: WaitingGame {
             reveal()
         } else {
             shaking = true
-            ctx.status("Rock... paper... scissors...")
+            ctx.status(I18n.t("games.rps.shake"))
             ctx.later(reveal, 900)
         }
     }
@@ -244,9 +248,9 @@ private final class TttGame: WaitingGame {
 
     init(_ ctx: GameCtx) {
         self.ctx = ctx
-        ctx.meta("You ✕ · Bot ◯")
+        ctx.meta(I18n.t("games.ttt.meta"))
         // Turns alternate between games: the bot opens every second one.
-        if ctx.plays % 2 == 1 { botTurn() } else { ctx.status("You go first - tap a square") }
+        if ctx.plays % 2 == 1 { botTurn() } else { ctx.status(I18n.t("games.ttt.youFirst")) }
     }
 
     func check() -> Bool {
@@ -255,22 +259,22 @@ private final class TttGame: WaitingGame {
         switch w {
         case .won(let who, let l):
             line = l
-            if who == .x { ctx.finish("Three in a row - you beat the bot! 🎉", true) } else { ctx.finish("The bot got this one. Rematch? 🤖", false) }
+            if who == .x { ctx.finish(I18n.t("games.ttt.win"), true) } else { ctx.finish(I18n.t("games.ttt.lose"), false) }
         case .draw:
             line = []
-            ctx.finish("A draw - great minds think alike 🤝", false)
+            ctx.finish(I18n.t("games.ttt.draw"), false)
         }
         return true
     }
 
     func botTurn() {
         busy = true
-        ctx.status("The bot is thinking...")
+        ctx.status(I18n.t("games.ttt.thinking"))
         ctx.later({ [self] in
             let m = GamesLogic.tttBotMove(cells, ctx.rng)
             if m >= 0 { cells[m] = .o }
             busy = false
-            if !check() { ctx.status("Your move") }
+            if !check() { ctx.status(I18n.t("games.ttt.yourMove")) }
         }, ctx.reduced ? 250 : 550)
     }
 
@@ -293,12 +297,12 @@ private final class MemoryGame: WaitingGame {
         self.ctx = ctx
         s = GamesLogic.MemoryState(cards: GamesLogic.memoryDeck(GamesLogic.memoryFaces, pairs: 6, ctx.rng), open: [], moves: 0)
         paint()
-        ctx.status("Find all six pairs")
+        ctx.status(I18n.t("games.memory.intro"))
     }
 
     func paint() {
         let pairs = s.cards.filter(\.matched).count / 2
-        ctx.meta("Moves \(s.moves) · Pairs \(pairs)/6")
+        ctx.meta(I18n.t("games.memory.meta", ["moves": s.moves, "pairs": pairs]))
     }
 
     func board() -> GameBoard {
@@ -314,12 +318,12 @@ private final class MemoryGame: WaitingGame {
         paint()
         switch r.result {
         case .match:
-            ctx.status("A pair! ✨")
+            ctx.status(I18n.t("games.memory.pair"))
             // The pair just made (the card tapped and its twin).
             let face = s.cards[i].face
             pop = s.cards.indices.filter { s.cards[$0].face == face }
         case .miss:
-            ctx.status("Not a pair")
+            ctx.status(I18n.t("games.memory.noPair"))
             waiting = true
             ctx.later({ [self] in
                 s = GamesLogic.memoryHide(s)
@@ -327,7 +331,7 @@ private final class MemoryGame: WaitingGame {
                 paint()
             }, 850)
         case .done:
-            ctx.finish("All pairs in \(s.moves) moves! \(String(repeating: "⭐", count: GamesLogic.memoryStars(s.moves)))", true)
+            ctx.finish("\(I18n.t("games.memory.done", ["moves": s.moves])) \(String(repeating: "⭐", count: GamesLogic.memoryStars(s.moves)))", true)
         default:
             break
         }
@@ -342,7 +346,7 @@ private struct Round {
     var answer: Int
 }
 
-private let rightLines = ["Correct! 🎯", "Spot on! ✨", "Nailed it! 🙌", "Yes! 🎉"]
+private let rightLines = ["games.right.1", "games.right.2", "games.right.3", "games.right.4"]
 
 /// Shared by the quiz and the emoji riddles: a round at a time, three in all.
 private final class ChoiceGame: WaitingGame {
@@ -361,7 +365,7 @@ private final class ChoiceGame: WaitingGame {
         showRound()
     }
 
-    func meta() { ctx.meta("\(shown + 1) of \(rounds.count) · \(score) right") }
+    func meta() { ctx.meta(I18n.t("games.choice.meta", ["n": shown + 1, "total": rounds.count, "score": score])) }
 
     func showRound() {
         shown = at
@@ -383,7 +387,8 @@ private final class ChoiceGame: WaitingGame {
         if right { score += 1 }
         meta()
         if right { ctx.cheer() }
-        let fb = right ? rightLines[Int(floor(ctx.rng() * Double(rightLines.count))) % rightLines.count] : "Not quite - it's \(r.options[r.answer])"
+        let fb = right ? I18n.t(rightLines[Int(floor(ctx.rng() * Double(rightLines.count))) % rightLines.count])
+            : I18n.t("games.choice.wrong", ["answer": r.options[r.answer]])
         at += 1
         if at >= rounds.count {
             let s = summary(score, rounds.count)
@@ -391,27 +396,27 @@ private final class ChoiceGame: WaitingGame {
             return
         }
         ctx.status(fb)
-        ctx.action(at == rounds.count - 1 ? "Last one →" : "Next →") { [weak self] in self?.showRound() }
+        ctx.action(at == rounds.count - 1 ? I18n.t("games.choice.last") : I18n.t("games.choice.next")) { [weak self] in self?.showRound() }
     }
 }
 
 private func quizGame(_ ctx: GameCtx) -> WaitingGame {
     let kb = ctx.c?["enableKnowledgeBase"] as? Bool == true ? GamesLogic.quizFromArticles(ctx.categories, ctx.recent, ctx.rng) : []
-    let qs = GamesLogic.buildQuiz(GamesLogic.trivia, kb, ctx.rng)
-    ctx.status(kb.isEmpty ? "Three quick questions" : "Three questions - some about our help centre")
-    return ChoiceGame(ctx, .quiz, qs.map { Round(q: $0.q, big: nil, tag: $0.source == .kb ? "From our help centre" : nil, options: $0.options, answer: $0.answer) }) { score, total in
-        ("\(score) out of \(total). \(GamesLogic.quizVerdict(score, total))", score == total)
+    let qs = GamesLogic.buildQuiz(GamesLogic.triviaFor(ctx.lang), kb, ctx.rng)
+    ctx.status(kb.isEmpty ? I18n.t("games.quiz.intro") : I18n.t("games.quiz.introKb"))
+    return ChoiceGame(ctx, .quiz, qs.map { Round(q: $0.q, big: nil, tag: $0.source == .kb ? I18n.t("games.quiz.fromKb") : nil, options: $0.options, answer: $0.answer) }) { score, total in
+        ("\(I18n.t("games.quiz.score", ["score": score, "total": total])) \(GamesLogic.quizVerdict(score, total))", score == total)
     }
 }
 
 private func emojiGame(_ ctx: GameCtx) -> WaitingGame {
     let picked = Array(GamesLogic.shuffle(GamesLogic.riddles, ctx.rng).prefix(3))
-    ctx.status("What phrase do the emoji spell?")
+    ctx.status(I18n.t("games.emoji.intro"))
     return ChoiceGame(ctx, .emoji, picked.map { r in
         let o = GamesLogic.riddleOptions(r, ctx.rng)
-        return Round(q: "What's the phrase?", big: r.e, tag: nil, options: o.options, answer: o.answer)
+        return Round(q: I18n.t("games.emoji.q"), big: r.e, tag: nil, options: o.options, answer: o.answer)
     }) { score, total in
-        ("\(score) of \(total) riddles solved. \(GamesLogic.quizVerdict(score, total))", score == total)
+        ("\(I18n.t("games.emoji.score", ["score": score, "total": total])) \(GamesLogic.quizVerdict(score, total))", score == total)
     }
 }
 
@@ -425,14 +430,14 @@ private final class ReactionGame: WaitingGame {
     var times: [Int] = []
     var phase: ReactionBoard.Phase = .idle
     var big = "⚡"
-    var line = "Tap to start"
+    var line = I18n.t("games.reaction.start")
     var goAt: Double = 0
     var timer: Int?
 
     init(_ ctx: GameCtx) {
         self.ctx = ctx
-        ctx.meta("Round 1 of \(GamesRounds.reaction)")
-        ctx.status("When the pad turns green, tap as fast as you can")
+        ctx.meta(I18n.t("games.reaction.round", ["n": 1, "total": GamesRounds.reaction]))
+        ctx.status(I18n.t("games.reaction.intro"))
     }
 
     func set(_ p: ReactionBoard.Phase, _ e: String, _ text: String) {
@@ -442,12 +447,12 @@ private final class ReactionGame: WaitingGame {
     }
 
     func start() {
-        set(.wait, "👀", "Wait for green...")
-        ctx.meta("Round \(times.count + 1) of \(GamesRounds.reaction)")
+        set(.wait, "👀", I18n.t("games.reaction.wait"))
+        ctx.meta(I18n.t("games.reaction.round", ["n": times.count + 1, "total": GamesRounds.reaction]))
         timer = ctx.timer({ [self] in
             timer = nil
             goAt = ctx.now()
-            set(.go, "🟢", "Tap now!")
+            set(.go, "🟢", I18n.t("games.reaction.go"))
         }, GamesLogic.reactionDelay(ctx.rng))
     }
 
@@ -462,25 +467,25 @@ private final class ReactionGame: WaitingGame {
         case .wait:
             if let t = timer { ctx.clear(t) }
             timer = nil
-            set(.between, "🙈", "Too soon! Tap to try again")
-            ctx.status("Too soon - wait for green")
+            set(.between, "🙈", I18n.t("games.reaction.tooSoon"))
+            ctx.status(I18n.t("games.reaction.tooSoonHint"))
         case .go:
             let ms = Int((ctx.now() - goAt).rounded())
             guard GamesLogic.reactionCounts(ms) else {
-                set(.between, "🙈", "A lucky guess! Tap to try again")
-                ctx.status("Too quick to be real - wait until you see green")
+                set(.between, "🙈", I18n.t("games.reaction.lucky"))
+                ctx.status(I18n.t("games.reaction.luckyHint"))
                 return
             }
             times.append(ms)
             if times.count >= GamesRounds.reaction {
                 let avg = GamesLogic.average(times)
-                set(.done, "🏁", "\(avg) ms average")
+                set(.done, "🏁", I18n.t("sdk.games.reactionAvg", ["ms": avg]))
                 ctx.meta(times.map(String.init).joined(separator: " · ") + " ms")
-                ctx.finish("\(GamesLogic.reactionVerdict(avg)) - \(avg) ms on average.", avg < 350)
+                ctx.finish("\(GamesLogic.reactionVerdict(avg)) - \(I18n.t("games.reaction.avg", ["ms": avg]))", avg < 350)
                 return
             }
-            set(.between, "⏱️", "\(ms) ms - tap for the next round")
-            ctx.status("\(ms) milliseconds")
+            set(.between, "⏱️", I18n.t("games.reaction.next", ["ms": ms]))
+            ctx.status(I18n.t("games.reaction.ms", ["ms": ms]))
         case .done:
             break
         }
@@ -489,7 +494,7 @@ private final class ReactionGame: WaitingGame {
     func pause() {
         if let t = timer { ctx.clear(t) }
         timer = nil
-        if phase == .wait || phase == .go { set(.between, "⏸️", "Tap to carry on") }
+        if phase == .wait || phase == .go { set(.between, "⏸️", I18n.t("games.reaction.resume")) }
     }
 }
 
@@ -505,9 +510,9 @@ private final class ScrambleGame: WaitingGame {
 
     init(_ ctx: GameCtx) {
         self.ctx = ctx
-        words = Array(GamesLogic.shuffle(GamesLogic.words, ctx.rng).prefix(GamesRounds.scramble))
+        words = Array(GamesLogic.shuffle(GamesLogic.wordsFor(ctx.lang), ctx.rng).prefix(GamesRounds.scramble))
         // The web's intro says "or just type": a phone has no keys to type on.
-        ctx.status("Tap the letters in order")
+        ctx.status(I18n.t("sdk.games.scrambleIntro"))
         round()
     }
 
@@ -518,16 +523,18 @@ private final class ScrambleGame: WaitingGame {
         placed = []
         isSolved = false
         revealed = false
-        ctx.meta("Word \(at + 1) of \(GamesRounds.scramble) · \(solved) solved")
+        ctx.meta(I18n.t("games.scramble.meta", ["n": at + 1, "total": GamesRounds.scramble, "solved": solved]))
     }
 
     func next(_ msg: String, _ win: Bool) {
         at += 1
         if win { solved += 1 }
-        ctx.meta("Word \(min(at + 1, GamesRounds.scramble)) of \(GamesRounds.scramble) · \(solved) solved")
+        ctx.meta(I18n.t("games.scramble.meta", ["n": min(at + 1, GamesRounds.scramble), "total": GamesRounds.scramble, "solved": solved]))
         if at >= GamesRounds.scramble {
-            let verdict = solved == GamesRounds.scramble ? "Word wizard! 🧙" : solved > 0 ? GamesLogic.Verdict.nice : "Tricky ones! 🙈"
-            ctx.finish("\(msg) You solved \(solved) of \(GamesRounds.scramble). \(verdict)", solved == GamesRounds.scramble)
+            let verdict = solved == GamesRounds.scramble ? I18n.t("games.scramble.verdict.all")
+                : solved > 0 ? GamesLogic.Verdict.nice : I18n.t("games.scramble.verdict.none")
+            let score = I18n.t("games.scramble.score", ["solved": solved, "total": GamesRounds.scramble])
+            ctx.finish("\(msg) \(score) \(verdict)", solved == GamesRounds.scramble)
             return
         }
         ctx.status(msg)
@@ -540,10 +547,10 @@ private final class ScrambleGame: WaitingGame {
         if GamesLogic.scrambleSolved(guess, word) {
             isSolved = true
             ctx.cheer()
-            next("\(word) - got it! 🎉", true)
+            next(I18n.t("games.scramble.gotIt", ["word": word]), true)
         } else {
             nope += 1
-            ctx.status("Not quite - tap letters to take them back")
+            ctx.status(I18n.t("games.scramble.wrong"))
         }
     }
 
@@ -555,7 +562,7 @@ private final class ScrambleGame: WaitingGame {
 
     func board() -> GameBoard {
         .scramble(ScrambleBoard(hint: hint, letters: letters, placed: placed, solved: isSolved, revealed: revealed, nope: nope,
-                                skipLabel: at == GamesRounds.scramble - 1 ? "Reveal" : "Skip"))
+                                skipLabel: at == GamesRounds.scramble - 1 ? I18n.t("games.scramble.reveal") : I18n.t("common.skip")))
     }
 
     func input(_ a: GameInput) {
@@ -582,7 +589,7 @@ private final class ScrambleGame: WaitingGame {
                 let i = letters.indices.first { letters[$0] == ch && !placed.contains($0) } ?? -1
                 placed.append(i)
             }
-            next("It was \(word).", false)
+            next(I18n.t("games.scramble.itWas", ["word": word]), false)
         default:
             break
         }
@@ -614,8 +621,9 @@ public final class GamesCard: ObservableObject, OfferCard {
         var mode: GamesOffer.Mode = .offer
         var rng: GamesRng = GamesLogic.random
         var reducedMotion = false
-        /// The language the games are offered in (the emoji riddles are English only).
-        var lang = "en"
+        /// The language the games are offered in (the emoji riddles are English
+        /// only), the quiz and the scramble's lists; nil: the widget's language.
+        var lang: String?
         /// The card was closed ("Not now", the x).
         var onDismiss: (() -> Void)?
         var schedule: ConnectingSignal.Schedule = ConnectingSignal.mainQueueTimer
@@ -628,6 +636,7 @@ public final class GamesCard: ObservableObject, OfferCard {
 
     private let o: Options
     private let settings: WaitingGames.Settings
+    private let lang: String
     private var st = GamesCardState()
     private final class Entry {
         let id: GameId
@@ -648,10 +657,12 @@ public final class GamesCard: ObservableObject, OfferCard {
     /// Nil when the owner left no game for this language.
     init?(_ o: Options) {
         let settings = WaitingGames.settings(o.customizations)
-        let available = WaitingGames.forLanguage(WaitingGames.games.filter { settings.games.contains($0.id) }, o.lang)
+        let lang = o.lang ?? I18n.language.rawValue
+        let available = WaitingGames.forLanguage(WaitingGames.games.filter { settings.games.contains($0.id) }, lang)
         guard !available.isEmpty else { return nil }
         self.o = o
         self.settings = settings
+        self.lang = lang
         st.chips = available
         showMenu(first: true)
         state = st
@@ -676,7 +687,7 @@ public final class GamesCard: ObservableObject, OfferCard {
         current?.timers.values.forEach { $0.cancel() }
     }
 
-    private static let quietAnother = FootButton(key: .another, label: GamesText.another, primary: false)
+    private static var quietAnother: FootButton { FootButton(key: .another, label: GamesText.another, primary: false) }
 
     private func showMenu(first: Bool) {
         stopTimers()
@@ -688,7 +699,7 @@ public final class GamesCard: ObservableObject, OfferCard {
         st.game = nil
         st.board = nil
         st.titleEmoji = ""
-        st.title = first && o.mode != .menu ? settings.offerText : GamesText.pick
+        st.title = first && o.mode != .menu ? WaitingGames.offerLine(settings.offerText) : GamesText.pick
         st.meta = ""
         st.status = ""
         st.result = nil
@@ -718,6 +729,7 @@ public final class GamesCard: ObservableObject, OfferCard {
         ctx.categories = o.categories
         ctx.recent = o.recentArticles
         ctx.plays = plays
+        ctx.lang = lang
         ctx.meta = { [weak self] t in self?.st.meta = t }
         ctx.status = { [weak self] t in self?.st.status = t }
         ctx.action = { [weak self] label, fn in
