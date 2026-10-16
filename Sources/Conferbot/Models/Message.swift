@@ -219,7 +219,7 @@ public struct AgentMessageRecord: RecordItem, Identifiable, Equatable {
         type = .agentMessage
         time = try c.decode(Date.self, forKey: .time)
         text = (try? c.decode(String.self, forKey: .text)) ?? ""
-        agentDetails = (try? c.decode(AgentDetails.self, forKey: .agentDetails)) ?? AgentDetails(id: "", name: "Agent", email: "")
+        agentDetails = (try? c.decode(AgentDetails.self, forKey: .agentDetails)) ?? AgentDetails(id: "", name: I18n.t("agent.agent"), email: "")
         extras = try? c.decodeIfPresent(AIReplyExtras.self, forKey: .extras)
         feedback = try? c.decodeIfPresent(AnswerFeedback.self, forKey: .feedback)
         edited = (try? c.decodeIfPresent(Bool.self, forKey: .edited)) ?? false
