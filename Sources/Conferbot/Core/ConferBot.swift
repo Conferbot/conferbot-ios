@@ -78,7 +78,10 @@ public class ConferBot: ObservableObject {
             customizations = Customizations.resolve(nil)
             return
         }
-        let themed = WidgetTheme.withThemePalette(raw, prefersDark: prefersDark)
+        // "Hi {{first_name|there}}": the signed-in user and a name the chat
+        // asked for fill the owner's texts (Personalize, web ownerLayout.ts, #85).
+        let vars = Personalize.visitorVars(currentUser?.toVisitorContext(), name: chatState.userMetadata["name"])
+        let themed = Personalize.customizations(WidgetTheme.withThemePalette(raw, prefersDark: prefersDark), vars) ?? raw
         let widgetTheme = WidgetTheme.resolve(themed, prefersDark: prefersDark)
         serverCustomizations = themed
         customizations = Customizations.resolve(themed, theme: widgetTheme)
@@ -250,6 +253,35 @@ public class ConferBot: ObservableObject {
         }
     ))
 
+    // MARK: - Home screen
+    // The owner's home screen (enableInitialPage): the view the open chat
+    // shows (home, conversation, help centre), "Welcome back", the help
+    // centre's data for its cards and the server's article search (Core/Home).
+    /// The bot's name as the server sends it.
+    public private(set) var botName: String?
+
+    @MainActor
+    public private(set) lazy var home: HomeScreen = HomeScreen(hooks: .init(
+        customizations: { [weak self] in self?.serverCustomizations },
+        botName: { [weak self] in self?.botName },
+        agent: { [weak self] in
+            self?.agentBot.map { Home.Agent(displayName: $0.displayName, starters: $0.starters, avatar: $0.avatar) }
+        },
+        sessionId: { [weak self] in self?.currentSession?.chatSessionId },
+        requests: { [weak self] in
+            guard let r = self?.requests else { return (nil, [:]) }
+            return (r.requests, r.seen)
+        },
+        isConnected: { [weak self] in self?.socketClient?.isConnected ?? false },
+        emitWithAck: { [weak self] event, data, timeout, done in
+            guard let socket = self?.socketClient else { return done(nil) }
+            socket.emitWithAck(event: event, data: data, timeout: timeout, completion: done)
+        },
+        send: { [weak self] text in Task { try? await self?.sendMessage(text) } },
+        onHomeShown: { [weak self] in Task { @MainActor in await self?.requests.refresh() } }
+    ))
+    private var homeCancellables = Set<AnyCancellable>()
+
     /// The flow's handover step whose 20s waiting signal has started (once per wait).
     private var connectingWaitFor: String?
     /// An agent bot's handover step data (its max wait), for the AI escalation's nudge.
@@ -399,6 +431,17 @@ public class ConferBot: ObservableObject {
     private init() {
         // While you wait: wired to the handover's signals before any wait begins.
         _ = waiting
+        // A name the flow asked for: "Welcome back, Jamie" and {{first_name}}.
+        chatState.$userMetadata
+            .map { $0["name"] as? String }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] name in
+                guard let self = self else { return }
+                if self.rawCustomizations != nil { self.applyLook() }
+                Task { @MainActor in self.home.rememberName(name) }
+            }
+            .store(in: &homeCancellables)
         setupFlowEngine()
         setupAnalytics()
         setupOfflineManager()
@@ -512,6 +555,8 @@ public class ConferBot: ObservableObject {
 
         // What this device remembers of the visitor's requests, for this bot.
         Task { @MainActor in self.requests.load(botId: botId) }
+        // What the device remembers for "Welcome back", for this bot.
+        Task { @MainActor in self.home.load(botId: botId) }
 
         setupSocketListeners()
         connectSocket()
@@ -799,13 +844,19 @@ public class ConferBot: ObservableObject {
         debugPrint("[ConferBot] Registered \(registry.count) node handlers")
     }
 
-    /// Identify current user
-    public func identify(user: ConferBotUser) {
+    /// Sign the app's user in, or out with `nil` (a shared device: the next
+    /// person must not see the last one's requests or name).
+    public func identify(user: ConferBotUser?) {
         self.currentUser = user
-        ChatState.shared.visitorContext = user.toVisitorContext()
-        // A signed-in user (with a hash) has their requests from any device.
-        Task { @MainActor in await self.requests.refresh(force: true) }
-        debugPrint("[ConferBot] User identified: \(user.id)")
+        ChatState.shared.visitorContext = user?.toVisitorContext()
+        DispatchQueue.main.async {
+            // "Hi {{first_name|there}}" for whoever this is now (#85).
+            if self.rawCustomizations != nil { self.applyLook() }
+            // The last user's requests go; a list still on its way for them is
+            // ignored, and the new one's is read (a hash: from any device, #86).
+            Task { @MainActor in await self.requests.userChanged() }
+        }
+        debugPrint("[ConferBot] User \(user.map { "identified: \($0.id)" } ?? "signed out")")
     }
 
     /// Start a new chat session
@@ -884,6 +935,12 @@ public class ConferBot: ObservableObject {
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
+        }
+
+        // What the visitor types in a live or agent chat is what they came
+        // for, for "Welcome back" (web special.ts _handleHumanHandoverInputSubmit).
+        if isLiveChatMode || agentBot != nil {
+            await MainActor.run { self.home.rememberText(text) }
         }
 
         // Create user message record
@@ -1797,7 +1854,13 @@ public class ConferBot: ObservableObject {
             // The help centre: published articles without bodies, sent only
             // while the owner has it on (embed-server chatbotHandler).
             let kbJson = json["knowledgeBaseData"]
+            let name = (chatbotData["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             DispatchQueue.main.async { self.waiting.setKnowledgeBase(kbJson) }
+            // The home screen's help card and ask box.
+            Task { @MainActor in
+                self.botName = name
+                self.home.setKnowledgeBase(kbJson)
+            }
             if let help = KnowledgeBaseData.from(json: json["knowledgeBaseData"]) {
                 self.knowledgeBaseService?.apply(help)
                 DispatchQueue.main.async { self.knowledgeBaseCategories = help.categories }
