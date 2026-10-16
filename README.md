@@ -25,6 +25,8 @@ Native iOS SDK for embedding Conferbot AI-powered chatbots into your iOS applica
 - **Real-time messaging** - Socket.IO powered, same events as the Conferbot web widget
 - **Node flow engine** - Renders the full flow-builder node set (choices, buttons, ratings, dates, file uploads, and more) natively. Text questions (ask-name, ask-email, ...) are answered by typing in the single bottom input bar, and answered choice pills stay in the transcript - exactly like the web widget
 - **Live agent handover** - the web widget's handover lifecycle: the "Connecting you with the team…" line and how the wait ended, the header's reply time, leaving the queue, waiting signals, and a live chat picked back up after the app restarts
+- **AI answers as on the web** - Tables, headings, quotes, code blocks and strikethrough in replies; "Helpful?" under the newest answer (a No is sent at once, then reasons, a comment, "Talk to a person", "Ask another way"; the vote can change); "That took too long" when a reply takes more than 45s; fallback replies muted; the phone's language sent so short messages are answered in it
+- **Email me this chat** - From the chat menu (the header's ... in SwiftUI, the bar button in UIKit) the visitor gets the whole conversation in their inbox (`POST /api/v1/mobile/chat/transcript-email`)
 - **Offline support** - Automatic message queuing and replay when connectivity returns
 - **Session persistence** - Sessions and messages are restored across app restarts, with configurable expiry
 - **Push notifications** - APNs token registration and notification handling
@@ -502,6 +504,11 @@ stop() // unsubscribe
 
 The handover step's own settings (team email on or off, sound, assignment method and skills) are sent with the request.
 
+- **Back in the queue.** When the agent leaves and the chat goes back to the queue, "Connecting you to another agent..." (or "Connecting you to Sales..." after a team transfer) is drawn and a flow at its handover step waits again. A transfer is kept in the conversation's record.
+- **The end.** The same end twice (an agent's double click) draws one "Chat has ended" line and one rating card. The flow moves to the handover step's next step, asking the step's post-chat survey questions first when it has them; this also works for a chat restored after a restart. Once the chat has ended and nothing is going on, the composer turns off and "Start a new chat" starts a fresh conversation (`startNewChat()`).
+- **Blocked visitor.** A visitor the workspace blocked sees "This conversation has been closed." (mid-chat, or at connect: the visitor id goes with the socket handshake) and can't type or start a new chat. `closedState` says which closed state the chat is in.
+- **Ending.** `endSession` leaves the queue (`queue-self-resolve`) when the visitor is still waiting; it never sends `end-chat`, which the server takes only from an agent.
+
 ### Goals, analytics, and raw socket events
 
 ```swift
@@ -537,7 +544,12 @@ Compared with the Flutter SDK, the iOS SDK does not currently ship voice message
 | `initiateHandover(message: String? = nil)` | Request a live agent |
 | `leaveQueue(_ done: @escaping (Bool) -> Void = { _ in })` | Leave the handover queue (`done(false)` when a person already has the chat) |
 | `onWidgetSignal(_ signal: WidgetSignal, _ listener: @escaping (WidgetSignalDetail) -> Void) -> () -> Void` | Listen to `.waitingForHuman`, `.humanJoined`, `.waitOver`; returns the unsubscribe |
-| `endSession(clearStorage: Bool = true)` | End the current session |
+| `endSession(clearStorage: Bool = true)` | End the current session (leaves the queue when still waiting) |
+| `closedState: LiveEvents.ClosedState?` | The closed chat: `.blocked` (no input, no new chat) or `.ended` (composer off, offer a new chat), else nil |
+| `startNewChat()` | "Start a new chat" after an ended chat (not for a blocked visitor) |
+| `openEmailTranscript()` / `closeEmailTranscript()` | Show / hide the "Email me this chat" card |
+| `emailTranscript(_ email: String, done: @escaping (TranscriptEmailResult) -> Void = { _ in })` | Email the transcript to this address; on success the address is kept as the visitor's |
+| `sendAnswerFeedback(agentMessageId: String, feedback: AnswerFeedback)` | A "Helpful?" vote (`helpful`, `reason`, `comment`), kept on the answer and sent as `ai-answer-feedback` |
 | `present(from viewController: UIViewController, animated: Bool = true)` | Present the UIKit chat modal |
 | `registerPushToken(_ token: String)` | Register an APNs device token |
 | `handlePushNotification(_ userInfo: [AnyHashable: Any]) -> Bool` | Handle an incoming push; returns true if it was a Conferbot message |
