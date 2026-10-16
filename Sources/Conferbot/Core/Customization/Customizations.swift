@@ -118,7 +118,9 @@ public enum Customizations {
         let c = raw ?? [:]
         var r = ResolvedCustomizations()
         let name = [str(c["logoText"]), str(c["botName"]), botName].first { !$0.isEmpty } ?? "Chat"
-        let tagline = (c["enableTagline"] as? Bool) == true && !str(c["tagline"]).isEmpty ? str(c["tagline"]) : nil
+        // The stock "We're here to help" a new bot has is shown in the visitor's
+        // language (web core/customizations.ts stockText "header.tagline").
+        let tagline = (c["enableTagline"] as? Bool) == true && !str(c["tagline"]).isEmpty ? I18n.stockText(str(c["tagline"]), "header.tagline") : nil
         r.hideBrand = (c["hideBrand"] as? Bool) == true
         r.customBrand = (c["enableCustomBrand"] as? Bool) == true && !str(c["customBrand"]).isEmpty ? str(c["customBrand"]) : nil
         r.title = headerTitle(name)
