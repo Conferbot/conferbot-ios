@@ -19,10 +19,16 @@ public struct KnowledgeBaseView: View {
     @State private var navigationPath: [KnowledgeBaseNavigationDestination] = []
     /// The article to open first (a source or article card in the chat), by id.
     private let initialArticleId: String?
+    /// The topic to open on (a topic tapped on the home screen), by id.
+    private let initialCategoryId: String?
+    /// Back to the home screen (the help centre as the home's view); nil: no Back.
+    private let onBack: (() -> Void)?
 
-    public init(articleId: String? = nil) {
+    public init(articleId: String? = nil, categoryId: String? = nil, onBack: (() -> Void)? = nil) {
         _viewModel = StateObject(wrappedValue: KnowledgeBaseViewModel())
         initialArticleId = articleId
+        initialCategoryId = categoryId
+        self.onBack = onBack
     }
 
     public var body: some View {
@@ -36,9 +42,25 @@ public struct KnowledgeBaseView: View {
             }
             .navigationTitle("Help Center")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if let onBack = onBack {
+                        Button(action: onBack) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left").font(.system(size: 16, weight: .semibold))
+                                Text(Home.Text.back)
+                            }
+                        }
+                        .accessibilityLabel(Home.Text.back)
+                    }
+                }
+            }
         }
         .task {
             await viewModel.loadCategories()
+            if let cid = initialCategoryId, selectedCategory == nil {
+                selectedCategory = viewModel.categories.first { $0.id == cid }
+            }
             if let id = initialArticleId ?? conferBot.helpArticleToOpen { await open(articleId: id) }
         }
         // An article the chat asks for while the help centre is showing.
