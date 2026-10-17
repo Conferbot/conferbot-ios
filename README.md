@@ -4,19 +4,19 @@
 [![iOS](https://img.shields.io/badge/iOS-13.0%2B%20(chat%20UI%2015.0%2B)-000000.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.7%2B-F05138.svg)](https://swift.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CocoaPods](https://img.shields.io/cocoapods/v/Conferbot)](https://cocoapods.org/pods/Conferbot)
 
 Add your [Conferbot](https://conferbot.com) chatbot to a native iOS app. The chat looks and behaves like the Conferbot web widget: your dashboard settings, the bot's flows, the AI agent, handover to your team, the help centre and "Your requests". It works with SwiftUI and with UIKit, or you can build your own UI on the SDK's published state.
 
 ## Quickstart video
 
-<!-- TODO(video): replace VIDEO_ID with the walkthrough's YouTube id and add docs/media/quickstart.gif (a short clip of it). -->
 <p align="center">
-  <a href="https://youtu.be/VIDEO_ID">
-    <img src="docs/media/quickstart.gif" width="320" alt="Adding Conferbot to an iOS app (video walkthrough)" />
+  <a href="https://github.com/Conferbot/conferbot-ios/releases/download/2.0.0/sdk-ios.mp4">
+    <img src="docs/media/quickstart.gif" width="400" alt="Adding Conferbot to an iOS app: the package, the bot ID, then the chat opening and answering" />
   </a>
 </p>
 
-<p align="center"><a href="https://youtu.be/VIDEO_ID">Watch the full walkthrough on YouTube</a></p>
+<p align="center"><a href="https://github.com/Conferbot/conferbot-ios/releases/download/2.0.0/sdk-ios.mp4">Watch the full walkthrough</a> (MP4, 1080p, about 1.5 minutes): install, the bot ID, then the example app on an iPhone simulator with the launcher, the bot's flow, the AI agent answering from the knowledge base and the handover to a person.</p>
 
 <p align="center">
   <img src="docs/screenshots/chat-swiftui.png" width="220" alt="SwiftUI chat" />
@@ -41,6 +41,8 @@ Add your [Conferbot](https://conferbot.com) chatbot to a native iOS app. The cha
 ## Install
 
 ### Swift Package Manager
+
+Swift Package Manager is the recommended way to install. CocoaPods has 2.0.0, but the CocoaPods trunk becomes read-only on 2 December 2026, so later versions will be published for Swift Package Manager only.
 
 In Xcode: **File > Add Package Dependencies...**, enter
 
@@ -76,7 +78,7 @@ target 'YourApp' do
 end
 ```
 
-Then `pod install`. If `pod install` cannot find it yet, point at the tag instead: `pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :tag => '2.0.0'`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
+Then `pod install`. If your specs repo is out of date, run `pod repo update`, or point at the tag instead: `pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :tag => '2.0.0'`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
 
 The module is `Conferbot`; the class is `ConferBot` (capital B): `import Conferbot`, then `ConferBot.shared`.
 
