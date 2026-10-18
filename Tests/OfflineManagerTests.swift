@@ -546,10 +546,90 @@ final class OfflineManagerTests: XCTestCase {
 
         waitForExpectations(timeout: 5.0)
 
+        // A clear off the main thread publishes the count on main, after it
+        // returns: wait for those updates (main runs blocks in order) instead
+        // of reading the count before they ran.
+        let published = self.expectation(description: "Counts published")
+        DispatchQueue.main.async { published.fulfill() }
+        wait(for: [published], timeout: 5.0)
+
         XCTAssertEqual(OfflineManager.shared.queuedMessageCount, 0)
+        XCTAssertTrue(OfflineManager.shared.queuedMessages.isEmpty)
+        // The saved queue is the queue in memory
+        XCTAssertEqual(MessageQueue().count, 0)
+    }
+
+    /// The flush removes the message it sent, not the queue's head: a clear
+    /// and a new message while the send is awaited left the new message at
+    /// the head, and it was dropped unsent.
+    @MainActor
+    func testFlushQueue_aClearDuringTheSend_keepsTheMessageQueuedAfterIt() async throws {
+        var sent: [String] = []
+        OfflineManager.shared.sendMessageHandler = { message in
+            sent.append(message.content)
+            if message.content == "First" {
+                OfflineManager.shared.clearQueue()
+                OfflineManager.shared.queueMessage(content: "Queued mid-send")
+            }
+        }
+
+        OfflineManager.shared.queueMessage(content: "First")
+        OfflineManager.shared.handleSocketConnected()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while sent.count < 2 && Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(sent, ["First", "Queued mid-send"])
+        XCTAssertTrue(OfflineManager.shared.queuedMessages.isEmpty)
     }
 
     // MARK: - MessageQueue Tests
+
+    /// A change saved while another save is under way: the later change's
+    /// save lands last, so the saved queue is the queue in memory. Before,
+    /// the queue was copied, then saved outside the lock, and a clear could
+    /// land between the copy and the write; the stale copy then won.
+    func testMessageQueue_aClearDuringASave_savesTheClearedQueue() {
+        let queue = MessageQueue()
+        queue.clear()
+
+        // Pauses the enqueue's save while it encodes the message
+        let paused = DispatchSemaphore(value: 0)
+        let resume = DispatchSemaphore(value: 0)
+        let gate = PausingString.make {
+            paused.signal()
+            resume.wait()
+        }
+        defer { PausingString.disarm() }
+        let message = QueuedMessage(content: "Saved", metadata: ["gate": AnyCodable(gate)])
+
+        let enqueued = expectation(description: "Enqueued")
+        DispatchQueue.global().async {
+            queue.enqueue(message: message)
+            enqueued.fulfill()
+        }
+        XCTAssertEqual(paused.wait(timeout: .now() + 5), .success, "the save never encoded the message")
+
+        let cleared = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            queue.clear()
+            cleared.signal()
+        }
+        // The clear may finish now (old code) or wait for the save (the lock)
+        let clearedDuringSave = cleared.wait(timeout: .now() + 0.3) == .success
+        resume.signal()
+
+        wait(for: [enqueued], timeout: 5.0)
+        if !clearedDuringSave {
+            XCTAssertEqual(cleared.wait(timeout: .now() + 5), .success)
+        }
+
+        XCTAssertTrue(queue.isEmpty)
+        XCTAssertEqual(MessageQueue().count, 0, "the saved queue is not the queue in memory")
+    }
+
 
     func testMessageQueue_isEmpty_whenEmpty() {
         let queue = MessageQueue()
@@ -713,5 +793,47 @@ class MockOfflineManagerDelegate: OfflineManagerDelegate {
 
     func offlineManager(_ manager: OfflineManager, didUpdateQueueCount count: Int) {
         lastQueueCount = count
+    }
+}
+
+/// A string (an NSString subclass made at run time: Swift cannot subclass
+/// NSString) that runs `onFirstRead` the first time its length is read,
+/// which happens when the queue's save encodes it: after the queue to save
+/// was copied, before it is written.
+private enum PausingString {
+    private static let lock = NSLock()
+    private static var onFirstRead: (() -> Void)?
+    private static let text: [unichar] = Array("pause".utf16)
+
+    private static let stringClass: NSObject.Type = {
+        let cls: AnyClass = objc_allocateClassPair(NSString.self, "CBTestPausingString", 0)!
+        let length: @convention(block) (AnyObject) -> Int = { _ in
+            lock.lock()
+            let action = onFirstRead
+            onFirstRead = nil
+            lock.unlock()
+            action?()
+            return text.count
+        }
+        let character: @convention(block) (AnyObject, Int) -> unichar = { _, index in text[index] }
+        class_addMethod(cls, NSSelectorFromString("length"), imp_implementationWithBlock(length), "Q@:")
+        class_addMethod(cls, NSSelectorFromString("characterAtIndex:"), imp_implementationWithBlock(character), "S@:Q")
+        objc_registerClassPair(cls)
+        return cls as! NSObject.Type
+    }()
+
+    /// A new string; `onFirstRead` runs on the first length read after this.
+    static func make(onFirstRead action: @escaping () -> Void) -> NSString {
+        let string = stringClass.init() as! NSString
+        lock.lock()
+        onFirstRead = action
+        lock.unlock()
+        return string
+    }
+
+    static func disarm() {
+        lock.lock()
+        onFirstRead = nil
+        lock.unlock()
     }
 }
