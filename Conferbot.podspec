@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'Conferbot'
-  s.version          = '2.0.0'
+  s.version          = '2.0.1'
   s.summary          = 'Native iOS SDK for Conferbot - AI-powered customer support chat'
   s.description      = <<-DESC
 Conferbot iOS SDK enables seamless integration of AI-powered customer support chat
