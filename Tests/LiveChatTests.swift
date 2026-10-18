@@ -71,8 +71,14 @@ final class LiveChatTests: XCTestCase {
     }
 
     func testReadsRatingSettingsAndBuildsThePayload() {
-        XCTAssertNil(LiveChat.csatConfig(nil))
-        XCTAssertNil(LiveChat.csatConfig(["ratingType": "stars"]))
+        // On unless the owner turned it off, as on the web; never set = stock stars and wording.
+        XCTAssertNil(LiveChat.csatConfig(["enabled": false, "ratingType": "stars"]))
+        XCTAssertEqual(LiveChat.csatConfig(nil), LiveChat.csatConfig(["enabled": true]))
+        XCTAssertEqual(LiveChat.csatConfig([:])?.ratingType, "stars")
+        XCTAssertEqual(LiveChat.csatConfig(["ratingType": "nps", "titleText": "Draft"]), LiveChat.csatConfig(["enabled": true]))
+        let own = LiveChat.csatConfig(["enabled": true, "ratingType": "nps", "titleText": "How did we do?"])!
+        XCTAssertEqual(own.ratingType, "nps")
+        XCTAssertEqual(own.titleText, "How did we do?")
         let c = LiveChat.csatConfig(["enabled": true, "ratingType": "bogus"])!
         XCTAssertEqual(c.ratingType, "stars")
         XCTAssertEqual(c.titleText, "How was your experience?")
