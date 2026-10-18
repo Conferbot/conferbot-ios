@@ -308,26 +308,39 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    // MARK: - Send Message Tests
+    // MARK: - Store Record (Send Message) Tests
+    // The route is store-only (embed-server #194): { record, answerVariables, visitorId? }
+    // in, storeOnly out; it never runs the bot (#105).
 
-    func testSendMessage_success() async throws {
+    private func bodyJSON(_ request: URLRequest) -> [String: Any]? {
+        var data = request.httpBody
+        if data == nil, let stream = request.httpBodyStream {
+            stream.open()
+            var d = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let n = stream.read(&buffer, maxLength: buffer.count)
+                if n <= 0 { break }
+                d.append(buffer, count: n)
+            }
+            stream.close()
+            data = d
+        }
+        return data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
+    func testSendMessage_postsTheRecordAndAnswerVariables() async throws {
         let mockResponse: [String: Any] = [
             "success": true,
-            "data": [
-                "messageId": "msg-123",
-                "timestamp": "2025-11-25T12:00:00Z"
-            ]
+            "data": ["success": true, "responseId": "r1", "storeOnly": true]
         ]
+        var sent: [String: Any]?
+        var path: String?
 
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.requestHandler = { [unowned self] request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertTrue(request.url?.absoluteString.contains("/message") == true)
-
-            if let body = request.httpBody,
-               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
-                XCTAssertEqual(json["message"] as? String, "Test message")
-            }
-
+            path = request.url?.path
+            sent = self.bodyJSON(request)
             return (
                 mockHTTPResponse(url: request.url!.absoluteString, statusCode: 200),
                 mockJSONData(mockResponse)
@@ -336,65 +349,83 @@ final class APIClientTests: XCTestCase {
 
         let response = try await sut.sendMessage(
             chatSessionId: "chat-session-123",
-            message: "Test message"
+            record: [["_id": "m1", "type": "user-input-response", "text": "hi"]],
+            answerVariables: [["key": "name", "value": "Ada"]],
+            visitorId: "v1"
         )
 
-        XCTAssertEqual(response["messageId"] as? String, "msg-123")
+        XCTAssertEqual(response["storeOnly"] as? Bool, true)
+        XCTAssertEqual(response["responseId"] as? String, "r1")
+        XCTAssertEqual(path, "/api/v1/mobile/session/chat-session-123/message")
+        XCTAssertEqual((sent?["record"] as? [[String: Any]])?.first?["text"] as? String, "hi")
+        XCTAssertEqual((sent?["answerVariables"] as? [[String: Any]])?.first?["key"] as? String, "name")
+        XCTAssertEqual(sent?["visitorId"] as? String, "v1")
+        XCTAssertNil(sent?["message"])
+        XCTAssertNil(sent?["metadata"])
     }
 
-    func testSendMessage_withMetadata() async throws {
-        let mockResponse: [String: Any] = [
-            "success": true,
-            "data": ["messageId": "msg-123"]
-        ]
-
-        MockURLProtocol.requestHandler = { request in
-            if let body = request.httpBody,
-               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
-                XCTAssertNotNil(json["metadata"])
-            }
-
+    func testSendMessage_leavesVisitorIdOut() async throws {
+        var sent: [String: Any]?
+        MockURLProtocol.requestHandler = { [unowned self] request in
+            sent = self.bodyJSON(request)
             return (
                 mockHTTPResponse(url: request.url!.absoluteString, statusCode: 200),
-                mockJSONData(mockResponse)
+                mockJSONData(["success": true, "data": ["storeOnly": true]])
             )
         }
 
-        let metadata: [String: AnyCodable] = [
-            "source": AnyCodable("test"),
-            "priority": AnyCodable(1)
-        ]
+        _ = try await sut.sendMessage(chatSessionId: "chat-session-123", record: [])
 
-        _ = try await sut.sendMessage(
-            chatSessionId: "chat-session-123",
-            message: "Test message",
-            metadata: metadata
-        )
+        XCTAssertNil(sent?["visitorId"])
+        XCTAssertEqual((sent?["answerVariables"] as? [Any])?.count, 0)
     }
 
-    func testSendMessage_httpError() async {
+    func testSendMessage_lockedConversation() async {
         MockURLProtocol.requestHandler = { request in
             return (
-                mockHTTPResponse(url: request.url!.absoluteString, statusCode: 500),
-                mockJSONData(["error": "Server error"])
+                mockHTTPResponse(url: request.url!.absoluteString, statusCode: 423),
+                mockJSONData(["success": false, "error": "CONVERSATION_LOCKED"])
             )
         }
 
         do {
-            _ = try await sut.sendMessage(
-                chatSessionId: "chat-session-123",
-                message: "Test"
-            )
+            _ = try await sut.sendMessage(chatSessionId: "chat-session-123", record: [])
             XCTFail("Expected error")
         } catch let error as ConferBotError {
             if case .httpError(let code) = error {
-                XCTAssertEqual(code, 500)
+                XCTAssertEqual(code, 423)
             } else {
                 XCTFail("Expected httpError")
             }
         } catch {
             XCTFail("Unexpected error type")
         }
+    }
+
+    @available(*, deprecated)
+    func testSendMessage_oldMessageFormSendsNothing() async {
+        var requests = 0
+        MockURLProtocol.requestHandler = { request in
+            requests += 1
+            return (
+                mockHTTPResponse(url: request.url!.absoluteString, statusCode: 200),
+                mockJSONData(["success": true])
+            )
+        }
+
+        do {
+            _ = try await sut.sendMessage(chatSessionId: "chat-session-123", message: "Test", metadata: ["a": AnyCodable(1)])
+            XCTFail("Expected error")
+        } catch let error as ConferBotError {
+            if case .apiError(let message) = error {
+                XCTAssertTrue(message.hasPrefix("STORE_ONLY_ROUTE"))
+            } else {
+                XCTFail("Expected apiError")
+            }
+        } catch {
+            XCTFail("Unexpected error type")
+        }
+        XCTAssertEqual(requests, 0)
     }
 
     // MARK: - Register Push Token Tests
