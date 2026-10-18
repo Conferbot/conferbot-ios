@@ -233,21 +233,37 @@ public class OfflineManager: ObservableObject {
 
         // A flush already started (the socket's reconnect and a manual call
         // together) sends each message once, not twice.
-        flushLock.lock()
-        if flushRunning {
-            flushLock.unlock()
+        guard beginFlush() else {
             debugPrint("[ConferBot OfflineManager] Flush already started")
             return
         }
-        flushRunning = true
-        flushLock.unlock()
 
         flushTask = Task { @MainActor in
             await performFlush()
-            self.flushLock.lock()
-            self.flushRunning = false
-            self.flushLock.unlock()
+            self.endFlush()
         }
+    }
+
+    /// Marks a flush as started; false when one already is.
+    private func beginFlush() -> Bool {
+        withFlushLock {
+            if flushRunning { return false }
+            flushRunning = true
+            return true
+        }
+    }
+
+    /// Marks the flush as ended.
+    private func endFlush() {
+        withFlushLock { flushRunning = false }
+    }
+
+    /// Runs `body` under `flushLock`. Synchronous, so the flush task can call
+    /// it: the lock is never held across an await.
+    private func withFlushLock<T>(_ body: () -> T) -> T {
+        flushLock.lock()
+        defer { flushLock.unlock() }
+        return body()
     }
 
     /// Flush queue when both network and socket are ready
@@ -273,8 +289,10 @@ public class OfflineManager: ObservableObject {
                     try await handler(message)
                 }
 
-                // Remove from queue on success
-                messageQueue.dequeue()
+                // Remove this message on success, by its id: while the send
+                // was awaited the queue can be cleared and refilled, and the
+                // head is then another message that was never sent.
+                messageQueue.remove(byId: message.id)
                 queuedMessageCount = messageQueue.count
 
                 delegate?.offlineManager(self, didSendQueuedMessage: message)
