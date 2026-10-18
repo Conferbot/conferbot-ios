@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The coin entrance's glint waits off the button's left edge through its delay instead of showing as a white streak at its left side before the sweep (#104).
 - An idle call's mascot (psst, wave, knock, tap) keeps facing the screen on a left-side launcher; the slide's scale dropped its mirror, so it faced the edge (#104).
 - `APIClient.sendMessage` matches the store-only REST route `POST session/{id}/message`: a new `sendMessage(chatSessionId:record:answerVariables:visitorId:)` posts `{ record, answerVariables, visitorId? }` and returns the server's data (`storeOnly: true`; `httpError(423)` when an agent locked the chat). The route never runs the bot; messages still go over the socket (#105).
+- An offline flush removes the message it sent, by its id, not the queue's head: a `clearQueue()` and a new message while a send was awaited left the new message at the head, and it was dropped unsent (#106).
+- `MessageQueue` saves each change under the same lock as the change, so saves land in order and the saved queue is the queue in memory; before, a clear between another change's copy and its write was overwritten and the cleared messages came back on the next launch (#106).
+- The offline flush no longer calls `NSLock.lock()`/`unlock()` from async code (an error in Swift 6 mode) (#106).
 
 ### Deprecated
 
