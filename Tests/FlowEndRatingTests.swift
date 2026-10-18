@@ -60,9 +60,13 @@ final class FlowEndRatingTests: XCTestCase {
         live.setChatbotData(["csatConfig": ["enabled": false]])
         flowEnded()
         XCTAssertFalse(live.csatOpen)
+    }
+
+    // Never set (no csatConfig, or {}): the rating is asked, as on the web.
+    func testRatingWhenPostChatFeedbackNeverSet() {
         live.setChatbotData([:])
         flowEnded()
-        XCTAssertFalse(live.csatOpen)
+        XCTAssertTrue(live.csatOpen)
     }
 
     func testOncePerConversation() {
