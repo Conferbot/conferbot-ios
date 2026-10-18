@@ -169,13 +169,17 @@ public enum LauncherIdleCall {
     private static func px(_ x: Double, _ y: Double) -> String { "\(Keyframes.jsNum(x))px \(Keyframes.jsNum(y))px" }
 
     /// Slide out past the facing edge, hold, slide back - fading in from behind.
-    private static func slide(_ dx: Double, _ dy: Double, _ total: Double, rotate: String = "0deg") -> Track {
+    private static func slide(_ inward: Double, _ dx: Double, _ dy: Double, _ total: Double, rotate: String = "0deg") -> Track {
         let inAt = 380 / total
+        // The animated scale replaces the mirror (base sx -1) a left-hand
+        // launcher's mascot is drawn with, so the mirror rides along in it.
+        let small: Any = inward == 1 ? "-0.7 0.7" : 0.7
+        let full: Any = inward == 1 ? "-1 1" : 1
         return Track.of([
-            ["translate": "0 0", "rotate": "0deg", "opacity": 0, "scale": 0.7, "easing": pop],
-            ["translate": px(dx, dy), "rotate": rotate, "opacity": 1, "scale": 1, "offset": inAt],
-            ["translate": px(dx, dy), "rotate": rotate, "opacity": 1, "scale": 1, "offset": 1 - inAt, "easing": "ease-in"],
-            ["translate": "0 0", "rotate": "0deg", "opacity": 0, "scale": 0.7],
+            ["translate": "0 0", "rotate": "0deg", "opacity": 0, "scale": small, "easing": pop],
+            ["translate": px(dx, dy), "rotate": rotate, "opacity": 1, "scale": full, "offset": inAt],
+            ["translate": px(dx, dy), "rotate": rotate, "opacity": 1, "scale": full, "offset": 1 - inAt, "easing": "ease-in"],
+            ["translate": "0 0", "rotate": "0deg", "opacity": 0, "scale": small],
         ], duration: total, easing: "linear", fill: "forwards")
     }
 
@@ -277,7 +281,7 @@ public enum LauncherIdleCall {
             return Performance(
                 total: total, bubbleAt: 360, sayX: g.edgeX + dx, sayY: g.height / 2 - g.unit * 0.1 - w * 0.42,
                 mascot: place(-g.unit * 0.1, "whisper"),
-                selfTracks: [slide(dx, -g.unit * 0.06, total, rotate: "\(Keyframes.jsNum(g.inward * -6))deg")],
+                selfTracks: [slide(g.inward, dx, -g.unit * 0.06, total, rotate: "\(Keyframes.jsNum(g.inward * -6))deg")],
                 parts: merge(mouth(total, "o", 0.14, 0.82), [
                     "brow": [brows(total, 0.14, 0.8)],
                     "look": [look(total, [(0.16, 0, 0), (0.32, -2.5, -0.5), (0.44, -2.5, -0.5), (0.52, 1.5, 0), (0.72, 0, 0.5)])],
@@ -319,7 +323,7 @@ public enum LauncherIdleCall {
             return Performance(
                 total: total, bubbleAt: 320, sayX: g.edgeX + dx, sayY: g.height / 2 - g.unit * 0.1 - w * 0.46,
                 mascot: place(-g.unit * 0.08, "wave"),
-                selfTracks: [slide(dx, -g.unit * 0.1, total)],
+                selfTracks: [slide(g.inward, dx, -g.unit * 0.1, total)],
                 parts: merge(merge([
                     "body": [Track.of([
                         ["scale": "1 1"],
@@ -369,7 +373,7 @@ public enum LauncherIdleCall {
             return Performance(
                 total: total, bubbleAt: 320, sayX: g.edgeX + dx, sayY: g.height / 2 - g.unit * 0.08 - w * 0.42,
                 mascot: place(-g.unit * 0.04, "knock"),
-                selfTracks: [slide(dx, -g.unit * 0.08, total)],
+                selfTracks: [slide(g.inward, dx, -g.unit * 0.08, total)],
                 parts: merge(merge([
                     "arm": [Track.of(arm, duration: total, fill: "forwards")],
                     "body": [Track.of(body, duration: total, fill: "forwards")],
@@ -401,7 +405,7 @@ public enum LauncherIdleCall {
             return Performance(
                 total: total, bubbleAt: 320, sayX: g.edgeX + dx, sayY: g.height / 2 - w * 0.42,
                 mascot: place(-g.unit * 0.02, "reach"),
-                selfTracks: [slide(dx, 0, total)],
+                selfTracks: [slide(g.inward, dx, 0, total)],
                 parts: merge(merge([
                     "arm": [Track.of(arm, duration: total, fill: "forwards")],
                     "look": [look(total, [(0.16, 3, 1), (0.52, 3, 1), (0.62, 0, 0)])],
