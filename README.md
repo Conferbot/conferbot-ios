@@ -42,7 +42,7 @@ Add your [Conferbot](https://conferbot.com) chatbot to a native iOS app. The cha
 
 ### Swift Package Manager
 
-Swift Package Manager is the recommended way to install. CocoaPods has 2.0.0, but the CocoaPods trunk becomes read-only on 2 December 2026, so later versions will be published for Swift Package Manager only.
+Swift Package Manager is the recommended way to install. CocoaPods has 2.0.1, but the CocoaPods trunk becomes read-only on 2 December 2026, so later versions will be published for Swift Package Manager only.
 
 In Xcode: **File > Add Package Dependencies...**, enter
 
@@ -56,7 +56,7 @@ In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Conferbot/conferbot-ios", from: "2.0.0")
+    .package(url: "https://github.com/Conferbot/conferbot-ios", from: "2.0.1")
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -65,7 +65,7 @@ targets: [
 ]
 ```
 
-> This guide describes version 2.0.0 (see [CHANGELOG.md](CHANGELOG.md)). The 1.0.0 tag does not compile; use 2.0.0 or later.
+> This guide describes version 2.0.1 (see [CHANGELOG.md](CHANGELOG.md)). The 1.0.0 tag does not compile; use 2.0.0 or later.
 
 ### CocoaPods
 
@@ -78,7 +78,7 @@ target 'YourApp' do
 end
 ```
 
-Then `pod install`. If your specs repo is out of date, run `pod repo update`, or point at the tag instead: `pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :tag => '2.0.0'`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
+Then `pod install`. If your specs repo is out of date, run `pod repo update`, or point at the tag instead: `pod 'Conferbot', :git => 'https://github.com/Conferbot/conferbot-ios.git', :tag => '2.0.1'`. The pod brings `Socket.IO-Client-Swift ~> 16.0` and ships the widget's words in its `Conferbot.bundle`.
 
 The module is `Conferbot`; the class is `ConferBot` (capital B): `import Conferbot`, then `ConferBot.shared`.
 
