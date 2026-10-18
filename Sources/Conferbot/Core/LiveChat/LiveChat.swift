@@ -275,8 +275,13 @@ public enum LiveChat {
         (customizations?["enableVisitorFileUpload"] as? Bool) != false
     }
 
-    public static func csatConfig(_ raw: [String: Any]?) -> CsatConfig? {
-        guard let raw = raw, raw["enabled"] as? Bool == true else { return nil }
+    /// Post-chat rating, as the web widget decides it (index.ts
+    /// postChatFeedbackOff): asked unless the owner turned it off
+    /// (enabled = false). Bots that never set it get the stock stars and
+    /// wording; the owner's type and words apply only once switched on.
+    public static func csatConfig(_ input: [String: Any]?) -> CsatConfig? {
+        if input?["enabled"] as? Bool == false { return nil }
+        let raw: [String: Any] = input?["enabled"] as? Bool == true ? (input ?? [:]) : [:]
         let types: Set<String> = ["stars", "thumbs", "emoji", "nps"]
         let type = (raw["ratingType"] as? String).flatMap { types.contains($0) ? $0 : nil } ?? "stars"
         // The owner's words, else the web's (postChatRating.ts csat.*) in the
