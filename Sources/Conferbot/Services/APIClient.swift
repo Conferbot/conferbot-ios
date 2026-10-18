@@ -144,11 +144,23 @@ public class APIClient {
         return historyResponse.data.record
     }
 
-    /// Send a message
+    /// Store the conversation record over REST - STORE ONLY.
+    ///
+    /// POST {mobile base}/session/{chatSessionId}/message with
+    /// `{ record, answerVariables, visitorId? }`: the whole record, as the
+    /// socket's response-record sends it. The server creates or updates the
+    /// conversation and merges the answer variables, but never runs the bot:
+    /// no AI agent or bot reply, no live-chat relay (embed-server #194).
+    /// Returns the answer's data, which carries `storeOnly: true`. Throws
+    /// `httpError(423)` when an agent locked the conversation (nothing stored).
+    ///
+    /// The SDK does not call this: messages go over the socket
+    /// (`ConferBot.sendMessage`), which is where replies arrive.
     public func sendMessage(
         chatSessionId: String,
-        message: String,
-        metadata: [String: AnyCodable]? = nil
+        record: [[String: Any]],
+        answerVariables: [[String: Any]] = [],
+        visitorId: String? = nil
     ) async throws -> [String: Any] {
         guard let url = URL(string: "\(baseURL)/session/\(chatSessionId)/message") else {
             throw ConferBotError.apiError("Invalid URL: \(baseURL)/session/\(chatSessionId)/message")
@@ -159,9 +171,9 @@ public class APIClient {
 
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
-        var body: [String: Any] = ["message": message]
-        if let metadata = metadata {
-            body["metadata"] = metadata.mapValues { $0.value }
+        var body: [String: Any] = ["record": record, "answerVariables": answerVariables]
+        if let visitorId = visitorId {
+            body["visitorId"] = visitorId
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -178,6 +190,19 @@ public class APIClient {
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return json?["data"] as? [String: Any] ?? [:]
+    }
+
+    /// The old single-message form. The route never took `{ message, metadata }`
+    /// (it stores a whole record and never answers), so this sends nothing and
+    /// throws `apiError`; send messages with `ConferBot.sendMessage` (the
+    /// socket), or store a record with `sendMessage(chatSessionId:record:)`.
+    @available(*, deprecated, message: "The REST route is store-only and takes the whole record; send messages with ConferBot.sendMessage (the socket)")
+    public func sendMessage(
+        chatSessionId: String,
+        message: String,
+        metadata: [String: AnyCodable]? = nil
+    ) async throws -> [String: Any] {
+        throw ConferBotError.apiError("STORE_ONLY_ROUTE: POST session/{id}/message stores { record, answerVariables } and never sends a message; use ConferBot.sendMessage")
     }
 
     /// "Email me this chat": the server sends the conversation to this
