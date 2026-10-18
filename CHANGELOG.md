@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The coin entrance's glint waits off the button's left edge through its delay instead of showing as a white streak at its left side before the sweep (#104).
 - An idle call's mascot (psst, wave, knock, tap) keeps facing the screen on a left-side launcher; the slide's scale dropped its mirror, so it faced the edge (#104).
+- `APIClient.sendMessage` matches the store-only REST route `POST session/{id}/message`: a new `sendMessage(chatSessionId:record:answerVariables:visitorId:)` posts `{ record, answerVariables, visitorId? }` and returns the server's data (`storeOnly: true`; `httpError(423)` when an agent locked the chat). The route never runs the bot; messages still go over the socket (#105).
+
+### Deprecated
+
+- `APIClient.sendMessage(chatSessionId:message:metadata:)`: the route never took `{ message, metadata }`, so it now sends nothing and throws `apiError`. Use `ConferBot.sendMessage` (#105).
 
 ## [2.0.0] - 2026-10-16
 
