@@ -822,7 +822,9 @@ public enum LauncherEntrance {
             children: [FxSprite(
                 x: 0, y: -s.h * 0.2, w: bandW, h: s.h * 1.4,
                 svg: FxPaint.linearBox(bandW, s.h * 1.4, 100, ["transparent", "rgba(255,255,255,0.75)", "transparent"]),
-                tracks: [play([["left": "-40%"], ["left": "115%"]], duration: 520, delay: 1050, easing: "ease-in-out", fill: "forwards")],
+                // fill "both": the band waits off the left edge through the delay,
+                // not at left 0 (its static place), where it showed as a white streak.
+                tracks: [play([["left": "-40%"], ["left": "115%"]], duration: 520, delay: 1050, easing: "ease-in-out", fill: "both")],
                 leftOf: s.w)]))
         return EntrancePlan(
             revealAt: 0,
