@@ -207,13 +207,19 @@ struct AgentReplyExtrasView: View {
         m.agentDetails.isAIAgent && m.extras?.isFallback != true && !m.deleted && AgentBotParser.canRate(m.id)
     }
 
+    /// No source cards when the owner turned them off (live and restored answers alike).
+    private var sources: [AgentSource] {
+        AgentBotParser.answerSourcesOn(conferBot.serverCustomizations) ? message.extras?.sources ?? [] : []
+    }
+
     var body: some View {
         let extras = message.extras
-        if (extras == nil || extras!.isEmpty) && !showHelpful {
+        let nothingElse = extras.map { $0.actions.isEmpty && $0.card == nil && $0.resultCard == nil && $0.actionRequest == nil } ?? true
+        if sources.isEmpty && nothingElse && !showHelpful {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array((extras?.sources ?? []).enumerated()), id: \.offset) { _, source in
+                ForEach(Array(sources.enumerated()), id: \.offset) { _, source in
                     // A help article opens in the help centre while it is on
                     // (the web's agentSources openArticle), else its public
                     // page, else nowhere (AgentBotParser.sourceTarget, #94).
