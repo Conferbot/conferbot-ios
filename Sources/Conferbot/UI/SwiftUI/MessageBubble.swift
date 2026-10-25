@@ -99,7 +99,7 @@ public struct MessageBubble: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     // The server answering because the AI failed: the same
                                     // bubble, italic and muted (web _markAgentFallbackBubble, #49).
-                                    ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : agentMessage.text, color: textColor,
+                                    ChatMarkdownText(text: showOriginal ? (agentMessage.translation?.original ?? agentMessage.text) : Self.answerText(agentMessage), color: textColor,
                                                      muted: agentMessage.extras?.isFallback == true)
                                         .chatFont(.body)
                                     // Sent in the visitor's language: the agent's own words one tap away.
@@ -223,6 +223,11 @@ public struct MessageBubble: View {
         return text
     }
 
+    /// An AI answer saved before the server stripped them can carry a "[n]" (live and restored).
+    static func answerText(_ m: AgentMessageRecord) -> String {
+        m.agentDetails.isAIAgent ? CitationMarkers.stripPlaceholderMarkers(m.text) : m.text
+    }
+
     private var messageText: String {
         if let userMessage = message as? UserMessageRecord {
             return userMessage.text
@@ -231,7 +236,7 @@ public struct MessageBubble: View {
         } else if let botMessage = message as? BotMessageRecord {
             return botMessage.text ?? "..."
         } else if let agentMessage = message as? AgentMessageRecord {
-            return agentMessage.text
+            return Self.answerText(agentMessage)
         } else if let fileMessage = message as? AgentMessageFileRecord {
             return ChatText.file(fileMessage.file)
         } else if let audioMessage = message as? AgentMessageAudioRecord {
