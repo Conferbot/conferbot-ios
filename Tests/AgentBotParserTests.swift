@@ -146,6 +146,11 @@ final class AgentBotParserTests: XCTestCase {
         XCTAssertEqual(actions.map { $0.label }, ["Book a demo", "Mail"])
         XCTAssertFalse(AgentBotParser.answerFeedbackOn(["hideAnswerFeedback": true]))
         XCTAssertTrue(AgentBotParser.answerFeedbackOn(nil))
+        // Source cards (#110): on unless the owner sent showAnswerSources: false.
+        XCTAssertTrue(AgentBotParser.answerSourcesOn(nil))
+        XCTAssertTrue(AgentBotParser.answerSourcesOn([:]))
+        XCTAssertTrue(AgentBotParser.answerSourcesOn(["showAnswerSources": true]))
+        XCTAssertFalse(AgentBotParser.answerSourcesOn(["showAnswerSources": false]))
         XCTAssertTrue(AgentBotParser.canRate("0123456789abcdef01234567"))
         XCTAssertFalse(AgentBotParser.canRate("agent-greeting-s1"))
         XCTAssertEqual(AgentBotParser.conversionEvent(label: "Book a demo"), "demo_booked")
