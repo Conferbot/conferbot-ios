@@ -126,7 +126,8 @@ public class MessageCell: UITableViewCell {
             // The owner's HTML as plain text: tags gone, line breaks kept (#64)
             messageLabel.text = botMessage.text.map { FlowText.bubbleText($0) } ?? "..."
         } else if let agentMessage = message as? AgentMessageRecord {
-            messageLabel.text = agentMessage.text
+            // An AI answer saved before the server stripped them can carry a "[n]".
+            messageLabel.text = agentMessage.agentDetails.isAIAgent ? CitationMarkers.stripPlaceholderMarkers(agentMessage.text) : agentMessage.text
         } else if let fileMessage = message as? AgentMessageFileRecord {
             messageLabel.text = "📎 " + ChatText.file(fileMessage.file)
         } else if let audioMessage = message as? AgentMessageAudioRecord {
