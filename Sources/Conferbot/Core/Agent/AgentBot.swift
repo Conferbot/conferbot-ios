@@ -419,6 +419,11 @@ public enum AgentBotParser {
         customizations?["hideAnswerFeedback"] as? Bool != true
     }
 
+    /// Source cards (pages and help articles) under AI answers unless the owner turned them off.
+    public static func answerSourcesOn(_ customizations: [String: Any]?) -> Bool {
+        customizations?["showAnswerSources"] as? Bool != false
+    }
+
     /// Only an AI answer stored under its server id can be rated.
     public static func canRate(_ messageId: String?) -> Bool { isObjectId(messageId) }
 
